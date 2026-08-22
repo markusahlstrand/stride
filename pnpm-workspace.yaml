@@ -1,0 +1,11 @@
+packages:
+  - '.'
+  - 'app'
+
+# Packages allowed to run install scripts. Both ship or compile a platform
+# binary, so a build is the point rather than a smell:
+#   better-sqlite3 — the native SQLite the local harness runs on
+#   esbuild        — the bundler the substrat CLI uses to build a worker
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

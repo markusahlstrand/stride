@@ -1,0 +1,74 @@
+{
+  "name": "stride",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,magenta \"STRIDE_DEV_AUTH=1 tsx watch src/server.ts\" \"pnpm --filter stride-app dev\"",
+    "server": "STRIDE_DEV_AUTH=1 tsx src/server.ts",
+    "app:dev": "pnpm --filter stride-app dev",
+    "app:build": "pnpm --filter stride-app build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && pnpm --filter stride-app exec tsc -b",
+    "lint:boundaries": "substrat-boundary-lint",
+    "deploy": "substrat push",
+    "deploy:preview": "substrat preview create --empty --tag dev"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@substrat-run/adapter-cloudflare": "^0.83.0",
+    "@substrat-run/adapter-sqlite": "^0.83.0",
+    "@substrat-run/contracts": "^0.83.0",
+    "@substrat-run/engine-invites": "^0.4.3",
+    "@substrat-run/engine-workorder": "^0.7.3",
+    "@substrat-run/kernel": "^0.83.0",
+    "@substrat-run/vertical-auth": "^0.7.1",
+    "@substrat-run/vertical-host": "^0.83.0",
+    "better-sqlite3": "^13.0.3",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260821.1",
+    "@substrat-run/boundary-lint": "^0.0.5",
+    "@substrat-run/cli": "^0.25.3",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.2.0",
+    "concurrently": "^9.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  },
+  "substrat": {
+    "slug": "stride",
+    "name": "Stride",
+    "tenant": "t-5ra4yxscep",
+    "runtimeNeeds": {
+      "entry": "src/worker.ts",
+      "needsNodeCompat": true,
+      "build": "pnpm --filter stride-app build",
+      "assets": {
+        "directory": "app/dist",
+        "notFoundHandling": "single-page-application",
+        "runWorkerFirst": ["/api/*", "/internal/*"]
+      },
+      "stores": [
+        {
+          "class": "ScopeDO",
+          "binding": "SCOPE"
+        },
+        {
+          "class": "IdentityDO",
+          "binding": "IDENTITY"
+        },
+        {
+          "class": "ConfigDO",
+          "binding": "CONFIG"
+        }
+      ]
+    },
+    "permissions": "src/modules.ts",
+    "requires": [
+      "oidc-issuer"
+    ]
+  }
+}
