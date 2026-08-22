@@ -1,5 +1,17 @@
 import { z } from '@substrat-run/contracts';
-import { strideModule } from './module.js';
+import {
+  assignProgramInput,
+  createCoachInput,
+  createTraineeInput,
+  equipmentInput,
+  exerciseInput,
+  inviteInput,
+  myEquipmentInput,
+  onboardInput,
+  setSharingInput,
+  strideModule,
+  templateInput,
+} from './module.js';
 
 // ============================================================================
 // THE HTTP MODEL — every endpoint this vertical has, DECLARED.
@@ -19,26 +31,34 @@ import { strideModule } from './module.js';
 // at that path segment is handed to the operation under that name.
 // ============================================================================
 
-/** Reads that carry a query string need their shape declared, or it is dropped. */
+/**
+ * Reads that carry a query string need their shape declared, or it is dropped.
+ *
+ * The same applies to WRITES: `mountOperations` invokes with no argument at all
+ * when an operation has no path params and no declared `input`, and that check
+ * runs after the body is merged — so a POST to a path with no `{param}` silently
+ * loses its body. Every such operation below therefore declares the very schema
+ * it parses, imported from `module.ts` so the two cannot drift.
+ */
 const onDate = z.object({ on: z.string().optional() });
 
 export const operations = {
   // --- people --------------------------------------------------------------
   'stride/coaches': { http: { method: 'GET', path: '/coaches' } },
-  'stride/create-coach': { http: { method: 'POST', path: '/coaches' } },
+  'stride/create-coach': { http: { method: 'POST', path: '/coaches' }, input: createCoachInput },
   'stride/trainees': { http: { method: 'GET', path: '/trainees' } },
-  'stride/create-trainee': { http: { method: 'POST', path: '/trainees' } },
+  'stride/create-trainee': { http: { method: 'POST', path: '/trainees' }, input: createTraineeInput },
   'stride/assign-to-coach': {
     http: { method: 'POST', path: '/trainees/{traineeId}/coach' },
   },
   'stride/me': { http: { method: 'GET', path: '/me/trainee' } },
   /** Who the caller is, in gym vocabulary — the deployed app's first call. */
   'stride/whoami': { http: { method: 'GET', path: '/whoami' } },
-  'stride/onboard': { http: { method: 'POST', path: '/me/onboard' } },
+  'stride/onboard': { http: { method: 'POST', path: '/me/onboard' }, input: onboardInput },
 
   // --- invitations ---------------------------------------------------------
   'stride/invitations': { http: { method: 'GET', path: '/invitations' } },
-  'stride/invite': { http: { method: 'POST', path: '/invitations' } },
+  'stride/invite': { http: { method: 'POST', path: '/invitations' }, input: inviteInput },
   'stride/revoke-invite': {
     http: { method: 'POST', path: '/invitations/{invitationId}/revoke' },
   },
@@ -57,18 +77,18 @@ export const operations = {
 
   // --- sharing -------------------------------------------------------------
   'stride/my-sharing': { http: { method: 'GET', path: '/me/sharing' } },
-  'stride/set-sharing': { http: { method: 'POST', path: '/me/sharing' } },
+  'stride/set-sharing': { http: { method: 'POST', path: '/me/sharing' }, input: setSharingInput },
 
   // --- equipment -----------------------------------------------------------
   'stride/equipment': { http: { method: 'GET', path: '/equipment' } },
-  'stride/publish-equipment': { http: { method: 'POST', path: '/equipment' } },
-  'stride/set-my-equipment': { http: { method: 'POST', path: '/me/equipment' } },
+  'stride/publish-equipment': { http: { method: 'POST', path: '/equipment' }, input: equipmentInput },
+  'stride/set-my-equipment': { http: { method: 'POST', path: '/me/equipment' }, input: myEquipmentInput },
 
   // --- the exercise catalogue ----------------------------------------------
   'stride/exercises': { http: { method: 'GET', path: '/exercises' } },
   'stride/my-exercises': { http: { method: 'GET', path: '/my-exercises' } },
-  'stride/publish-exercise': { http: { method: 'POST', path: '/exercises/publish' } },
-  'stride/author-exercise': { http: { method: 'POST', path: '/exercises/author' } },
+  'stride/publish-exercise': { http: { method: 'POST', path: '/exercises/publish' }, input: exerciseInput },
+  'stride/author-exercise': { http: { method: 'POST', path: '/exercises/author' }, input: exerciseInput },
   'stride/set-exercise-equipment': {
     http: { method: 'POST', path: '/exercises/{exerciseId}/equipment' },
   },
@@ -78,15 +98,15 @@ export const operations = {
 
   // --- templates -----------------------------------------------------------
   'stride/templates': { http: { method: 'GET', path: '/templates' } },
-  'stride/publish-template': { http: { method: 'POST', path: '/templates/publish' } },
-  'stride/author-template': { http: { method: 'POST', path: '/templates/author' } },
+  'stride/publish-template': { http: { method: 'POST', path: '/templates/publish' }, input: templateInput },
+  'stride/author-template': { http: { method: 'POST', path: '/templates/author' }, input: templateInput },
   'stride/add-template-item': {
     http: { method: 'POST', path: '/templates/{templateId}/items' },
   },
 
   // --- programmes ----------------------------------------------------------
   'stride/my-programs': { http: { method: 'GET', path: '/programs' } },
-  'stride/assign-program': { http: { method: 'POST', path: '/programs' } },
+  'stride/assign-program': { http: { method: 'POST', path: '/programs' }, input: assignProgramInput },
   'stride/get-program': { http: { method: 'GET', path: '/programs/{programId}' } },
   'stride/add-program-item': {
     http: { method: 'POST', path: '/programs/{programId}/items' },

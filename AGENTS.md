@@ -276,8 +276,14 @@ Two things to know when adding one:
 
 - **`{var}` names an INPUT FIELD**, not a free variable. `/programs/{orderId}/start` binds
   the engine's `orderId`; naming it `{id}` would hand the operation a field it does not have.
-- **A read that carries a query must declare `input`**, or the query is dropped — with no
-  path params and no declared input the mount invokes with no argument at all.
+- **Any operation whose input rides in the query OR the body must declare `input`.** With no
+  path params and no declared input the mount invokes with no argument at all — the guard is
+  `if (!op.input && params.length === 0) payload = undefined`, and it runs *after* the body is
+  merged. So this bites POSTs hardest: a `POST /programs` with no `{param}` and no declared
+  `input` silently discards its body and answers `400 expected object, received undefined`.
+  The scenario suite cannot catch it — it calls operations directly and never crosses
+  `server.ts`. Declaring the operation's own exported Zod schema is the fix; `model.ts`
+  imports them from `module.ts` so the two cannot drift.
 
 An engine declares no `http` and should not: it is entity-agnostic and does not own a URL
 shape. The vertical binds the name (`workorder/start` → `/programs/{orderId}/start`), and

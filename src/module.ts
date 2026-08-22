@@ -346,7 +346,7 @@ async function canReadTemplate(ctx: OperationContext, tpl: TemplateRow): Promise
 // account actually has.
 // ---------------------------------------------------------------------------
 
-const equipmentInput = z.object({
+export const equipmentInput = z.object({
   slug: z.string().min(1),
   name: z.string().min(1),
   category: z.string().min(1),
@@ -386,7 +386,7 @@ const equipmentOp: OperationHandler<undefined, EquipmentView[]> = async (ctx) =>
     .map((e) => ({ ...e, available: mine.has(e.slug) }));
 };
 
-const myEquipmentInput = z.object({ equipment: z.array(z.string().min(1)) });
+export const myEquipmentInput = z.object({ equipment: z.array(z.string().min(1)) });
 
 /**
  * Set the equipment on YOUR OWN account.
@@ -489,7 +489,7 @@ function setExerciseEquipment(ctx: OperationContext, exerciseId: string, equipme
 // People — admin only.
 // ---------------------------------------------------------------------------
 
-const createCoachInput = z.object({ principalId: z.string().min(1), name: z.string().min(1) });
+export const createCoachInput = z.object({ principalId: z.string().min(1), name: z.string().min(1) });
 
 const createCoachOp: OperationHandler<z.infer<typeof createCoachInput>, CoachRow> = async (
   ctx,
@@ -515,7 +515,7 @@ const createCoachOp: OperationHandler<z.infer<typeof createCoachInput>, CoachRow
   return ctx.sql.query<CoachRow>('SELECT * FROM train_coaches WHERE id = ?', [id])[0]!;
 };
 
-const createTraineeInput = z.object({
+export const createTraineeInput = z.object({
   number: z.string().min(1),
   name: z.string().min(1),
   contact: z.string().optional(),
@@ -615,7 +615,7 @@ const assignToCoachOp: OperationHandler<z.infer<typeof assignToCoachInput>, Trai
 // The exercise catalogue — the shared/private split.
 // ---------------------------------------------------------------------------
 
-const exerciseInput = z.object({
+export const exerciseInput = z.object({
   slug: z.string().min(1),
   name: z.string().min(1),
   modality: z.enum(MODALITIES),
@@ -822,7 +822,7 @@ const myExercisesOp: OperationHandler<
 // Program templates — the reusable prescription.
 // ---------------------------------------------------------------------------
 
-const templateInput = z.object({ name: z.string().min(1), description: z.string().optional() });
+export const templateInput = z.object({ name: z.string().min(1), description: z.string().optional() });
 
 function insertTemplate(
   ctx: OperationContext,
@@ -1046,7 +1046,7 @@ const traineesOp: OperationHandler<undefined, TraineeRow[]> = async (ctx) => {
 // Programs — the engine's work order, wearing this vertical's vocabulary.
 // ---------------------------------------------------------------------------
 
-const assignProgramInput = z.object({
+export const assignProgramInput = z.object({
   /** Omit it to make a program for YOURSELF — the self-serve path. Staff pass it
    *  to assign one to someone else, and the narrowed `result:log` check below
    *  decides whether they may. */
@@ -1859,7 +1859,7 @@ const RELATIONSHIP_KEYS = () =>
 const ALL_KEYS = () =>
   [TRAIN_PERM.resultRead, TRAIN_PERM.exerciseRead, WO.read] as const;
 
-const setSharingInput = z.object({
+export const setSharingInput = z.object({
   coachId: z.string().min(1),
   mode: z.enum(SHARING_MODES),
 });
@@ -2004,7 +2004,7 @@ const mySharingOp: OperationHandler<undefined, SharingView[]> = async (ctx) => {
 
 const orgOf = (ctx: OperationContext): OrgId => orgId.parse(ctx.scopeId);
 
-const inviteInput = z.object({
+export const inviteInput = z.object({
   /** An email or phone. Hashed before it touches storage. */
   identifier: z.string().min(3),
   as: z.enum(['coach', 'trainee']),
@@ -2295,7 +2295,7 @@ const setItemSetsOp: OperationHandler<
 
 export const GOALS = ['strength', 'muscle', 'endurance', 'rehab', 'general'] as const;
 
-const onboardInput = z.object({
+export const onboardInput = z.object({
   goal: z.enum(GOALS),
   daysPerWeek: z.number().int().min(1).max(7),
 });
