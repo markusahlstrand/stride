@@ -1,21 +1,33 @@
 # Playbook — build a vertical on Substrat
 
 The always-on rules live in [`AGENTS.md`](../AGENTS.md); read them first. This playbook is
-the **flow**: interview the user, tell them honestly how much of their app already exists,
-then build and run the part that doesn't. Read the whole thing before starting — the
-checkpoint in Step 6 is a hard stop.
+the **flow**: interview the user, tell them honestly how much of their app already exists, and
+**land a design document they can review and approve before a line of code is written** — then
+reshape the reference into it. Read the whole thing before starting — both the design gate
+(Step 4) and the checkpoints (Step 7) are hard stops.
+
+**The target is a reviewed design, not running code.** Steps 1–2 learn the domain and map it
+onto what already exists; Step 3 writes a checked-in `spec/concept.md` in the user's own
+vocabulary; Step 4 is a **hard stop** where the user reads and approves it. Only then does Step 5 reshape
+the reference into their domain. The design gate (Step 4) is *upstream* of the two code
+checkpoints (Step 7) — a user with zero Substrat knowledge gets to say "yes, that's the app I
+want" before implementation, not after.
 
 This project ships with a small **working reference vertical** — a bike-repair shop on
-`engine-workorder` + `engine-invoicing`, green out of the box (`npm test`). It is your
-worked example and your starting point: you **reshape** it into the user's domain rather
-than building from an empty directory. Work in the project root.
+`engine-workorder` + `engine-invoicing`, green out of the box (`npm test`). It is your worked
+example and your build starting point: once the design is approved you **reshape** it into the
+user's domain rather than building from an empty directory. Work in the project root.
 
 ---
 
 ## Step 1 — Interview
 
-Ask, don't assume. **Three to five questions, conversational, one message.** You are
-learning the *shape* of the domain, not writing a spec.
+Ask, don't assume. **Three to five questions, conversational, one message.** You are learning
+the *shape* of the domain — the answers become the design document (Step 3), so listen for
+vocabulary, the cast, and who must be denied what, not just features. **Adapt depth to the
+user**: someone who already knows their domain cold needs fewer, sharper questions; someone
+thinking out loud needs you to draw the shape out. One flow, not branching tracks — read the
+room and dial the teaching up or down.
 
 1. **What are you building, and who uses it?** (the firm, the cast)
 2. **What's the thing that moves through the system?** A job, a repair, an inspection, an
@@ -34,8 +46,10 @@ detail, skip to Step 2 and confirm your reading of it instead of re-asking.
 ## Step 2 — The coverage map
 
 **This is the most valuable thing you do, and the easiest to get wrong by being
-flattering.** Tell the user what already exists and what they are actually signing up to
-build. Be specific and honest.
+flattering.** Work out what already exists and what the user is actually signing up to build.
+Be specific and honest. This analysis is the analytical core of the design document (Step 3) —
+sections 3 ("what already exists vs. what's yours") and 4 ("who is denied what") are this map,
+written down.
 
 **First, list the engines that actually exist. Do not trust any hard-coded list:**
 
@@ -89,10 +103,12 @@ Imported directly; their in-scope functions run in **your** transaction. Read ea
 **No import.** You emit; they consume. This is the star topology.
 
 - **`engine-invoicing`** — invoice basis and lines, immutable after export. Consumes
-  `workorder.completed` and `commerce.order-placed`, so a vertical that imports zero engines
-  still gets invoicing by emitting an event. Its consumer find-or-creates the customer's
-  *open* basis and appends. It has **no tax/VAT concept** — say so before an EU user
-  discovers it.
+  `workorder.completed`, `commerce.order-placed` **and** `timesheet.period-closed` (a
+  closed/approved period of reported time — `closeId`/`customer`/`period`/`billable`/
+  `total`, deduped on `closeId`), so an e-commerce or time-reporting vertical that imports
+  zero engines still gets invoicing by emitting an event. Its consumer find-or-creates the
+  customer's *open* basis and appends. It has **no tax/VAT concept** — say so before an EU
+  user discovers it.
 
 ### Tier 2b — connectors, for anything off-box
 
@@ -128,25 +144,171 @@ stop. Do not scaffold.
 
 ---
 
-## Step 3 — Decisions
+## Step 3 — Write the design document
 
-Short. Recommend a default and move.
+**This is the deliverable.** Everything before now was learning; this is where it lands
+somewhere the user can hold. Write a **checked-in `spec/concept.md`** — beside
+`spec/model.ts`, which is this same design one rung more concrete — in the user's own
+vocabulary — no Substrat internals, no decision refs, no cross-references to
+platform docs. Someone who has never heard of Substrat must be able to read it and recognise
+their own business.
 
-- **Auth.** Local dev uses an `x-principal` header — a dev seam, not a login. Offer to wire
-  a real login now if they want it; otherwise default to the dev header and say it **must**
-  be replaced before anything real. Real auth gates *exposing* the app, not *building* it.
-- **The cast.** Confirm the personas and their roles (e.g. `office-admin`, `technician`,
-  `portal-customer`). Roles are the user's vocabulary — name them for the persona.
-- **Two tenants, always.** Seed a second tenant that exists to be attacked. This is how the
-  isolation gets proven rather than claimed.
+**Top line, verbatim** — the house marker for a pre-code design:
+
+```
+Status: draft v0.1 · Last updated: <date> · For review before any code
+```
+
+**The template** — the coverage map (Step 2) is sections 3–4, already done; the rest is the
+interview written down. Two sections deliberately *preview* the code checkpoints of Step 7 in
+plain language, so nothing there is a surprise:
+
+1. **What we're building & who uses it** — the firm and the cast, one paragraph.
+2. **The thing that moves through the system** — the core noun and its lifecycle
+   (the states it passes through, and which transitions must not be skippable).
+3. **What already exists vs. what's yours** — the coverage map as tiers: the kernel
+   (free), the engines you compose, the connectors, and the Tier-3 vocabulary/pricing/
+   screens that are yours. If it's a **bad fit, this is where the honest no lands** — say
+   so and stop; do not write the rest.
+4. **Who is denied what** — the load-bearing section, and a plain-language *preview of the
+   permission diff*: each role and what it can and cannot see. Make two answers impossible
+   to miss — **who can see the money, and who can see other customers' data.**
+5. **Money & sign-off** — invoice / quote / receipt / none; anything gated on a signature
+   or a check before a step can happen.
+6. **The cast, roles, and tenancy** — the named roles per persona (roles are the user's
+   vocabulary — name them for the persona: `workshop-admin`, not `role_1`). **Two tenants,
+   always** — the second exists to be attacked, which is how isolation gets proven rather
+   than claimed.
+7. **The data we'll store** — the vertical's own tables and fields in plain terms. This
+   *previews the migration diff*; migrations are **append-only forever after first ship**,
+   so this is the cheap moment to get the shape right. **Every human-readable string the
+   design promises on an output artifact needs a named source here** — if §8 shows an
+   invoice line saying "Konsulttid Anna", some table in §7 must own that name, because
+   principals are ULIDs. A promised name with no source table is a missing table,
+   discovered at build time instead of in this review.
+8. **The scenario the test will replay** — the happy path plus the denials that prove
+   isolation (wrong role denied, customer A sees theirs and customer B sees nothing, a
+   cross-tenant attacker gets nothing).
+9. **Open decisions** — each with a **recommended default**, so the user chooses rather
+   than specifies:
+   - **Auth.** Local dev uses an `x-principal` header — a dev seam, not a login. Real auth
+     gates *exposing* the app, not *building* it — but if the app will be deployed for real
+     users, wire the OIDC seam from the start: the standard is a **separate OIDC issuer**
+     (an Auth Server app in the same team, or an external issuer — Supabase/Auth0/AuthHero/
+     Keycloak), never per-app credential storage. The vertical is a pure OIDC **relying
+     party**: depend on `@substrat-run/vertical-auth`, bind its `IdentityDO` (the
+     `sub → principal` directory, TOFU owner claim, invites) as a third DO store, read the
+     platform-delivered `substrat:auth` config per scope (`authWiring`), and build
+     `oidcRpAuthProvider` per request — see https://substrat.net/concepts/identity. The
+     dashboard's New-app **Identity** section does the automatic half (dynamic client
+     registration at the issuer + `/internal/configure` delivery) — but ONLY at app
+     creation, and only for verticals that implement this seam. An install created without
+     the identity choice stays `builtin`/unwired forever (switching issuers is deliberately
+     create-time only); a starter worker whose `authenticatedPrincipal` returns null answers
+     401 to everything deployed, however many auth servers exist in the team.
+   - **Deploy or stay local.** Local-first is a legitimate endpoint; default to it.
+10. **Out of scope / deferred** — what you are deliberately not building, so the review is
+    about a bounded thing.
+
+End with a short **"Review questions for the human"** block (2–3 questions) — the things the
+user must actively confirm, not rubber-stamp.
 
 ---
 
-## Step 4 — Reshape the reference
+## Step 4 — The design gate. STOP HERE.
 
-The scaffold already contains a working vertical in `src/` + `test/` — the bike-repair shop.
-**Read it first** (it's your Callout: the real, green implementation of every pattern this
-step describes), then reshape it into the user's domain from the interview:
+**Present the design document and wait for approval. Do not reshape the reference, do not
+write code.**
+
+This is a *human* gate, and it is the whole point: it happens **before** any code, upstream of
+the two implementation checkpoints in Step 7. Walk the user through section 4 ("who is denied
+what") in **their own vocabulary** until they can answer, without your help: *who can see the
+money, and who can see other customers' data?*
+
+**A gate assumes a competent reviewer.** If the user cannot evaluate the permission preview,
+say so rather than letting them wave it through — a design nobody understands is theater, and
+reproduces exactly the failure Substrat exists to prevent. Iterate the document until they
+can, and only then take explicit approval.
+
+Approval of the design is what unlocks Step 5. Until you have it, you are still in design.
+
+---
+
+## Step 5 — Declare the model
+
+The design is approved. Before reshaping any code, declare **what exists** in
+`spec/model.ts`: entities, the operations over them, and the permissions those operations
+check. One TypeScript module, and the compiler checks the joins between them.
+
+```ts
+import { defineEntities, defineOperations, emitModel } from '@substrat-run/contracts';
+import { z } from '@substrat-run/contracts';
+
+export const entities = defineEntities({
+  customer: {
+    table: 'acme_customers',
+    fields: z.object({ id: z.string(), number: z.string(), name: z.string() }),
+    key: ['number'],
+    erasable: ['name'],
+  },
+  site: { table: 'acme_sites', fields: z.object({ id: z.string(), customer_id: z.string() }), parents: ['customer'] },
+});
+
+export const PERMISSIONS = ['customer:manage'] as const;
+
+export const operations = defineOperations(entities, PERMISSIONS)({
+  'acme/create-customer': {
+    summary: 'Register a customer',
+    permission: 'customer:manage',
+    input: z.object({ number: z.string(), name: z.string() }),
+    output: entities.customer.fields,
+    emits: { entity: 'customer', entityIdFrom: 'id', type: 'acme.customer-created', schemaVersion: 1, piiClass: 'none' },
+  },
+});
+
+export const model = emitModel(entities);
+```
+
+These are compile errors, not lints: a `parents` naming no entity, a `permission` that is
+not declared, an `entityIdFrom` naming no field of that operation's `output`, a `payload`
+carrying a field the entity marks `erasable`, a `{var}` in an HTTP path that names no input
+field. All before a handler exists.
+
+Field names mirror the SQL columns, snake_case included — a prettier naming here is a second
+description of the same rows. Not every table is an entity: an entity is something the
+platform can point at (attachments hang off one, grants narrow to one, events are about one).
+
+`primaryKey` defaults to `['id']` — declare it where the identity is something else. The side
+table you add for extra data on an engine's entity is keyed by *that engine's id*
+(`primaryKey: ['workorder_id']`); its identity IS the work order's, and an `id` of its own
+would permit two side rows for one work order. A value-keyed table is keyed by its values
+(`primaryKey: ['customer_id', 'year', 'month']`). It is separate from `key`, which is an
+additional uniqueness rule — a table legitimately has both. An entity with neither an `id`
+field nor a `primaryKey` is refused rather than emitted without one.
+
+A **composite** key means the entity cannot be pointed at: attachments, grants, link edges
+and event subjects all need one id, so naming such an entity in `parents`,
+`attachmentTargets`, `relations`, `emits.entity` or a narrowed `permission.entity` is a
+compile error. It is still a full model member with migrations and a row type. A
+single-column key that is not called `id` stays fully pointable.
+
+Behaviour stays prose in `spec/concept.md`. Inventing a way to declare a state *transition*
+means the boundary slipped.
+
+Full reference: https://substrat.net/concepts/model
+
+**Do not edit `spec/model.ts` while reshaping the code.** If a handler cannot return what the
+model declares, that is real information — say so and stop, rather than reshaping the model
+to make the build pass.
+
+---
+
+## Step 6 — Reshape the reference
+
+The design is approved. The scaffold already contains a working vertical in `src/` + `test/` —
+the bike-repair shop. **Read it first** (it's your Callout: the real, green implementation of
+every pattern this step describes), then reshape it into the user's domain from the approved
+`spec/concept.md`:
 
 - **Rename the vocabulary** — `shop_customers`/`shop_bikes` → the user's nouns, the `shop/*`
   operation names, the roles, the price-list shape. If the user's core noun maps onto a work
@@ -159,7 +321,7 @@ step describes), then reshape it into the user's domain from the interview:
 - **Drop what the domain doesn't need, add its own tables** for anything the engines don't
   own. If the user's core noun *isn't* work-order-shaped, you may replace more of `src/` —
   but the seed/server/test scaffolding and the layout still hold.
-- **Re-run the gates as you go** (Step 5) — the reference is green, so any red is something
+- **Re-run the gates as you go** (Step 6) — the reference is green, so any red is something
   you just changed.
 
 The dependencies are already wired in `package.json` (the `@substrat-run/*` packages, `hono`,
@@ -167,7 +329,7 @@ The dependencies are already wired in `package.json` (the `@substrat-run/*` pack
 read its surface — the engines are self-describing:
 `node_modules/@substrat-run/engine-*/dist/index.d.ts` is the reference; never guess at it.
 
-**Do NOT add `zod` as a dependency, and never `import { z } from 'zod'`** (rule 10). Import
+**Do NOT add `zod` as a dependency, and never `import { z } from 'zod'`** (rule 11). Import
 everything from contracts:
 
 ```ts
@@ -233,7 +395,7 @@ closed-door assertion with a control proving a neighbouring door is still open.
 
 ---
 
-## Step 5 — Run it
+## Step 7 — Run it
 
 Build confidence in this order, and **show the user the output of each**:
 
@@ -255,9 +417,10 @@ and typed wrappers over the routes. Ask first — it roughly doubles the work.
 
 ---
 
-## Step 6 — The two checkpoints. STOP HERE.
+## Step 8 — The two checkpoints. STOP HERE.
 
-**You may never self-approve these. Present them and wait.**
+**You may never self-approve these. Present them and wait.** The design gate (Step 4) already
+took the user's approval of *what* to build; these confirm that the code matches it.
 
 1. **Migration diff** — every new `SqlMigration`, verbatim. Append-only forever once
    shipped, so this is the last cheap moment to change your mind.
@@ -275,23 +438,75 @@ and who can see other tenants' data?* A permission diff nobody understands is th
 
 ---
 
-## Step 7 — Deploy (optional)
+## Step 9 — Deploy (optional)
 
 Only if the user asks. Local-first is a legitimate stopping point.
 
-Substrat runs on Cloudflare via `@substrat-run/adapter-cloudflare` (Durable Objects). A
-vertical declares what it needs at runtime with a `substrat.runtimeNeeds` block in
-`package.json` (stores, node-compat, build). The deploy path is the authenticated CLI, and
-the author never holds a Cloudflare token:
+Substrat runs on Cloudflare via `@substrat-run/adapter-cloudflare` (Durable Objects).
+**This starter is pushable as scaffolded**: `src/worker.ts` is the deploy entry (the
+sandbox-clean shape, with the platform's `/internal/*` management contract already mounted
+via `mountPlatformSurface` from `@substrat-run/vertical-host` — you never re-author those
+routes), and package.json already carries the `substrat.runtimeNeeds` block the CLI
+derives the deploy config from (stores, node-compat, build) — you never author wrangler
+config. When you reshape the vertical, keep `src/provision.ts` the single source of
+MODULES/ROLES: both the dev server and the worker register from it, so a module added
+only in seed.ts would run locally and silently not deploy. The deploy path is the
+authenticated CLI, and the author never holds a Cloudflare token:
 
 - `substrat login` / `substrat whoami` — authenticate against the control plane.
-- `substrat push` — push the vertical; the version auto-bumps. A **private** (tenant-owned)
+- `substrat push` — push the vertical. By default the version is the registry's highest
+  semver, patch-bumped; `package.json`'s version is only a **seed for the first push of a
+  new slug**, and an explicit `--version` always wins. A **private** (tenant-owned)
   vertical is admitted automatically; a **listed/shared** one waits for staff admission.
 - `substrat promote <slug> --channel dev|staging|prod --version … [--ack-permissions]
   [--ack-migrations]` — the owner promotes every channel, prod included, for their own
   private vertical.
 - `substrat hostnames bind <slug> --surface <s> [--domain <d>]` — mint a live hostname, or
   record a custom domain pending DNS validation (`substrat hostnames verify`).
+
+**A SPA ships as NATIVE assets — never inline it into the worker.** Declare it in
+`runtimeNeeds` and `substrat push` builds, hashes, and uploads the directory to the
+runtime's own asset store, served from the edge without invoking the worker:
+
+```jsonc
+"substrat": {
+  "runtimeNeeds": {
+    "entry": "src/worker.ts",
+    "build": "npm --prefix app install && npm --prefix app run build",
+    "assets": {
+      "directory": "app/dist",
+      "notFoundHandling": "single-page-application",   // deep client routes → index.html
+      "runWorkerFirst": ["/api/*", "/internal/*"]      // only these reach the worker
+    }
+  }
+}
+```
+
+`build` runs before assets are collected, so the directory may be pure build output. Never
+base64-inline a built `app/dist` into a generated worker module: it costs ~+33 % script
+size and a worker invocation per image.
+
+**Let changesets own the version, and pass it to push explicitly** — the default bump walks
+the registry forward on its own, so `package.json` and the registry drift apart within a
+few deploys. Set this up when the vertical first deploys:
+
+```sh
+pnpm add -D @changesets/cli && npx changeset init
+```
+
+Then in `.changeset/config.json` add `"privatePackages": { "version": true, "tag": false }`
+(the vertical is a private package, never npm-published), make sure `pnpm-workspace.yaml`
+lists `packages: ["."]` so changesets can see the root package, and add the scripts:
+
+```json
+"changeset": "changeset",
+"release": "pnpm test && pnpm typecheck && pnpm lint:boundaries && changeset version && substrat push --version $(node -p \"require('./package.json').version\") --promote prod"
+```
+
+Read the version with `node -p` at that point in the script, not `$npm_package_version` —
+the latter is captured before `changeset version` rewrites `package.json`, so it would push
+the version you just replaced. Changesets needs a git repo with a commit on the base branch
+(`git init -b main`) — a scaffold that isn't a repo yet must init before the first release.
 
 Updates deploy **in place** from one stable script — data carries forward, migrations run
 against prod data, backout is a time-boxed PITR rewind.
@@ -301,7 +516,7 @@ cross-tenant hole with a UI.
 
 ---
 
-## Step 8 — Leave the project competent
+## Step 10 — Leave the project competent
 
 The next session — in any tool — starts cold. The scaffold already ships `AGENTS.md`,
 `CLAUDE.md`, and the Cursor/opencode command stubs, so the rules and this flow survive. Your

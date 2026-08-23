@@ -26,7 +26,7 @@ export const strideMigrations: SqlMigration[] = [
 
       -- coach_id is the CURRENT coach, for display. Access is carried by the
       -- trainee → coach edge, which is append-only: reassigning a trainee adds
-      -- the new coach without erasing the old one's reach. See DESIGN.md §3.
+      -- the new coach without erasing the old one's reach. See spec/concept.md §3.
       CREATE TABLE train_trainees (
         id         TEXT PRIMARY KEY,
         number     TEXT NOT NULL UNIQUE,

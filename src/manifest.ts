@@ -19,7 +19,7 @@ import { moduleManifest, permissionKey } from '@substrat-run/contracts';
 //      closed. Without it "a coach only touches their own trainees" would be
 //      true of listings and false of writes.
 //
-// Read DESIGN.md, then CLAUDE.md / AGENTS.md, before you touch it.
+// Read spec/concept.md, then CLAUDE.md / AGENTS.md, before you touch it.
 // ============================================================================
 
 /** The vertical's own permission keys (engine-workorder declares its own). */

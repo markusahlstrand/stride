@@ -9,3 +9,10 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+
+# pnpm 11 defaults minimumReleaseAge to 1440 minutes: a version published less than 24h
+# ago fails `--frozen-lockfile` in CI. A kernel bump is always adopted the day it ships,
+# so every upgrade PR would fail install for its first day. Exempt the first-party scope
+# only — the 24h quarantine still covers every third-party dependency.
+minimumReleaseAgeExclude:
+  - '@substrat-run/*'

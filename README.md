@@ -7,7 +7,7 @@ to them; a **trainee** logs their own sets — and keeps every exercise they hav
 performed, forever.
 
 That last part is the point of the app, and it is a kernel-enforced entity edge rather
-than a `WHERE` clause. See [`DESIGN.md`](DESIGN.md) §1.
+than a `WHERE` clause. See [`spec/concept.md`](spec/concept.md) §1.
 
 **A coach is optional.** Train alone: say how often you train, pick how many workouts you
 rotate, and the app books them — Mon-A, Wed-B, Fri-A — ready to log. A standing workout is
@@ -64,7 +64,7 @@ pnpm typecheck                   # both packages
 
 | | |
 |---|---|
-| [`DESIGN.md`](DESIGN.md) | why the app is shaped this way, and the approved permission table |
+| [`spec/concept.md`](spec/concept.md) | why the app is shaped this way, and the approved permission table |
 | [`AGENTS.md`](AGENTS.md) | the rules — including the two things you must not break |
 | `src/manifest.ts` | permissions, entity edges, and the guard declaration |
 | `src/module.ts` | the operations; `logSetOp` is where an exercise is earned |
