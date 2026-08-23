@@ -7,3 +7,6 @@ dist/
 .DS_Store
 app/tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+# Design source exports live beside the repo, not in it.
+/*.zip
