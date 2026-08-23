@@ -1,18 +1,11 @@
 // ============================================================================
-// Typed wrappers over the thin HTTP API. The `x-principal` header is the DEV
-// PRINCIPAL PICKER — a seam, not a login. Everything it can reach, it can reach
-// because the kernel granted it; switching personas here proves the permission
-// model rather than hiding it.
+// Typed wrappers over the thin HTTP API.
+//
+// There is no dev seam here any more. The app never names its own principal in
+// either runtime: a session cookie says who you are, and `/api/session` is how
+// the shell finds out. Locally that cookie comes from the dev issuer on :8879
+// (pick a persona, no password); deployed it comes from the real one. Same code.
 // ============================================================================
-
-/**
- * THE DEV SEAM, and the one thing that must not ship. `import.meta.env.DEV` is
- * true only under `vite dev`; the built bundle — the one the platform uploads —
- * has it constant-folded to false, so the `x-principal` header below is not just
- * unused in production, it is not in the file. A deployed app that could still
- * name its own principal would be a cross-tenant hole with a UI.
- */
-export const DEV: boolean = import.meta.env.DEV;
 
 /** What the worker knows before any operation runs — see `/api/session`. */
 export interface AuthSession {
@@ -26,7 +19,7 @@ export interface AuthSession {
   name: string | null;
 }
 
-/** Who the caller is in gym vocabulary — the deployed counterpart of the cast. */
+/** Who the caller is in gym vocabulary — decided by the kernel, not the client. */
 export interface WhoAmI {
   principal: string;
   role: 'admin' | 'coach' | 'trainee';
@@ -260,27 +253,11 @@ export class ApiError extends Error {
   }
 }
 
-// The URL wins, so a link carries who you are pretending to be and a refresh
-// keeps it. localStorage is only the fallback for a bare visit.
-let principal =
-  new URLSearchParams(window.location.search).get('as') ??
-  localStorage.getItem('principal') ??
-  'nina';
-
-export const currentPrincipal = () => principal;
-export function setPrincipal(key: string) {
-  principal = key;
-  localStorage.setItem('principal', key);
-}
-
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
-      // Dev only, and absent from the production bundle entirely: in a deployed
-      // instance the session cookie says who you are and the app never claims it.
-      ...(DEV ? { 'x-principal': principal } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -299,8 +276,6 @@ export const api = {
   session: () => get<AuthSession>('/session'),
   /** Who I am in this gym — an operation, so the kernel decides whether to answer. */
   whoami: () => get<WhoAmI>('/whoami'),
-  cast: () => get<CastMember[]>('/cast'),
-  me: () => get<CastMember>('/me'),
 
   meTrainee: () => get<Me | null>('/me/trainee'),
   onboard: (goal: Goal, daysPerWeek: number) => post<Me>('/me/onboard', { goal, daysPerWeek }),
