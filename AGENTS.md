@@ -49,10 +49,15 @@ test/scenario.test.ts  the scenario — including the denials
 ## The rules (non-negotiable)
 
 **Module code** = everything reachable from a `ModuleRegistration` (operations,
-consumers). Rules 1–4 are enforced mechanically by `boundary-lint`.
+consumers). Rules 1–5 are enforced mechanically by `boundary-lint`.
 
-1. **Data access is `ctx.sql` only.** Never import `better-sqlite3`, an adapter, or
-   `node:*` in module code.
+1. **Data access is `ctx.sql` only.** Never import `better-sqlite3`, an adapter,
+   `node:*`, or `cloudflare:workers` in module code. That last one is not a style rule:
+   it exports an ambient `env`, so a single import hands module code every binding and
+   secret your worker declares — including its own `SCOPE` Durable Object namespace,
+   which reaches *another scope's* data. `ctx.sql` is closed over one scope and cannot.
+   Capabilities arrive on `ctx`; `DurableObject` is imported in harness code
+   (`worker.ts`, `*-do.ts`), never here.
 2. **No `fetch` / network in module code.** It would hold the scope's transaction open on
    a third party. The sanctioned path is a **connector**: emit a fat event, register a
    handler that runs outside the transaction. An integration is never impossible because
@@ -64,16 +69,22 @@ consumers). Rules 1–4 are enforced mechanically by `boundary-lint`.
    the shortcut *works* and silently welds you to an engine's private schema forever. Need
    extra data on an engine entity? Add **your own side table keyed by the engine's id** —
    never a column upstream.
-5. **Every operation checks a permission first.** `assertAllowed(await ctx.check(PERM))`
+5. **Time comes from `ctx.now()`.** Module code has no other clock — `new Date()` and
+   `Date.now()` are banned exactly like `node:*`. It is the same instant for the whole
+   operation, so your rows and the events announcing them agree about when. Store it as
+   ISO text, never an epoch integer. Because the host injects the clock, a scenario can
+   test elapsed time (`manualClock` from `@substrat-run/kernel`) instead of sleeping or
+   shrinking the window to zero — the workaround that proves nothing.
+6. **Every operation checks a permission first.** `assertAllowed(await ctx.check(PERM))`
    is the first line.
-6. **Every mutation emits a fat event** — a consumer must never need a cross-module read.
-7. **Never fork an engine.** Extend by composition. If you must fork, the engine drew its
+7. **Every mutation emits a fat event** — a consumer must never need a cross-module read.
+8. **Never fork an engine.** Extend by composition. If you must fork, the engine drew its
    line wrong — that's design feedback, not a coding problem.
-8. **IDs are `ulid()`. Money is strings** via `@substrat-run/contracts` helpers
+9. **IDs are `ulid()`. Money is strings** via `@substrat-run/contracts` helpers
    (`moneyOf`, `mulMoney`, `addDecimal`, `compareDecimal`) — never floats.
-9. **Web-standard APIs always** — `globalThis.crypto`, `TextEncoder`, `URL`. Never
-   hand-roll a hash to dodge an import ban.
-10. **Parse, don't trust.** Zod at every boundary — but import `z` from
+10. **Web-standard APIs always** — `globalThis.crypto`, `TextEncoder`, `URL`. Never
+    hand-roll a hash to dodge an import ban.
+11. **Parse, don't trust.** Zod at every boundary — but import `z` from
     `@substrat-run/contracts`, **never from `zod`**. Zod schemas don't compose across
     copies or majors; composing a contracts schema into one built from a separate `zod`
     fails at *runtime* (`expected a Zod schema`) with an error pointing nowhere near the
@@ -90,7 +101,7 @@ This is also what lets a portal permission-walk reach the owner.
 
 ```sh
 npm test                        # the scenario, including the denials
-npx @substrat-run/boundary-lint # the layer rules (1–4)
+npx @substrat-run/boundary-lint # the layer rules (1–5)
 npm run typecheck
 ```
 
@@ -122,7 +133,7 @@ Present these and stop:
 A multi-tenant training app for a gym / physio clinic. One model covers both:
 a rehab exercise is just an exercise measured in seconds with a low target load,
 and "3 × 12 at 4 kg" and "5 × 5 at 80 kg" are the same row. Full design and the
-reasoning behind every choice: [`DESIGN.md`](DESIGN.md).
+reasoning behind every choice: [`spec/concept.md`](spec/concept.md).
 
 ## Vocabulary
 
@@ -336,6 +347,15 @@ the guard. Trainees read "workout", staff read "programme". Guarded by test 25.
 - **Schedule weeks are ISO weeks in UTC.** The kernel has no timezone per scope, so a late
   Sunday session near a date line can land in the neighbouring week. The real fix is
   storing the gym's timezone, not adjusting the arithmetic.
+- **`allOrders` drains a page walk, and that is not the end state.** `listOrders` became
+  `listOrders(ctx, page): Page<WorkOrder>` in engine-workorder 0.8 (#811). Five walks need
+  the WHOLE set to be correct — the schedule has to see every programme before it can say
+  what this week looks like, and `setSharingOp` has to revoke against every one of a
+  trainee's programmes or the leak it closes reopens — so `allOrders` drains the pages
+  explicitly. The three reads that feed a SCREEN (`my-programs`, `schedule`, `agenda`)
+  should eventually page with `pageVisible` and hand the app a cursor; that changes the
+  HTTP surface and the React app, so it is a design decision, not a version upgrade.
+  One programme by id is `getWorkOrder(ctx, id)` — never a list you `.find` through.
 
 ## Per-instance config, and the session secret
 

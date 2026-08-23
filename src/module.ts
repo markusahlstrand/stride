@@ -1,6 +1,7 @@
 import {
   addDecimal,
   dataSubjectId,
+  LIST_PAGE_MAX,
   mulDecimal,
   orgId,
   z,
@@ -20,6 +21,7 @@ import {
 import {
   completeWorkOrder,
   createWorkOrder,
+  getWorkOrder,
   listOrders,
   PERM as WO,
   type WorkOrder,
@@ -281,9 +283,38 @@ function requireTrainee(ctx: OperationContext): TraineeRow {
 }
 
 function programOf(ctx: OperationContext, programId: string): WorkOrder {
-  const order = listOrders(ctx).find((o) => o.id === programId);
-  if (!order) throw new Error(`program not found: ${programId}`);
-  return order;
+  // `getWorkOrder` exists because this used to be `listOrders(ctx).find(…)` —
+  // reading every row in the gym to return one, which was merely wasteful while
+  // the list was unbounded and is WRONG now that it is a page: the programme you
+  // want is simply not on page one.
+  return getWorkOrder(ctx, programId);
+}
+
+/**
+ * Every programme in the gym, drained page by page (#811).
+ *
+ * `listOrders` became `listOrders(ctx, page): Page<WorkOrder>` in
+ * engine-workorder 0.8, and the walks below each need the WHOLE set to be
+ * correct: the schedule has to consider every programme before it can say what
+ * this week looks like, and `set-sharing` has to revoke against every one of a
+ * trainee's programmes or the leak it closes reopens quietly. A first page is
+ * not an answer to either question, so the drain is explicit here rather than
+ * hidden behind a default limit.
+ *
+ * This is not where #811 wants these reads to end up. The three that FEED A
+ * SCREEN — `my-programs`, `schedule`, `agenda` — should page with `pageVisible`
+ * and hand the app a cursor; that changes the HTTP surface and the React app,
+ * so it is a design decision rather than part of a version upgrade.
+ */
+function allOrders(ctx: OperationContext): WorkOrder[] {
+  const out: WorkOrder[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = listOrders(ctx, { limit: LIST_PAGE_MAX, cursor });
+    out.push(...page.entries);
+    if (!page.nextCursor) return out;
+    cursor = page.nextCursor;
+  }
 }
 
 /** The caller's own record, or null — the non-throwing sibling of `authorOf`. */
@@ -361,7 +392,7 @@ const publishEquipmentOp: OperationHandler<z.infer<typeof equipmentInput>, Equip
   const input = equipmentInput.parse(rawInput);
   ctx.sql.exec(
     `INSERT OR REPLACE INTO train_equipment (slug, name, category, created_at) VALUES (?, ?, ?, ?)`,
-    [input.slug, input.name, input.category, new Date().toISOString()],
+    [input.slug, input.name, input.category, ctx.now()],
   );
   ctx.emit({
     type: 'stride.equipment-published',
@@ -500,7 +531,7 @@ const createCoachOp: OperationHandler<z.infer<typeof createCoachInput>, CoachRow
   const id = ulid();
   ctx.sql.exec(
     `INSERT INTO train_coaches (id, principal_id, name, created_at) VALUES (?, ?, ?, ?)`,
-    [id, input.principalId, input.name, new Date().toISOString()],
+    [id, input.principalId, input.name, ctx.now()],
   );
   ctx.emit({
     type: 'stride.coach-registered',
@@ -550,7 +581,7 @@ const createTraineeOp: OperationHandler<z.infer<typeof createTraineeInput>, Trai
       input.contact ?? null,
       coachId,
       input.principalId ?? null,
-      new Date().toISOString(),
+      ctx.now(),
     ],
   );
   // NOTE: no trainee -> coach edge. That edge used to hand a coach this
@@ -574,7 +605,7 @@ const assignToCoachInput = z.object({ traineeId: z.string().min(1), coachId: z.s
  * Move a trainee to a coach. The `coach_id` column is the CURRENT coach, for
  * display; the edge is APPEND-ONLY, so a previous coach keeps read access to the
  * history they supervised. Module code has no un-link — revoking would be a
- * control-plane action. See DESIGN.md §3.
+ * control-plane action. See spec/concept.md §3.
  */
 const assignToCoachOp: OperationHandler<z.infer<typeof assignToCoachInput>, TraineeRow> = async (
   ctx,
@@ -660,7 +691,7 @@ function insertExercise(
       owner?.entityType === 'coach' ? owner.entityId : null,
       owner?.entityType === 'trainee' ? owner.entityId : null,
       ctx.principal,
-      new Date().toISOString(),
+      ctx.now(),
     ],
   );
   ctx.emit({
@@ -843,7 +874,7 @@ function insertTemplate(
       owner?.entityType === 'coach' ? owner.entityId : null,
       owner?.entityType === 'trainee' ? owner.entityId : null,
       ctx.principal,
-      new Date().toISOString(),
+      ctx.now(),
     ],
   );
   ctx.emit({
@@ -1020,7 +1051,7 @@ const coachesOp: OperationHandler<undefined, CoachRow[]> = async (ctx) => {
  */
 const traineesOp: OperationHandler<undefined, TraineeRow[]> = async (ctx) => {
   const visible = new Set<string>();
-  for (const program of listOrders(ctx)) {
+  for (const program of allOrders(ctx)) {
     const decision = await ctx.check(WO.read, {
       entityType: 'workorder',
       entityId: program.id,
@@ -1181,7 +1212,7 @@ const assignProgramOp: OperationHandler<
     );
   }
 
-  const now = new Date().toISOString();
+  const now = ctx.now();
   const seen = new Set<string>();
   for (const slot of input.slots ?? []) {
     const key = `${slot.weekday}@${slot.time}`;
@@ -1337,7 +1368,7 @@ const logSessionOp: OperationHandler<z.infer<typeof logSessionInput>, SessionRow
     throw new Error(`invalid transition: a ${program.status} program takes no sessions`);
   }
   const id = ulid();
-  const now = new Date().toISOString();
+  const now = ctx.now();
   ctx.sql.exec(
     `INSERT INTO train_sessions (id, program_id, trainee_id, performed_at, note, logged_by, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -1439,7 +1470,7 @@ const logSetOp: OperationHandler<
     )[0]?.n ?? 0;
 
   const id = ulid();
-  const now = new Date().toISOString();
+  const now = ctx.now();
   ctx.sql.exec(
     `INSERT INTO train_set_results
        (id, session_id, program_item_id, exercise_id, set_no, reps, load, rpe,
@@ -1518,7 +1549,7 @@ const completeProgramInput = z.object({ programId: z.string().min(1) });
  *
  * `billable: []` because there is no money here. The engine takes a billable
  * array because it was built for jobs that get invoiced; the `0` total it
- * returns is ignored. (DESIGN.md §2.)
+ * returns is ignored. (spec/concept.md §2.)
  */
 const completeProgramOp: OperationHandler<
   z.infer<typeof completeProgramInput>,
@@ -1561,7 +1592,7 @@ const completeProgramOp: OperationHandler<
     total_reps: totalReps,
     total_volume: totalVolume,
     adherence_pct: percentOf(performedSets, prescribedSets),
-    computed_at: new Date().toISOString(),
+    computed_at: ctx.now(),
   };
   ctx.sql.exec(
     `INSERT OR REPLACE INTO train_program_summary
@@ -1682,7 +1713,7 @@ export type ProgramCard = WorkOrder & { traineeName: string | null; setsLogged: 
  */
 const myProgramsOp: OperationHandler<undefined, ProgramCard[]> = async (ctx) => {
   const visible: ProgramCard[] = [];
-  for (const program of listOrders(ctx)) {
+  for (const program of allOrders(ctx)) {
     const decision = await ctx.check(WO.read, {
       entityType: 'workorder',
       entityId: program.id,
@@ -1746,13 +1777,13 @@ const scheduleOp: OperationHandler<z.infer<typeof scheduleInput>, ScheduledItem[
   rawInput,
 ) => {
   const input = scheduleInput.parse(rawInput ?? {});
-  const today = input.on ? new Date(input.on) : new Date();
+  const today = new Date(input.on ?? ctx.now());
   if (Number.isNaN(today.getTime())) throw new Error(`not a date: ${input.on}`);
   const weekday = String(isoWeekday(today));
   const from = weekStart(today).toISOString();
 
   const out: ScheduledItem[] = [];
-  for (const program of listOrders(ctx)) {
+  for (const program of allOrders(ctx)) {
     if (program.status !== 'planned' && program.status !== 'in_progress') continue;
     const decision = await ctx.check(WO.read, {
       entityType: 'workorder',
@@ -1916,12 +1947,12 @@ const setSharingOp: OperationHandler<z.infer<typeof setSharingInput>, SharingRow
   // revoke of a grant that was never made is a no-op, so this is safe to run for
   // every programme, and the ones the coach AUTHORED are reached by an edge
   // rather than a grant — untouched here, deliberately (see the doc above).
-  for (const program of listOrders(ctx)) {
+  for (const program of allOrders(ctx)) {
     if (program.customer.entityId !== me.id) continue;
     await ctx.revoke(principal, WO.read, { entityType: 'workorder', entityId: program.id });
   }
 
-  const now = new Date().toISOString();
+  const now = ctx.now();
   if (input.mode !== 'none') {
     for (const key of RELATIONSHIP_KEYS()) await ctx.grant(principal, key, traineeRef);
   }
@@ -2101,7 +2132,7 @@ const acceptInviteOp: OperationHandler<
     invitationId: input.invitationId,
     identifier: input.identifier,
   });
-  const now = new Date().toISOString();
+  const now = ctx.now();
   const id = ulid();
 
   if (invitation.role_key === 'coach') {
@@ -2316,7 +2347,7 @@ const onboardOp: OperationHandler<z.infer<typeof onboardInput>, TraineeRow> = as
   assertAllowed(await ctx.check(TRAIN_PERM.shareManage));
   const input = onboardInput.parse(rawInput);
   const me = requireTrainee(ctx);
-  const now = new Date().toISOString();
+  const now = ctx.now();
   ctx.sql.exec(
     'UPDATE train_trainees SET goal = ?, days_per_week = ?, onboarded_at = ? WHERE id = ?',
     [input.goal, input.daysPerWeek, now, me.id],
@@ -2414,7 +2445,7 @@ const setProgramSlotsOp: OperationHandler<
   if (program.status !== 'planned' && program.status !== 'in_progress') {
     throw new Error(`invalid transition: a ${program.status} programme keeps no schedule`);
   }
-  const now = new Date().toISOString();
+  const now = ctx.now();
   ctx.sql.exec('DELETE FROM train_program_slots WHERE program_id = ?', [input.programId]);
   // Dedupe rather than let the UNIQUE constraint surface as a raw SQLite error:
   // picking Wednesday twice is a slip, not something to refuse.
@@ -2476,13 +2507,13 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
   rawInput,
 ) => {
   const input = agendaInput.parse(rawInput ?? {});
-  const today = input.on ? new Date(input.on) : new Date();
+  const today = new Date(input.on ?? ctx.now());
   if (Number.isNaN(today.getTime())) throw new Error(`not a date: ${input.on}`);
   const weekday = isoWeekday(today);
   const dayStart = today.toISOString().slice(0, 10);
 
   const out: AgendaEntry[] = [];
-  for (const program of listOrders(ctx)) {
+  for (const program of allOrders(ctx)) {
     if (program.status !== 'planned' && program.status !== 'in_progress') continue;
     const decision = await ctx.check(WO.read, {
       entityType: 'workorder',
@@ -2569,7 +2600,7 @@ const beginOp: OperationHandler<
       `invalid transition: a ${program.status} programme cannot be trained — start it first`,
     );
   }
-  const today = new Date().toISOString().slice(0, 10);
+  const today = ctx.now().slice(0, 10);
   const existing = ctx.sql.query<SessionRow>(
     `SELECT * FROM train_sessions
       WHERE program_id = ? AND substr(performed_at, 1, 10) = ?
@@ -2657,7 +2688,7 @@ const postMessageOp: OperationHandler<z.infer<typeof postMessageInput>, MessageR
   }
 
   const id = ulid();
-  const now = new Date().toISOString();
+  const now = ctx.now();
   ctx.sql.exec(
     `INSERT INTO train_messages (id, trainee_id, coach_id, author, body, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
@@ -2707,7 +2738,7 @@ const messagesOp: OperationHandler<
     `INSERT INTO train_thread_reads (trainee_id, coach_id, principal_id, last_read_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(trainee_id, coach_id, principal_id) DO UPDATE SET last_read_at = excluded.last_read_at`,
-    [input.traineeId, input.coachId, ctx.principal, new Date().toISOString()],
+    [input.traineeId, input.coachId, ctx.principal, ctx.now()],
   );
   return { messages, me: ctx.principal };
 };
