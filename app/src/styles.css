@@ -691,12 +691,19 @@ nav.tabs .dot {
   font-size: 14px;
   line-height: 1.55;
 }
+/* These are <a>, not <button>, so nothing centres the label for free. Centre it
+   with flex rather than a line-height matching the height: the `font:` shorthand
+   RESETS line-height, so any such pair is silently undone by the very next line —
+   which is what pinned the label to the top of the button. Flex also survives a
+   label that wraps, where a 52px line-height would double the box. */
 .gate .primary,
 .gate .default {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 16px;
   min-height: 52px;
-  line-height: 52px;
+  padding: 8px 20px;
   border-radius: var(--radius);
   background: var(--accent);
   color: var(--on-accent);
@@ -705,10 +712,8 @@ nav.tabs .dot {
   font: 600 16px var(--font);
 }
 .gate .default {
-  display: inline-block;
+  display: inline-flex;
   min-height: 48px;
-  line-height: 46px;
-  padding: 0 20px;
   background: transparent;
   border: 1px solid var(--line-strong);
   color: var(--text);
@@ -716,9 +721,11 @@ nav.tabs .dot {
   border-radius: 12px;
 }
 .who .signout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 12px;
   min-height: 36px;
-  line-height: 34px;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   color: var(--text);
