@@ -5,7 +5,17 @@
     <!-- viewport-fit=cover + the safe-area insets in styles.css keep the bottom
          nav clear of the iPhone home indicator. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f1115" />
+    <!-- The chrome follows the OS the way the palette does: one theme-color per
+         scheme, matching --bg-deep on each side. -->
+    <meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f1f2ee" media="(prefers-color-scheme: light)" />
+    <!-- Archivo says words, IBM Plex Mono says numbers. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <title>Stride</title>
   </head>
   <body>

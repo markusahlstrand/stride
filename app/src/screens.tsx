@@ -17,8 +17,10 @@ import {
   type ProgramCard,
   type ProgramDetail,
   type Template,
+  type Summary,
   type Trainee,
 } from './api';
+import { CheckIcon, SendIcon } from './icons';
 
 type Run = (fn: () => Promise<unknown>, ok?: string) => Promise<boolean>;
 export type ExerciseFilters = {
@@ -60,14 +62,19 @@ function groupItems<T extends { group_key: string | null }>(items: T[]): { key: 
   return out;
 }
 
+/**
+ * Equipment is ADVICE, not a permission: a piece of kit you do not have dims to
+ * 45% and stays on the row. Hiding it would be a second, weaker access rule
+ * sitting beside the real one — the exact failure this app exists to avoid.
+ */
 function EquipmentChips({ e }: { e: Exercise }) {
   if (e.equipment.length === 0) {
-    return <span className="pill">bodyweight</span>;
+    return <span className="chip">bodyweight</span>;
   }
   return (
     <>
       {e.equipment.map((slug) => (
-        <span key={slug} className={`pill${e.missing.includes(slug) ? ' missing' : ''}`}>
+        <span key={slug} className={`chip${e.missing.includes(slug) ? ' missing' : ''}`}>
           {slug.replace(/-/g, ' ')}
         </span>
       ))}
@@ -75,11 +82,35 @@ function EquipmentChips({ e }: { e: Exercise }) {
   );
 }
 
+/** Initials for an avatar. Two letters, because a roster is scanned, not read. */
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
+}
+
+/** "2" in accent over "/4" in muted — the counter reads at arm's length. */
+function Counter({ done, total }: { done: number; total: number }) {
+  return (
+    <span className="counter">
+      <b>{done}</b>/{total}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Today — what the recurring schedule says you owe this week
 // ---------------------------------------------------------------------------
 
-export function TodayScreen({ me, run, onOpen }: ScreenProps & { onOpen: (id: string) => void }) {
+export function TodayScreen({
+  me,
+  run,
+  onOpen,
+  onSetup,
+}: ScreenProps & { onOpen: (id: string) => void; onSetup: () => void }) {
   const [items] = useList<ScheduledItem>(() => api.schedule(), [me?.key]);
   const [agenda, reloadAgenda] = useList<AgendaEntry>(() => api.agenda(), [me?.key]);
   const due = items.filter((i) => i.dueToday);
@@ -110,27 +141,38 @@ export function TodayScreen({ me, run, onOpen }: ScreenProps & { onOpen: (id: st
           {i.doneThisWeek}/{i.targetThisWeek} this week
         </span>
       </div>
-      <div className="sub mono">
+      {/* The quantity gets its own line and its own typeface: it is the thing
+          you came to read, and mono keeps a column of them aligned. */}
+      <div className="quantity">
         {i.targetSets} × {i.targetReps} {i.unit}
-        {i.targetLoad ? ` @ ${i.targetLoad}` : ''} ·{' '}
-        {recurrenceLabel(i.recurDays, i.recurPerWeek)}
+        {i.targetLoad ? ` @ ${i.targetLoad}` : ''}
       </div>
-      <div className="sub">{i.programTitle}</div>
+      <div className="sub">
+        {recurrenceLabel(i.recurDays, i.recurPerWeek)} · {i.programTitle}
+      </div>
     </button>
   );
 
   return (
     <>
       <h1>Today</h1>
+      <div className="sub" style={{ margin: '-8px 0 14px', paddingLeft: 4 }}>
+        {new Date().toLocaleDateString(undefined, {
+          weekday: 'long',
+          day: 'numeric',
+          month: 'short',
+        })}
+      </div>
 
-      {booked.length > 0 && <h2>Booked today</h2>}
+      {/* WHAT'S NEXT is raised and accent-bordered; everything below it is
+          reference. At most one card on the screen gets that treatment. */}
       {booked.map((a) => (
-        <div key={`${a.programId}-${a.time}`} className="card">
-          <div className="row">
-            <span className="title">{a.programTitle}</span>
-            <span className="badge earned mono">{a.time}</span>
+        <div key={`${a.programId}-${a.time}`} className="card raised accent">
+          <div className="row center">
+            <span className="title big">{a.programTitle}</span>
+            <span className="badge time">{a.time}</span>
           </div>
-          <div className="sub">
+          <div className="sub mono">
             {a.traineeName ? `${a.traineeName} · ` : ''}
             {a.exercises} exercises
             {a.setsToday > 0 ? ` · ${a.setsToday} logged today` : ''}
@@ -144,33 +186,48 @@ export function TodayScreen({ me, run, onOpen }: ScreenProps & { onOpen: (id: st
       ))}
 
       {upcoming.length > 0 && <h2>Booked this week</h2>}
-      {upcoming.map((a) => (
-        <button
-          key={`${a.programId}-${a.weekday}-${a.time}`}
-          type="button"
-          className="card tappable"
-          onClick={() => onOpen(a.programId)}
-        >
-          <div className="row">
-            <span className="title">{a.programTitle}</span>
-            <span className="badge mono">
-              {DAY_NAMES[a.weekday]} {a.time}
-            </span>
-          </div>
-          <div className="sub">
-            {a.traineeName ? `${a.traineeName} · ` : ''}
-            {a.exercises} exercises
-          </div>
-        </button>
-      ))}
+      {upcoming.length > 0 && (
+        <div className="list">
+          {upcoming.map((a) => (
+            <button
+              key={`${a.programId}-${a.weekday}-${a.time}`}
+              type="button"
+              className="rowbtn"
+              onClick={() => onOpen(a.programId)}
+            >
+              <span>
+                <span className="name">{a.programTitle}</span>
+                <span className="sub">
+                  {a.traineeName ? `${a.traineeName} · ` : ''}
+                  {a.exercises} exercises
+                </span>
+              </span>
+              <span className="right">
+                <span className="when">
+                  {DAY_NAMES[a.weekday]} {a.time}
+                </span>
+                <span className="chev">›</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {items.length === 0 && agenda.length === 0 && (
         <div className="empty">
-          Nothing booked.
-          <br />
-          {me?.role === 'trainee'
-            ? 'Me → Set up my training picks your days and builds the workouts.'
-            : 'Book a time on a programme, or give an exercise a weekly rhythm.'}
+          <span className="head">Nothing booked.</span>
+          {me?.role === 'trainee' ? (
+            <>
+              Me → <b>Set up my training</b> picks your days and builds the workouts.
+              <div className="actions" style={{ justifyContent: 'center' }}>
+                <button className="tinted" onClick={onSetup}>
+                  Set up my training
+                </button>
+              </div>
+            </>
+          ) : (
+            'Book a time on a programme, or give an exercise a weekly rhythm.'
+          )}
         </div>
       )}
       {due.length > 0 && <h2>Exercises due today</h2>}
@@ -220,15 +277,12 @@ export function ProgramsScreen({
         <div className="empty">
           {me?.role === 'trainee' ? (
             <>
-              No workouts yet.
-              <br />
-              Add one above, or Me → <b>Set up my training</b> to build a week of them at
-              once.
+              <span className="head">No workouts yet.</span>
+              Add one above, or Me → <b>Set up my training</b> to build a week of them at once.
             </>
           ) : (
             <>
-              Nothing here for {me?.name ?? 'you'}.
-              <br />
+              <span className="head">Nothing here for {me?.name ?? 'you'}.</span>
               Not an error — the permission walk simply reaches nothing.
             </>
           )}
@@ -430,54 +484,78 @@ export function ProgramDetailScreen({
     tag: string | null,
   ) => {
     const done = setsFor(item.id);
+    const unit = item.exercise?.unit ?? 'reps';
+    const suffix = unit === 'metres' ? ' m' : '';
+    // A uniform prescription and an explicit ramp are the same list once you
+    // expand the first — so the pills below never have to know which it was.
+    const prescribed =
+      item.sets.length > 0
+        ? item.sets.map((s) => ({
+            no: s.set_no,
+            reps: s.target_reps,
+            load: s.target_load,
+            note: s.note,
+          }))
+        : Array.from({ length: item.target_sets }, (_, i) => ({
+            no: i + 1,
+            reps: item.target_reps,
+            load: item.target_load,
+            note: null as string | null,
+          }));
+    const total = Math.max(prescribed.length, done.length);
+    // One row of pills, not two: a performed set REPLACES its target in place,
+    // filled and ticked, so "where am I" is one glance rather than a comparison.
+    const showPills = Boolean(openSession) || item.sets.length > 0;
+
     return (
-      <div key={item.id} className="card">
+      <div key={item.id} className={`card${openSession ? ' raised' : ''}`}>
         <div className="row">
           <span className="title">
-            {tag && <span className="badge shared" style={{ marginRight: 8 }}>{tag}</span>}
+            {tag && <span className="tag" style={{ marginRight: 8 }}>{tag}</span>}
             {item.exercise?.name ?? 'Unknown exercise'}
           </span>
-          <span className="badge mono">
-            {done.length}/{item.target_sets}
-          </span>
+          <Counter done={done.length} total={item.target_sets} />
         </div>
-        {item.sets.length > 0 ? (
-          // The sets differ from one another, so they are listed rather than
-          // summarised — a ramp read as "4 × something" is not the same session.
-          <div className="sets" style={{ marginTop: 6 }}>
-            {item.sets.map((set) => (
-              <span key={set.id} className={`pill${done.length >= set.set_no ? ' done' : ''}`}>
-                {set.set_no}: {formatQuantity(set.target_reps, item.exercise?.unit ?? 'reps')}
-                {item.exercise?.unit === 'metres' ? ' m' : ''}
-                {set.target_load ? ` × ${set.target_load}` : ''}
-                {set.note ? ` · ${set.note}` : ''}
-              </span>
-            ))}
+        {showPills ? (
+          <div className="sets">
+            {Array.from({ length: total }, (_, i) => {
+              const no = i + 1;
+              const performed = done.find((s) => s.set_no === no);
+              if (performed) {
+                return (
+                  <span key={performed.id} className="pill done">
+                    {no}: {formatQuantity(performed.reps, unit)}
+                    {suffix}
+                    {performed.load ? ` × ${performed.load}` : ''}
+                    {performed.duration_seconds
+                      ? ` · ${formatQuantity(performed.duration_seconds, 'seconds')}`
+                      : ''}
+                    {performed.avg_hr ? ` · ${performed.avg_hr} bpm` : ''}
+                    {performed.rpe ? ` · RPE ${performed.rpe}` : ''} ✓
+                  </span>
+                );
+              }
+              const target = prescribed[i];
+              if (!target) return null;
+              return (
+                <span key={`t${no}`} className="pill">
+                  {no}: {formatQuantity(target.reps, unit)}
+                  {suffix}
+                  {target.load ? ` × ${target.load}` : ''}
+                  {target.note ? ` · ${target.note}` : ''}
+                </span>
+              );
+            })}
           </div>
         ) : (
           <div className="sub mono">
-            target {item.target_sets} ×{' '}
-            {formatQuantity(item.target_reps, item.exercise?.unit ?? 'reps')}{' '}
-            {item.exercise?.unit === 'reps' ? 'reps' : item.exercise?.unit === 'metres' ? 'm' : ''}
+            target {item.target_sets} × {formatQuantity(item.target_reps, unit)}{' '}
+            {unit === 'reps' ? 'reps' : unit === 'metres' ? 'm' : ''}
             {item.target_load ? ` @ ${item.target_load}` : ''}
           </div>
         )}
         {recurrenceLabel(item.recur_days, item.recur_per_week) && (
-          <div className="sub">◷ {recurrenceLabel(item.recur_days, item.recur_per_week)}</div>
-        )}
-        {done.length > 0 && (
-          <div className="sets">
-            {done.map((s) => (
-              <span key={s.id} className="pill done">
-                {s.set_no}: {formatQuantity(s.reps, item.exercise?.unit ?? 'reps')}
-                {item.exercise?.unit === 'metres' ? ' m' : ''}
-                {s.load ? ` × ${s.load}` : ''}
-                {s.duration_seconds ? ` · ${formatQuantity(s.duration_seconds, 'seconds')}` : ''}
-                {s.avg_hr ? ` · ${s.avg_hr} bpm` : ''}
-                {s.rpe ? ` · RPE ${s.rpe}` : ''}
-              </span>
-            ))}
-          </div>
+          <div className="sub">{recurrenceLabel(item.recur_days, item.recur_per_week)}</div>
         )}
         {openSession && (
           <SetLogger
@@ -506,19 +584,21 @@ export function ProgramDetailScreen({
   return (
     <>
       <button className="back" onClick={onBack}>
-        ‹ Back
+        ‹ Workouts
       </button>
-      <h1>{program.title}</h1>
+      {/* Title and state on one line, the identifiers beneath it in mono — the
+          header answers "which one, and where is it" before anything else. */}
+      <div className="row center" style={{ marginTop: 2 }}>
+        <h1 style={{ margin: 0 }}>{program.title}</h1>
+        <span className={`badge ${program.status}`}>{program.status.replace('_', ' ')}</span>
+      </div>
+      <div className="sub mono" style={{ margin: '2px 0 14px' }}>
+        #{program.number} · {program.kind}
+        {program.traineeName ? ` · ${program.traineeName}` : ''}
+      </div>
       <div className="card">
-        <div className="row">
-          <span className="muted">
-            #{program.number} · {program.kind}
-            {program.traineeName ? ` · ${program.traineeName}` : ''}
-          </span>
-          <span className={`badge ${program.status}`}>{program.status.replace('_', ' ')}</span>
-        </div>
         {program.status === 'in_progress' && (
-          <div className="sub" style={{ marginTop: 6 }}>
+          <div className="sub" style={{ marginTop: 0 }}>
             A standing workout never has to be finished — keep logging into it week after
             week. Finishing is for when you close off a block and want the adherence number.
           </div>
@@ -548,8 +628,10 @@ export function ProgramDetailScreen({
             </button>
           )}
           {program.status === 'in_progress' && (
+            // A DEFAULT button, deliberately not the primary one: finishing is
+            // optional, and never finishing is the normal shape of a standing
+            // workout.
             <button
-              className="ghost"
               onClick={() =>
                 run(() => api.completeProgram(program.id), 'Finished — adherence computed').then(
                   reload,
@@ -562,21 +644,7 @@ export function ProgramDetailScreen({
         </div>
       </div>
 
-      {summary && (
-        <div className="card">
-          <div className="row">
-            <span className="title">Adherence</span>
-            <span className="badge earned mono">{summary.adherence_pct}%</span>
-          </div>
-          <div className="sub mono">
-            {summary.performed_sets} of {summary.prescribed_sets} sets
-            {summary.total_volume !== '0' ? ` · volume ${summary.total_volume}` : ''}
-            {summary.total_seconds > 0
-              ? ` · ${formatQuantity(summary.total_seconds, 'seconds')} of work`
-              : ''}
-          </div>
-        </div>
-      )}
+      {summary && <AdherenceCard summary={summary} />}
 
       {(program.status === 'planned' || program.status === 'in_progress') && (
         <ScheduleEditor programId={program.id} slots={slots} run={run} onSaved={reload} />
@@ -596,10 +664,16 @@ export function ProgramDetailScreen({
         ),
       )}
       {earned && (
-        <div className="banner good" onClick={() => setEarned(null)}>
-          <b>Yours forever</b>
-          {earned} is now in your library. Performing it once earned it — nobody can take it out
-          of the catalogue from under you.
+        <div className="earned-card" onClick={() => setEarned(null)}>
+          <span className="disc">
+            <CheckIcon />
+          </span>
+          <div className="head">Yours forever</div>
+          <div className="what">{earned} · earned</div>
+          <div className="why">
+            Performing it once earned it into your library. Nobody can take it out of the
+            catalogue from under you.
+          </div>
         </div>
       )}
 
@@ -608,19 +682,85 @@ export function ProgramDetailScreen({
       )}
 
       <h2>Sessions</h2>
-      {sessions.length === 0 && <div className="empty">No sessions yet.</div>}
-      {sessions.map((s) => (
-        <div key={s.id} className="card">
-          <div className="row">
-            <span className="title">{new Date(s.performed_at).toLocaleString()}</span>
-            <span className="badge mono">
-              {s.sets.length} set{s.sets.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          {s.note && <div className="sub">{s.note}</div>}
+      {sessions.length === 0 && (
+        <div className="empty">
+          <span className="head">No sessions yet.</span>
+          Every set you log lands in one — and a correction is a new row, never an edit.
         </div>
-      ))}
+      )}
+      {sessions.length > 0 && (
+        <div className="list">
+          {sessions.map((s) => (
+            <div key={s.id} className="rowbtn" style={{ cursor: 'default' }}>
+              <span>
+                <span className="name">{new Date(s.performed_at).toLocaleString()}</span>
+                {s.note && <span className="sub">{s.note}</span>}
+              </span>
+              <span className="when">
+                {s.sets.length} set{s.sets.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </>
+  );
+}
+
+/**
+ * Adherence — prescribed against performed, as a ring rather than a percentage
+ * in a corner. It is the one number worth a whole card, and it appears only
+ * once the block is finished: a standing workout that never ends is the normal
+ * case, not an unfinished one.
+ */
+function AdherenceCard({ summary }: { summary: Summary }) {
+  const pct = Math.max(0, Math.min(100, Number(summary.adherence_pct) || 0));
+  const r = 54;
+  const circumference = 2 * Math.PI * r;
+  return (
+    <div className="card raised">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div className="ring">
+          <svg width="124" height="124" viewBox="0 0 124 124">
+            <circle cx="62" cy="62" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="8" />
+            <circle
+              cx="62"
+              cy="62"
+              r={r}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth="8"
+              strokeLinecap="round"
+              strokeDasharray={`${(circumference * pct) / 100} ${circumference}`}
+            />
+          </svg>
+          <div className="value">
+            {Math.round(pct)}
+            <small>%</small>
+          </div>
+        </div>
+        <div className="stats">
+          <div className="stat">
+            {summary.performed_sets}
+            <span> / {summary.prescribed_sets}</span>
+            <span className="label">sets performed</span>
+          </div>
+          {summary.total_volume !== '0' && (
+            <div className="stat">
+              {summary.total_volume}
+              <small> kg</small>
+              <span className="label">total volume</span>
+            </div>
+          )}
+          {summary.total_seconds > 0 && (
+            <div className="stat">
+              {formatQuantity(summary.total_seconds, 'seconds')}
+              <span className="label">of work</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -776,7 +916,7 @@ function ScheduleEditor({
       {slots.length > 0 && (
         <div className="sets" style={{ marginTop: 8 }}>
           {slots.map((s) => (
-            <span key={s.id} className="pill done">
+            <span key={s.id} className="pill">
               {DAY_NAMES[s.weekday]} {s.time_of_day}
             </span>
           ))}
@@ -1017,15 +1157,18 @@ export function LibraryScreen({
         ))}
       </div>
 
-      <div className="actions" style={{ marginBottom: 8 }}>
-        <button className={onlyPrivate ? 'primary' : ''} onClick={() => patch({ privateOnly: !onlyPrivate })}>
+      {/* Selected looks the same here as it does on the modality pills above —
+          one treatment for "on", wherever it appears. */}
+      <div className="filters">
+        <button className={onlyPrivate ? 'on' : ''} onClick={() => patch({ privateOnly: !onlyPrivate })}>
           {onlyPrivate ? '✓ ' : ''}Private
         </button>
-        <button className={onlyMyKit ? 'primary' : ''} onClick={() => patch({ myKit: !onlyMyKit })}>
+        <button className={onlyMyKit ? 'on' : ''} onClick={() => patch({ myKit: !onlyMyKit })}>
           {onlyMyKit ? '✓ ' : ''}My kit
         </button>
-        <button className={pickedKit.length ? 'primary' : ''} onClick={() => setKitOpen(!kitOpen)}>
-          Equipment{pickedKit.length ? ` (${pickedKit.length})` : ''}
+        <button className={pickedKit.length ? 'on' : ''} onClick={() => setKitOpen(!kitOpen)}>
+          Equipment
+          {pickedKit.length ? <span className="mono"> ({pickedKit.length})</span> : ''}
         </button>
         {filtered && (
           <button
@@ -1044,6 +1187,9 @@ export function LibraryScreen({
             Clear
           </button>
         )}
+        <span className="count">
+          {filtered ? `${rows.length} of ${all.length}` : `${all.length} exercises`}
+        </span>
       </div>
 
       {kitOpen && (
@@ -1085,11 +1231,13 @@ export function LibraryScreen({
         </div>
       )}
 
-      <div className="sub" style={{ marginBottom: 12 }}>
-        {filtered ? `${rows.length} of ${all.length}` : `${all.length} exercises`}
-      </div>
-
-      {rows.length === 0 && <div className="empty">Nothing matches those filters.</div>}
+      {rows.length === 0 && (
+        <div className="empty">
+          <span className="head">Nothing matches those filters.</span>
+          Every filter here narrows what the kernel already returned — none of them is an access
+          decision.
+        </div>
+      )}
       {rows.map((e) => (
         <div key={e.id} className="card">
           <div className="row">
@@ -1097,18 +1245,13 @@ export function LibraryScreen({
             {badge(e)}
           </div>
           <div className="sub">
-            {e.slug} · {e.modality} · measured in {e.unit}
+            {e.modality} · measured in {e.unit}
           </div>
           {e.description && <div className="sub">{e.description}</div>}
           <div className="sets">
             <EquipmentChips e={e} />
+            {!e.canDo && <span className="sub" style={{ marginTop: 0 }}>missing today — still yours to read</span>}
           </div>
-          {!e.canDo && (
-            <div className="sub" style={{ marginTop: 6 }}>
-              You are missing {e.missing.map((m) => m.replace(/-/g, ' ')).join(', ')}. Still yours to
-              read — equipment is advice, not a lock.
-            </div>
-          )}
           {me?.role === 'admin' && e.active === 1 && (
             <div className="actions">
               <button
@@ -1209,10 +1352,10 @@ function MyEquipment({ me, run }: ScreenProps) {
         </div>
         <div className="sets" style={{ marginTop: 10 }}>
           {chosen.length === 0 ? (
-            <span className="pill">nothing yet — bodyweight only</span>
+            <span className="chip">nothing yet — bodyweight only</span>
           ) : (
             chosen.map((s) => (
-              <span key={s} className="pill">
+              <span key={s} className="chip">
                 {s.replace(/-/g, ' ')}
               </span>
             ))
@@ -1599,33 +1742,42 @@ export function ChatScreen({
       <h1>Chat</h1>
       {threads.length === 0 && (
         <div className="empty">
-          No conversations.
-          <br />
+          <span className="head">No conversations.</span>
           {solo
             ? 'A conversation opens when you connect with a coach — and closes if you end it.'
             : 'A trainee has to connect with you before you can talk.'}
         </div>
       )}
-      {threads.map((t) => (
-        <button
-          key={`${t.traineeId}-${t.coachId}`}
-          type="button"
-          className="card tappable"
-          onClick={() => onOpen(t.traineeId, t.coachId)}
-        >
-          <div className="row">
-            <span className="title">{solo ? t.coachName : t.traineeName}</span>
-            {t.unread > 0 ? (
-              <span className="badge earned mono">{t.unread} new</span>
-            ) : (
-              t.lastAt && (
-                <span className="badge mono">{new Date(t.lastAt).toLocaleDateString()}</span>
-              )
-            )}
-          </div>
-          <div className="sub">{t.lastMessage ?? 'No messages yet — say hello.'}</div>
-        </button>
-      ))}
+      {threads.length > 0 && (
+        <div className="list">
+          {threads.map((t) => (
+            <button
+              key={`${t.traineeId}-${t.coachId}`}
+              type="button"
+              className="rowbtn"
+              onClick={() => onOpen(t.traineeId, t.coachId)}
+            >
+              <span className="person">
+                <span className="avatar">{initials(solo ? t.coachName : t.traineeName)}</span>
+                <span>
+                  <span className="name">{solo ? t.coachName : t.traineeName}</span>
+                  <span className="sub">{t.lastMessage ?? 'No messages yet — say hello.'}</span>
+                </span>
+              </span>
+              <span className="right">
+                {t.unread > 0 ? (
+                  <span className="badge earned mono">{t.unread} new</span>
+                ) : (
+                  t.lastAt && (
+                    <span className="when">{new Date(t.lastAt).toLocaleDateString()}</span>
+                  )
+                )}
+                <span className="chev">›</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </>
   );
 }
@@ -1641,6 +1793,12 @@ export function ThreadScreen({
   const [state, setState] = useState<{ messages: Message[]; me: string } | null>(null);
   const [body, setBody] = useState('');
   const [failed, setFailed] = useState(false);
+  // A conversation belongs to the PERSON it is with, so the header says who —
+  // not "Conversation". The names ride the same walk that lists the threads.
+  const [threads] = useList<Thread>(() => api.threads(), [me?.key]);
+  const thread = threads.find((t) => t.traineeId === traineeId && t.coachId === coachId);
+  const solo = me?.role === 'trainee';
+  const withName = (solo ? thread?.coachName : thread?.traineeName) ?? 'Conversation';
 
   const load = useCallback(() => {
     api
@@ -1657,8 +1815,8 @@ export function ThreadScreen({
           ‹ Back
         </button>
         <div className="empty">
-          This conversation is not yours to read.
-          <br />A thread lives and dies with the coaching relationship.
+          <span className="head">This conversation is not yours to read.</span>
+          A thread lives and dies with the coaching relationship.
         </div>
       </>
     );
@@ -1667,11 +1825,24 @@ export function ThreadScreen({
 
   return (
     <>
-      <button className="back" onClick={onBack}>
-        ‹ Back
-      </button>
-      <h1>Conversation</h1>
-      {state.messages.length === 0 && <div className="empty">Nothing yet. Say hello.</div>}
+      <div className="person" style={{ marginBottom: 14 }}>
+        <button className="back" onClick={onBack} aria-label="Back">
+          ‹
+        </button>
+        <span className="avatar">{initials(withName)}</span>
+        <span>
+          <span className="name" style={{ fontSize: 16, fontWeight: 600 }}>
+            {withName}
+          </span>
+          <span className="sub">{solo ? 'your coach' : 'your trainee'}</span>
+        </span>
+      </div>
+      {state.messages.length === 0 && (
+        <div className="empty">
+          <span className="head">Nothing yet.</span>
+          Say hello — the thread is the relationship, not the training.
+        </div>
+      )}
       <div className="thread">
         {state.messages.map((m) => (
           <div key={m.id} className={`bubble ${m.author === state.me ? 'mine' : 'theirs'}`}>
@@ -1680,26 +1851,25 @@ export function ThreadScreen({
           </div>
         ))}
       </div>
-      <div className="card">
+      <div className="composer">
         <textarea
-          rows={3}
+          rows={1}
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="Write a message…"
+          placeholder={`Message ${withName.split(' ')[0]}…`}
         />
-        <div className="actions">
-          <button
-            className="primary wide"
-            disabled={!body.trim()}
-            onClick={async () => {
-              const ok = await run(() => api.postMessage(traineeId, coachId, body.trim()));
-              if (ok) setBody('');
-              load();
-            }}
-          >
-            Send
-          </button>
-        </div>
+        <button
+          className="send"
+          aria-label="Send"
+          disabled={!body.trim()}
+          onClick={async () => {
+            const ok = await run(() => api.postMessage(traineeId, coachId, body.trim()));
+            if (ok) setBody('');
+            load();
+          }}
+        >
+          <SendIcon />
+        </button>
       </div>
     </>
   );
@@ -1736,21 +1906,26 @@ function MyCoaches({
         const thread = threads.find((t) => t.coachId === r.coach_id);
         return (
           <div key={r.coach_id} className="card">
-            <div className="row">
-              <span className="title">{r.coachName}</span>
+            <div className="row center">
+              <span className="person">
+                <span className="avatar">{initials(r.coachName)}</span>
+                <span className="name">{r.coachName}</span>
+              </span>
               <span className="badge earned">{SHARING_LABELS[r.mode].title}</span>
             </div>
-            <div className="sub">{SHARING_LABELS[r.mode].blurb}</div>
+            <div className="sub" style={{ marginTop: 8 }}>{SHARING_LABELS[r.mode].blurb}</div>
             <div className="actions">
               {thread && (
+                // The conversation rides the RELATIONSHIP, not the sharing mode:
+                // a coach on `assigned` can still talk to you.
                 <button
-                  className={thread.unread > 0 ? 'primary' : ''}
+                  className="wide accent-text"
                   onClick={() => onThread(thread.traineeId, thread.coachId)}
                 >
                   {thread.unread > 0 ? `Message · ${thread.unread} new` : 'Message'}
                 </button>
               )}
-              <button onClick={() => setOpen(open === r.coach_id ? null : r.coach_id)}>
+              <button className="wide" onClick={() => setOpen(open === r.coach_id ? null : r.coach_id)}>
                 {open === r.coach_id ? 'Done' : 'What they see'}
               </button>
             </div>
@@ -1796,20 +1971,35 @@ function MyLibrary({
 }: ScreenProps & { onBrowse: () => void }) {
   const [mine] = useList<Exercise>(() => api.myExercises(), [me?.key]);
   const [show, setShow] = useState(false);
+  // "Earned" is the walk reaching an exercise you PERFORMED — the link
+  // `logSetOp` makes, which has no un-link. Worth counting on its own.
+  const earnedCount = mine.filter((e) => e.access === 'granted').length;
 
   return (
     <>
-      <h2>My exercises</h2>
+      <h2>My library</h2>
       <div className="card">
+        <div className="row center">
+          <span className="title">Exercises I can use</span>
+          <span className="sub mono" style={{ marginTop: 0 }}>
+            {mine.length}
+            {earnedCount > 0 && (
+              <>
+                {' · '}
+                <span style={{ color: 'var(--good)' }}>{earnedCount} earned</span>
+              </>
+            )}
+          </span>
+        </div>
         <div className="sub">
           {mine.length === 0
             ? 'Nothing yet. Perform an exercise once and it is yours permanently.'
-            : `${mine.length} yours — earned by doing them, or made by you. Nobody can take one out of your library.`}
+            : 'Earned by doing them, or made by you. Nobody can take one out of your library.'}
         </div>
         {show && (
-          <div className="sets" style={{ marginTop: 10 }}>
+          <div className="sets">
             {mine.map((e) => (
-              <span key={e.id} className="pill done">
+              <span key={e.id} className="chip">
                 {e.name}
               </span>
             ))}
@@ -1819,9 +2009,7 @@ function MyLibrary({
           {mine.length > 0 && (
             <button onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show them'}</button>
           )}
-          <button className="primary" onClick={onBrowse}>
-            Browse the catalogue
-          </button>
+          <button onClick={onBrowse}>Browse the catalogue</button>
         </div>
       </div>
     </>
@@ -1852,8 +2040,7 @@ export function TraineesScreen({
 
       {trainees.length === 0 && (
         <div className="empty">
-          Nobody yet.
-          <br />
+          <span className="head">Nobody yet.</span>
           Invite a trainee above — they decide what they share when they join.
         </div>
       )}
@@ -1862,34 +2049,37 @@ export function TraineesScreen({
         const theirs = programs.filter((p) => p.traineeName === t.name);
         return (
           <div key={t.id} className="card">
-            <div className="row">
-              <span className="title">{t.name}</span>
-              <span className="badge">#{t.number}</span>
+            <div className="row center">
+              <span className="person">
+                <span className="avatar me">{initials(t.name)}</span>
+                <span className="name">{t.name}</span>
+              </span>
+              <span className="sub mono" style={{ marginTop: 0 }}>
+                {t.days_per_week ? `${t.days_per_week}× a week` : `#${t.number}`}
+              </span>
             </div>
-            <div className="sub">
-              {theirs.length === 0
-                ? 'No programmes you can see'
-                : `${theirs.length} programme${theirs.length === 1 ? '' : 's'}`}
-              {t.goal ? ` · ${t.goal}` : ''}
-              {t.days_per_week ? ` · ${t.days_per_week}× a week` : ''}
+            <div className="sub" style={{ marginTop: 6 }}>
+              {t.goal ? `Goal: ${t.goal}` : 'No goal set'}
             </div>
-            {theirs.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                className="card tappable"
-                style={{ marginTop: 8 }}
-                onClick={() => onOpen(p.id)}
-              >
-                <div className="row">
-                  <span className="title">{p.title}</span>
-                  <span className={`badge ${p.status}`}>{p.status.replace('_', ' ')}</span>
-                </div>
-              </button>
-            ))}
+            {/* Their programmes are a nested, bordered list INSIDE the person's
+                card — the rows belong to them, not to the screen. */}
+            {theirs.length > 0 && (
+              <div className="list nested">
+                {theirs.map((p) => (
+                  <button key={p.id} type="button" className="rowbtn" onClick={() => onOpen(p.id)}>
+                    <span className="name">{p.title}</span>
+                    <span className={`badge ${p.status}`}>{p.status.replace('_', ' ')}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {theirs.length === 0 && <div className="sub">No programmes you can see</div>}
             {thread && (
               <div className="actions">
-                <button onClick={() => onThread(thread.traineeId, thread.coachId)}>
+                <button
+                  className="wide accent-text"
+                  onClick={() => onThread(thread.traineeId, thread.coachId)}
+                >
                   {thread.unread > 0 ? `Message · ${thread.unread} new` : 'Message'}
                 </button>
               </div>
@@ -1927,14 +2117,21 @@ export function PeopleScreen({
             row: themselves. Render THAT rather than a second card from the dev
             cast — two cards with the same name was a bug, and the walk's own
             answer is the honest source. */}
+        {/* The profile card. An avatar and a line saying where you are — a
+            person, not a record id, even though the id is right there. */}
         {trainees.map((t) => (
           <div key={t.id} className="card">
-            <div className="row">
-              <span className="title">{t.name}</span>
-              <span className="badge">#{t.number}</span>
+            <div className="person">
+              <span className="avatar lg me">{initials(t.name)}</span>
+              <span>
+                <span className="name">{t.name}</span>
+                <span className="sub">
+                  trainee · <span className="mono">#{t.number}</span>
+                  {t.contact ? ` · ${t.contact}` : ''}
+                </span>
+              </span>
             </div>
-            {t.contact && <div className="sub">{t.contact}</div>}
-            <div className="sub" style={{ marginTop: 6 }}>
+            <div className="sub" style={{ marginTop: 10 }}>
               You can make your own exercises and your own programs. Everything you can reach
               beyond the shared catalogue is narrowed to your own record — including the programs
               you make.
@@ -1943,20 +2140,23 @@ export function PeopleScreen({
         ))}
         {trainees.length === 0 && (
           <div className="card">
-            <div className="title">{me?.name}</div>
-            <div className="sub">
+            <div className="person">
+              <span className="avatar lg">{initials(me?.name ?? '?')}</span>
+              <span className="name">{me?.name}</span>
+            </div>
+            <div className="sub" style={{ marginTop: 10 }}>
               You have no trainee record in this gym, so there is nothing here that is yours.
             </div>
           </div>
         )}
 
+        <h2>My training</h2>
         <Onboarding me={me} run={run} />
         <RoutineSetup me={me} run={run} onOpen={onOpen} />
         <MyCoaches me={me} run={run} onThread={onThread} />
-        <InvitePanel me={me} run={run} />
         <MyLibrary me={me} run={run} onBrowse={onBrowse} />
         <MyEquipment me={me} run={run} />
-
+        <InvitePanel me={me} run={run} />
       </>
     );
   }
@@ -1964,16 +2164,30 @@ export function PeopleScreen({
   return (
     <>
       <h1>Me</h1>
+      <div className="card">
+        <div className="person">
+          <span className="avatar lg me">{initials(me?.name ?? '?')}</span>
+          <span>
+            <span className="name">{me?.name}</span>
+            <span className="sub">{me?.role}</span>
+          </span>
+        </div>
+      </div>
+
       <MyLibrary me={me} run={run} onBrowse={onBrowse} />
       <MyEquipment me={me} run={run} />
 
       <h2>Coaches</h2>
-      {coaches.map((c) => (
-        <div key={c.id} className="card">
-          <div className="title">{c.name}</div>
-        </div>
-      ))}
-
+      <div className="list">
+        {coaches.map((c) => (
+          <div key={c.id} className="rowbtn" style={{ cursor: 'default' }}>
+            <span className="person">
+              <span className="avatar">{initials(c.name)}</span>
+              <span className="name">{c.name}</span>
+            </span>
+          </div>
+        ))}
+      </div>
     </>
   );
 }

@@ -1,22 +1,132 @@
 /* ==========================================================================
+   Stride — the visual system.
+
    Mobile-first. One column, 44px minimum tap targets, 16px inputs (anything
    smaller makes iOS Safari zoom on focus), and safe-area insets so the bottom
    nav clears the home indicator. It scales up to a phone-width column on a
    desktop rather than sprawling.
+
+   Two typefaces, and the split is a rule rather than a taste: Archivo says
+   words, IBM Plex Mono says NUMBERS. If a string contains a quantity the reader
+   cares about — a set target, a counter, a time, a percentage, a permission key
+   — it is mono, so a column of them lines up and a number never reflows as you
+   type into it.
+
+   Dark is the default and light resolves automatically from the OS. There is no
+   toggle: an `data-theme="dark|light"` attribute on the root overrides it if a
+   host ever needs to pin one.
    ========================================================================== */
 
 :root {
-  --bg: #0f1115;
-  --surface: #171a21;
-  --surface-2: #1f232c;
-  --line: #2a2f3a;
-  --text: #e8eaf0;
-  --muted: #949cae;
-  --accent: #5b8cff;
-  --good: #35c48b;
-  --warn: #e8b552;
-  --deny: #ef6f6f;
+  --bg: #0d0f12;
+  --bg-deep: #0b0d10;
+  --surface: #14171c;
+  --surface-hi: #15191f;
+  --surface-2: #1b1f26;
+  --surface-low: #101318;
+  --tabbar: #111419;
+  --tint: #132018;
+  --line: #22262d;
+  --line-2: #232830;
+  --line-strong: #2a2f3a;
+  --line-accent: #2b4634;
+  --text: #e9ecef;
+  --muted: #8b93a1;
+  --faint: #4a5160;
+  --accent: #7fd08a;
+  --on-accent: #0b1a10;
+  --good: #7fd08a;
+  --warn: #d9b36a;
+  --deny: #e07a7a;
+  --on-deny: #2a0f0f;
+  --share: #8cabf0;
+  --tint-good: #12211a;
+  --tint-warn: #241d13;
+  --tint-deny: #2a1618;
+  --tint-share: #141b2b;
+  --line-good: #2b4634;
+  --line-warn: #5a4a24;
+  --line-deny: #5c2f2f;
+  --line-share: #2f4165;
+  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.4);
+
   --radius: 14px;
+  --radius-card: 18px;
+  --font: 'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* The light set is not a tint of the dark one: the accent is deliberately
+   DARKER (#35854A) so accent-on-tint text keeps its contrast, and --on-accent
+   flips with it. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg: #f6f7f4;
+    --bg-deep: #f1f2ee;
+    --surface: #ffffff;
+    --surface-hi: #ffffff;
+    --surface-2: #edefe9;
+    --surface-low: #f4f6f1;
+    --tabbar: #fbfcfa;
+    --tint: #e3f1e5;
+    --line: #dde1d8;
+    --line-2: #e2e5dd;
+    --line-strong: #cbd0c5;
+    --line-accent: #afd4b6;
+    --text: #1c211c;
+    --muted: #67706a;
+    --faint: #a9afa6;
+    --accent: #35854a;
+    --on-accent: #f4faf5;
+    --good: #35854a;
+    --warn: #8f6a1c;
+    --deny: #bc4a4a;
+    --on-deny: #fff1f1;
+    --share: #3d62b8;
+    --tint-good: #e3f1e5;
+    --tint-warn: #f6eeda;
+    --tint-deny: #f9e5e5;
+    --tint-share: #e7edfa;
+    --line-good: #afd4b6;
+    --line-warn: #dfcb97;
+    --line-deny: #e8bdbd;
+    --line-share: #bfceec;
+    --shadow-card: 0 10px 28px rgba(45, 60, 48, 0.1);
+  }
+}
+
+:root[data-theme='light'] {
+  --bg: #f6f7f4;
+  --bg-deep: #f1f2ee;
+  --surface: #ffffff;
+  --surface-hi: #ffffff;
+  --surface-2: #edefe9;
+  --surface-low: #f4f6f1;
+  --tabbar: #fbfcfa;
+  --tint: #e3f1e5;
+  --line: #dde1d8;
+  --line-2: #e2e5dd;
+  --line-strong: #cbd0c5;
+  --line-accent: #afd4b6;
+  --text: #1c211c;
+  --muted: #67706a;
+  --faint: #a9afa6;
+  --accent: #35854a;
+  --on-accent: #f4faf5;
+  --good: #35854a;
+  --warn: #8f6a1c;
+  --deny: #bc4a4a;
+  --on-deny: #fff1f1;
+  --share: #3d62b8;
+  --tint-good: #e3f1e5;
+  --tint-warn: #f6eeda;
+  --tint-deny: #f9e5e5;
+  --tint-share: #e7edfa;
+  --line-good: #afd4b6;
+  --line-warn: #dfcb97;
+  --line-deny: #e8bdbd;
+  --line-share: #bfceec;
+  --shadow-card: 0 10px 28px rgba(45, 60, 48, 0.1);
 }
 
 * { box-sizing: border-box; }
@@ -25,10 +135,11 @@ html, body, #root { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--bg-deep);
   color: var(--text);
-  font: 16px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font: 400 15px/1.5 var(--font);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 .app {
@@ -37,7 +148,18 @@ body {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: var(--bg-deep);
+}
+
+/* Every control is reachable by keyboard and says so. On an accent-filled
+   surface the ring flips to --text, because accent-on-accent is invisible. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.primary:focus-visible,
+.send:focus-visible {
+  outline-color: var(--text);
 }
 
 /* --- the persona bar: the dev principal picker ---------------------------- */
@@ -45,9 +167,9 @@ body {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-  padding: calc(env(safe-area-inset-top) + 10px) 14px 10px;
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--line-2);
+  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -55,29 +177,54 @@ body {
 .who select {
   flex: 1;
   min-height: 44px;
-  font-size: 16px;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0 10px;
 }
-.who .seam { font-size: 11px; color: var(--muted); letter-spacing: 0.03em; }
+.who .seam {
+  font: 600 11px var(--font);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
 
-main { flex: 1; padding: 14px 14px 96px; }
+main { flex: 1; padding: 12px 16px 110px; }
 
-h1 { font-size: 20px; margin: 4px 0 14px; }
-h2 { font-size: 15px; margin: 22px 0 10px; color: var(--muted); font-weight: 600;
-     text-transform: uppercase; letter-spacing: 0.06em; }
+/* --- type ----------------------------------------------------------------- */
+h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 4px 0 12px;
+}
+/* A section label, not a heading in a document: it is what keeps a screen from
+   reading as a settings dump. */
+h2 {
+  font: 600 11px var(--font);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 20px 0 10px;
+  padding: 0 4px;
+}
+
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
 /* --- cards ---------------------------------------------------------------- */
 .card {
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 14px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-card);
+  padding: 14px 16px;
   margin-bottom: 10px;
 }
+/* Raised = what you came here to do. One step up in surface, one shadow, and at
+   most one per screen — the moment it is on everything it means nothing. */
+.card.raised {
+  background: var(--surface-hi);
+  box-shadow: var(--shadow-card);
+  padding: 18px 16px;
+}
+.card.accent { border-color: var(--line-accent); }
+
 /* A tappable card is a real <button>: reachable by keyboard and by a screen
    reader, not a div that happens to have an onClick. */
 .card.tappable {
@@ -85,179 +232,496 @@ h2 { font-size: 15px; margin: 22px 0 10px; color: var(--muted); font-weight: 600
   font: inherit; color: inherit; min-height: 0;
 }
 .card.tappable:active { background: var(--surface-2); }
-.card.tappable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.card.tappable.chosen { border-color: var(--accent); background: #141a2a; }
-.card .row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.card .title { font-weight: 600; }
-.card .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+.card.tappable.chosen { border-color: var(--line-accent); background: var(--tint); }
 
-.badge {
-  display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+.row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.row.center { align-items: center; }
+.title { font-size: 16px; font-weight: 600; }
+.title.big { font-size: 20px; }
+.sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+/* The quantity line — "4 × 12 @ 60 kg". Mono because it is numbers. */
+.sub.mono { font: 500 14px var(--mono); margin-top: 4px; }
+.quantity { font: 500 15px var(--mono); color: var(--text); margin-top: 6px; }
+
+/* "2/4" — done count in accent, the total in muted. Two colours, one glance. */
+.counter { font: 600 16px var(--mono); color: var(--muted); }
+.counter b { color: var(--accent); font-weight: 600; }
+
+/* --- grouped list card ----------------------------------------------------
+   Several rows that belong to one thing: one card, hairlines between rows, no
+   gaps. Used for "booked this week", the coach roster, a trainee's programmes. */
+.list {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  margin-bottom: 10px;
 }
-.badge.shared { color: var(--accent); border-color: #2f4785; }
-.badge.private { color: var(--warn); border-color: #5a4a24; }
-.badge.earned { color: var(--good); border-color: #23543f; }
-.badge.retired { color: var(--deny); border-color: #5c2f2f; }
-.badge.planned { color: var(--muted); }
-.badge.in_progress { color: var(--good); border-color: #23543f; }
-.badge.completed { color: var(--accent); border-color: #2f4785; }
+.list.nested { border-radius: 12px; margin: 10px 0 0; }
+.list .rowbtn {
+  display: flex; width: 100%; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 13px 16px; min-height: 48px;
+  background: transparent; border: 0; border-bottom: 1px solid var(--line-2);
+  border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.list.nested .rowbtn { padding: 11px 13px; min-height: 44px; }
+.list .rowbtn:last-child { border-bottom: 0; }
+.list .rowbtn:active { background: var(--surface-2); }
+.list .rowbtn:focus-visible { outline-offset: -2px; }
+.list .rowbtn .name { font-size: 15px; font-weight: 500; }
+.list.nested .rowbtn .name { font-size: 14px; }
+.list .rowbtn .sub { display: block; color: var(--muted); font-size: 13px; }
+.list .rowbtn .right { display: flex; align-items: center; gap: 10px; }
+.list .rowbtn .when { font: 500 14px var(--mono); color: var(--muted); }
+.chev { color: var(--faint); }
 
-/* --- buttons -------------------------------------------------------------- */
-button {
-  font: inherit;
-  min-height: 44px;
-  border-radius: 10px;
-  border: 1px solid var(--line);
+/* --- avatars -------------------------------------------------------------- */
+.avatar {
+  width: 36px; height: 36px; flex: none;
+  border-radius: 999px;
   background: var(--surface-2);
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  font: 600 13px var(--font);
+}
+.avatar.lg { width: 52px; height: 52px; font-size: 18px; }
+.avatar.me {
+  background: var(--tint);
+  border: 1px solid var(--line-accent);
+  color: var(--accent);
+}
+.person { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.person .name { font-size: 16px; font-weight: 600; }
+.person .sub { display: block; color: var(--muted); font-size: 13px; margin: 0; }
+
+/* --- badges ---------------------------------------------------------------
+   Two families. A LABEL badge (shared / private / earned / retired) is mono,
+   because it names a row's provenance and sits in a column of them. A STATUS
+   badge (planned / in progress / completed) is uppercase Archivo, because it is
+   a word about a state machine, not a quantity. */
+.badge {
+  display: inline-block;
+  font: 500 12px var(--mono);
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.badge.mono { font-variant-numeric: tabular-nums; }
+.badge.shared { color: var(--share); background: var(--tint-share); border-color: var(--line-share); }
+.badge.private { color: var(--warn); background: var(--tint-warn); border-color: var(--line-warn); }
+.badge.earned { color: var(--good); background: var(--tint-good); border-color: var(--line-good); }
+.badge.retired { color: var(--deny); background: var(--tint-deny); border-color: var(--line-deny); }
+
+.badge.planned,
+.badge.in_progress,
+.badge.completed,
+.badge.closed {
+  font: 600 11px var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.badge.planned { color: var(--muted); background: transparent; border-color: var(--line-strong); }
+.badge.in_progress { color: var(--accent); background: var(--tint); border-color: var(--line-accent); }
+.badge.completed,
+.badge.closed { color: var(--share); background: var(--tint-share); border-color: var(--line-share); }
+
+/* The booked time on the raised card — the one badge that is read from across
+   the room, so it is a size up. */
+.badge.time {
+  font: 600 14px var(--mono);
+  color: var(--accent);
+  background: var(--tint);
+  border-color: var(--line-accent);
+  padding: 5px 12px;
+}
+
+/* The superset position — A1, A2. A tag, not a badge: it is an index. */
+.tag {
+  font: 600 11px var(--mono);
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+/* --- buttons --------------------------------------------------------------
+   Four levels and they are not interchangeable. "Finish this block" is a
+   DEFAULT button on purpose: closing a block is optional, and a standing
+   workout that never ends is the normal case, not an unfinished one. */
+button {
+  font: 500 15px var(--font);
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
   color: var(--text);
-  padding: 0 14px;
+  padding: 0 16px;
   cursor: pointer;
 }
-button:active { transform: translateY(1px); }
+button:active { background: var(--surface-2); }
 button:disabled { opacity: 0.45; cursor: default; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #06122e; font-weight: 650; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font: 600 16px var(--font);
+  min-height: 52px;
+  border-radius: var(--radius);
+}
+button.primary:active { background: var(--accent); filter: brightness(0.94); }
 button.wide { width: 100%; }
-button.ghost { background: transparent; }
-button.danger { color: var(--deny); }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+/* A default button whose LABEL is the accent — used where the action is an
+   invitation to talk rather than the screen's main move. */
+button.accent-text { color: var(--accent); min-height: 44px; }
+button.ghost { background: transparent; border-color: transparent; color: var(--accent); }
+button.danger { color: var(--deny); border-color: var(--line-deny); }
+button.ghost.danger { border-color: transparent; }
+/* A quiet call to action in an empty state: tinted, never a full accent fill. */
+button.tinted {
+  background: var(--tint);
+  border-color: var(--line-accent);
+  color: var(--accent);
+  font: 600 15px var(--font);
+}
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+.back {
+  background: transparent; border: 0; color: var(--accent);
+  padding: 0; min-height: 36px; font-size: 15px;
+}
 
 /* --- forms ---------------------------------------------------------------- */
-label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+label {
+  display: block;
+  font: 600 11px var(--font);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 14px 0 5px;
+}
 input, select, textarea {
   width: 100%;
-  min-height: 44px;
-  font-size: 16px; /* below 16 and iOS zooms on focus */
+  min-height: 48px;
+  font: 400 16px var(--font); /* below 16 and iOS zooms on focus */
   color: var(--text);
   background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 10px 14px;
 }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+}
+textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
 
-/* The set logger: three numeric fields side by side, thumb-sized. */
-/* A search field that reads as one: full width, its own row, and tall enough to
-   hit with a thumb. `type=search` gets the platform clear button for free. */
-.search { margin-top: 4px; }
+.search { margin-top: 10px; }
 .search::-webkit-search-cancel-button { filter: invert(0.6); }
 
+/* The set logger: three numeric fields side by side, thumb-sized, mono, and
+   centred — the number is the whole content of the field. */
 .setgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-.setgrid input { text-align: center; font-size: 20px; font-variant-numeric: tabular-nums; min-height: 52px; }
-.setgrid label { text-align: center; margin-top: 0; }
-
-.sets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.pill {
-  font-size: 12px; font-variant-numeric: tabular-nums;
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 8px; padding: 4px 8px; color: var(--muted);
+.setgrid input {
+  text-align: center;
+  font: 500 20px var(--mono);
+  font-variant-numeric: tabular-nums;
+  min-height: 52px;
+  padding: 0 6px;
 }
-/* A missing piece of kit is dimmed, never hidden — you may still read the
-   exercise, you just cannot do it today. */
-.pill.missing { color: var(--deny); border-color: #5c2f2f; opacity: 0.85; }
-.pill.toggle { min-height: 34px; cursor: pointer; font: inherit; font-size: 12px; }
-.pill.toggle.on { color: var(--good); border-color: #23543f; background: #10261e; }
-.pill.done { color: var(--good); border-color: #23543f; }
+.setgrid label { text-align: center; margin: 0 0 5px; }
 
-/* A superset is drawn as one block so "back to back" is visible rather than
-   stated: the bracket is the grouping. */
+/* --- pills & chips --------------------------------------------------------
+   A pill is a set: "1: 12 × 60 ✓". A chip is a piece of equipment. A toggle is
+   a filter you can press. */
+.sets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.pill {
+  font: 500 13px var(--mono);
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: var(--muted);
+}
+/* A performed set is filled, not outlined: it is done, and the card should read
+   at arm's length. */
+.pill.done { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+
+.chip {
+  font: 500 12px var(--font);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--muted);
+}
+/* A missing piece of kit is DIMMED, never hidden — you may still read the
+   exercise, you just cannot do it today. Equipment is advice, not a permission,
+   and hiding the row would be a second, weaker access rule beside the real one. */
+.chip.missing { opacity: 0.45; }
+
+.pill.toggle {
+  min-height: 36px;
+  padding: 0 13px;
+  font: 500 13px var(--font);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.pill.toggle.on {
+  background: var(--tint);
+  border-color: var(--line-accent);
+  color: var(--accent);
+}
+.pill.toggle:disabled { opacity: 0.45; }
+
+/* The filter row above the results: square-ish buttons, same selected treatment
+   as the pills so "on" reads identically wherever it appears. */
+.filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.filters button {
+  min-height: 40px;
+  padding: 0 14px;
+  font: 500 14px var(--font);
+  border-radius: 10px;
+}
+.filters button.on {
+  background: var(--tint);
+  border-color: var(--line-accent);
+  color: var(--accent);
+}
+.filters .count { margin-left: auto; font: 500 13px var(--mono); color: var(--muted); }
+
+/* --- the superset ---------------------------------------------------------
+   Drawn as one bracketed block so "back to back" is visible rather than stated:
+   the container is the grouping, and the A1/A2 tags say the order. */
 .superset {
-  border-left: 3px solid var(--accent);
-  padding-left: 10px;
+  background: var(--surface-low);
+  border: 1px solid var(--line-accent);
+  border-radius: var(--radius-card);
+  padding: 12px;
   margin-bottom: 10px;
 }
 .superset-label {
-  font-size: 12px; color: var(--accent); text-transform: uppercase;
-  letter-spacing: 0.06em; margin-bottom: 6px;
+  font: 600 11px var(--font);
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 4px 8px;
 }
+.superset .card { border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.superset .card:last-child { margin-bottom: 0; }
 
-/* --- banners -------------------------------------------------------------- */
+/* --- the adherence ring ---------------------------------------------------- */
+.ring { position: relative; width: 124px; height: 124px; flex: none; }
+.ring svg { transform: rotate(-90deg); }
+.ring .value {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font: 600 32px var(--mono);
+  letter-spacing: -0.02em;
+}
+.ring .value small { font-size: 18px; color: var(--muted); }
+.stats { display: flex; flex-direction: column; gap: 12px; }
+.stat { font: 600 20px var(--mono); }
+.stat span { color: var(--muted); }
+.stat small { font-size: 14px; color: var(--muted); }
+.stat .label { display: block; font: 400 13px var(--font); color: var(--muted); }
+
+/* --- banners --------------------------------------------------------------
+   The denial banner is a FEATURE. It says what was refused, names the permission
+   in mono, and states plainly that nothing changed — never a crash, never a
+   stack trace. */
 .banner {
   position: sticky; top: 64px; z-index: 15;
-  border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px;
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  cursor: pointer;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
 }
-.banner.deny { background: #2a1618; border: 1px solid #5c2f2f; color: #ffb4b4; }
-.banner.error { background: #241d13; border: 1px solid #5a4a24; color: var(--warn); }
-.banner.good { background: #10261e; border: 1px solid #23543f; color: #9df0c9; }
-.banner b { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.8; }
+.banner.deny { background: var(--tint-deny); border-color: var(--line-deny); }
+.banner.error { background: var(--tint-warn); border-color: var(--line-warn); }
+.banner.good { background: var(--tint-good); border-color: var(--line-good); }
+.banner .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.banner b {
+  font: 600 11px var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.banner.deny b, .banner.deny .perm { color: var(--deny); }
+.banner.error b { color: var(--warn); }
+.banner.good b { color: var(--good); }
+.banner .perm { font: 500 11px var(--mono); white-space: nowrap; }
+.banner .body { margin-top: 4px; }
 
-.empty { color: var(--muted); font-size: 14px; padding: 24px 4px; text-align: center; }
-.muted { color: var(--muted); }
-.mono { font-variant-numeric: tabular-nums; }
+/* The earned moment. Performing an exercise once links it to you permanently —
+   a kernel walk, not a WHERE clause — so it is worth one quiet celebration. */
+.earned-card {
+  background: var(--tint-good);
+  border: 1px solid var(--line-good);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 20px 16px;
+  margin-bottom: 10px;
+  text-align: center;
+  cursor: pointer;
+}
+.earned-card .disc {
+  display: inline-flex; width: 44px; height: 44px;
+  border-radius: 999px;
+  background: var(--good); color: var(--on-accent);
+  align-items: center; justify-content: center;
+}
+.earned-card .head { font-size: 19px; font-weight: 700; margin-top: 10px; }
+.earned-card .what { font: 500 14px var(--mono); color: var(--good); margin-top: 4px; }
+.earned-card .why { color: var(--muted); font-size: 14px; line-height: 1.5; margin-top: 8px; }
+
+/* --- empty states ---------------------------------------------------------
+   An empty list is an open door onto an empty room, not an error: it gets a card
+   and a sentence about what would fill it. */
+.empty {
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-card);
+  padding: 28px 24px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: center;
+}
+.empty b { color: var(--text); font-weight: 600; }
+.empty .head { display: block; color: var(--text); font-size: 17px; font-weight: 600; margin-bottom: 6px; }
 
 /* --- the conversation ------------------------------------------------------ */
-.thread { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.thread { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
 .bubble {
-  max-width: 85%; padding: 9px 12px; border-radius: 14px;
-  border: 1px solid var(--line); background: var(--surface); font-size: 15px;
+  max-width: 82%;
+  padding: 10px 13px;
+  font-size: 15px;
+  line-height: 1.45;
+  border: 1px solid var(--line-2);
+  background: var(--surface);
 }
-.bubble.mine { align-self: flex-end; background: #1b2murky; }
-.bubble.mine { background: #1b2740; border-color: #2f4785; }
-.bubble.theirs { align-self: flex-start; }
-.bubble .stamp { font-size: 11px; color: var(--muted); margin-top: 4px; }
-textarea { resize: vertical; min-height: 76px; }
+.bubble.theirs { align-self: flex-start; border-radius: 16px 16px 16px 6px; }
+.bubble.mine {
+  align-self: flex-end;
+  background: var(--tint);
+  border-color: var(--line-accent);
+  border-radius: 16px 16px 6px 16px;
+}
+.bubble .stamp { font: 500 11px var(--mono); color: var(--muted); margin-top: 5px; }
+.bubble.mine .stamp { text-align: right; }
 
-/* --- bottom nav ----------------------------------------------------------- */
+.composer { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 10px; }
+.composer textarea { min-height: 48px; border-radius: var(--radius); }
+.composer .send {
+  min-height: 48px; min-width: 48px; padding: 0;
+  flex: none;
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+  border-radius: var(--radius);
+  display: flex; align-items: center; justify-content: center;
+}
+.composer .send:disabled { opacity: 0.45; }
+
+/* --- bottom nav ------------------------------------------------------------ */
 nav.tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   max-width: 520px; margin: 0 auto;
   display: flex;
-  background: var(--surface);
-  border-top: 1px solid var(--line);
+  background: var(--tabbar);
+  border-top: 1px solid var(--line-2);
   padding-bottom: env(safe-area-inset-bottom);
 }
 nav.tabs button {
-  /* Five tabs at 375px is 75px each — the label has to shrink to fit rather
-     than wrap into the icon. */
-  flex: 1; min-width: 0; min-height: 56px; border: 0; background: transparent;
-  border-radius: 0; color: var(--muted); font-size: 11px; display: flex;
-  flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  padding: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0; min-height: 56px;
+  border: 0; background: transparent; border-radius: 0;
+  color: var(--muted);
+  font: 500 11px var(--font);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px;
+  padding: 0 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-nav.tabs button.on { color: var(--accent); }
-nav.tabs .glyph { font-size: 19px; line-height: 1; position: relative; }
+nav.tabs button:active { background: transparent; }
+nav.tabs button.on { color: var(--accent); font-weight: 600; }
+nav.tabs .glyph { display: flex; position: relative; }
 /* Unread rides the tab that LEADS to the conversation — a notification, not a
    destination of its own. */
 nav.tabs .dot {
-  position: absolute; top: -5px; left: 11px;
+  position: absolute; top: -6px; left: 13px;
   min-width: 16px; height: 16px; padding: 0 4px;
-  border-radius: 999px; background: var(--deny); color: #2a0f0f;
-  font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  border-radius: 999px; background: var(--deny); color: var(--on-deny);
+  font: 700 10px/16px var(--font); text-align: center;
 }
 
-.back { background: transparent; border: 0; color: var(--accent); padding: 0; min-height: 36px; }
-
-/* The signed-out gates. Not an error state — an unclaimed gym and a login with
-   no seat are both normal, so they get the app's own type, not a red box. */
+/* --- the signed-out gates --------------------------------------------------
+   Not error states: an unclaimed gym and a valid login with no seat are both
+   normal, so they get the app's own type and a calm card — no red, no tabs. */
 .gate {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  align-items: flex-start;
-  padding: 2.5rem 1.25rem;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 24px;
 }
-.gate h1 {
-  margin: 0;
-  font-size: 1.5rem;
+.gate .wordmark {
+  font: 600 13px var(--mono);
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
+.gate .card { padding: 24px 20px; margin: 0; }
+.gate h1 { margin: 0; font-size: 21px; font-weight: 700; }
 .gate p {
-  margin: 0;
+  margin: 6px 0 0;
   max-width: 34ch;
-  line-height: 1.45;
-  opacity: 0.8;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
 }
 .gate .primary,
-.who .signout {
-  display: inline-block;
-  margin-top: 0.5rem;
-  padding: 0.6rem 1rem;
-  border-radius: 0.5rem;
-  background: #111;
-  color: #fff;
+.gate .default {
+  display: block;
+  margin-top: 16px;
+  min-height: 52px;
+  line-height: 52px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  text-align: center;
   text-decoration: none;
-  font-weight: 600;
+  font: 600 16px var(--font);
+}
+.gate .default {
+  display: inline-block;
+  min-height: 48px;
+  line-height: 46px;
+  padding: 0 20px;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font: 500 15px var(--font);
+  border-radius: 12px;
 }
 .who .signout {
-  margin-top: 0;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.85rem;
+  padding: 0 12px;
+  min-height: 36px;
+  line-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+  font: 500 13px var(--font);
 }

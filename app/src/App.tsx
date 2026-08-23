@@ -25,6 +25,13 @@ import {
   writePrincipalToUrl,
   type Route,
 } from './router';
+import {
+  BarbellIcon,
+  CalendarIcon,
+  ClipboardIcon,
+  PeopleIcon,
+  PersonIcon,
+} from './icons';
 
 // ============================================================================
 // The shell: the dev persona picker, a notice banner, and the bottom tab bar.
@@ -65,16 +72,77 @@ export function useNotice() {
  * unclaimed gym and a valid login with no seat are both normal, and the second is
  * the whole point — authenticating proves who you are, never that you belong here.
  */
-function Gate({ title, body, action, href }: { title: string; body: string; action: string; href: string }) {
+function Gate({
+  title,
+  body,
+  action,
+  href,
+  quiet,
+}: {
+  title: string;
+  body: string;
+  action: string;
+  href: string;
+  /** A sign-out is a way back, not the thing to do — so it is not the primary. */
+  quiet?: boolean;
+}) {
   return (
     <div className="app">
       <main className="gate">
-        <h1>{title}</h1>
-        <p>{body}</p>
-        <a className="primary" href={href}>
-          {action}
-        </a>
+        <div className="wordmark">Stride</div>
+        <div className={quiet ? 'card' : 'card raised'}>
+          <h1>{title}</h1>
+          <p>{body}</p>
+          <a className={quiet ? 'default' : 'primary'} href={href}>
+            {action}
+          </a>
+        </div>
       </main>
+    </div>
+  );
+}
+
+/**
+ * A denial arrives as `permission denied: result:log`. The key is worth pulling
+ * out and setting in mono: it is the exact thing the kernel checked, and naming
+ * it turns "something went wrong" into a fact you can act on.
+ */
+function splitDenial(text: string): { perm: string | null; rest: string } {
+  const m = /^permission denied:\s*(\S+)\s*(.*)$/s.exec(text);
+  if (!m) return { perm: null, rest: text };
+  return { perm: m[1]!, rest: m[2]!.trim() };
+}
+
+/**
+ * The banner is the point of the app, not decoration — so a refusal gets a
+ * headline, the permission that was checked, and one plain sentence saying that
+ * nothing changed. Sticky under the header, dismissed by tapping it.
+ */
+function NoticeBanner({ notice, onDismiss }: { notice: NonNullable<Notice>; onDismiss: () => void }) {
+  const { perm, rest } = notice.kind === 'deny' ? splitDenial(notice.text) : { perm: null, rest: notice.text };
+  return (
+    <div className={`banner ${notice.kind}`} onClick={onDismiss}>
+      <div className="head">
+        <b>
+          {notice.kind === 'deny'
+            ? 'Denied by the kernel'
+            : notice.kind === 'good'
+              ? 'Done'
+              : 'Rejected'}
+        </b>
+        {perm && <span className="perm">{perm}</span>}
+      </div>
+      <div className="body">
+        {perm ? (
+          <>
+            You don&apos;t hold <span className="mono">{perm}</span> here.{' '}
+            {rest ? `${rest} ` : ''}Nothing was changed — the kernel said no, and that is the
+            whole story.
+          </>
+        ) : (
+          notice.text
+        )}
+      </div>
     </div>
   );
 }
@@ -196,6 +264,7 @@ export function App() {
           }, but this account has no seat in this gym. Ask an admin for an invitation.`}
           action="Sign out"
           href="/api/auth/logout"
+          quiet
         />
       );
   }
@@ -230,18 +299,7 @@ export function App() {
       </header>
 
       <main>
-        {notice && (
-          <div className={`banner ${notice.kind}`} onClick={() => setNotice(null)}>
-            <b>
-              {notice.kind === 'deny'
-                ? 'Denied by the kernel'
-                : notice.kind === 'good'
-                  ? 'Done'
-                  : 'Rejected'}
-            </b>
-            {notice.text}
-          </div>
-        )}
+        {notice && <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} />}
 
         {route.name === 'workout' ? (
           <ProgramDetailScreen
@@ -285,7 +343,12 @@ export function App() {
             onBrowse={() => navigate(EXERCISES_DEFAULT as Route)}
           />
         ) : (
-          <TodayScreen me={me} run={run} onOpen={openWorkout} />
+          <TodayScreen
+            me={me}
+            run={run}
+            onOpen={openWorkout}
+            onSetup={() => navigate({ name: 'me' })}
+          />
         )}
       </main>
 
@@ -299,17 +362,17 @@ export function App() {
         */}
         {(staff
           ? ([
-              ['today', '◷', 'Today', { name: 'today' } as Route, 0],
-              ['workouts', '▤', 'Programmes', { name: 'workouts' } as Route, 0],
-              ['trainees', '☺', 'Trainees', { name: 'trainees' } as Route, unread],
-              ['me', '⊙', 'Me', { name: 'me' } as Route, 0],
+              ['today', CalendarIcon, 'Today', { name: 'today' } as Route, 0],
+              ['workouts', ClipboardIcon, 'Programmes', { name: 'workouts' } as Route, 0],
+              ['trainees', PeopleIcon, 'Trainees', { name: 'trainees' } as Route, unread],
+              ['me', PersonIcon, 'Me', { name: 'me' } as Route, 0],
             ] as const)
           : ([
-              ['today', '◷', 'Today', { name: 'today' } as Route, 0],
-              ['workouts', '▤', 'Workouts', { name: 'workouts' } as Route, 0],
-              ['me', '⊙', 'Me', { name: 'me' } as Route, unread],
+              ['today', CalendarIcon, 'Today', { name: 'today' } as Route, 0],
+              ['workouts', BarbellIcon, 'Workouts', { name: 'workouts' } as Route, 0],
+              ['me', PersonIcon, 'Me', { name: 'me' } as Route, unread],
             ] as const)
-        ).map(([key, glyph, label, target, badge]) => (
+        ).map(([key, Glyph, label, target, badge]) => (
           <button
             key={key}
             className={tab === key ? 'on' : ''}
@@ -319,7 +382,7 @@ export function App() {
             }}
           >
             <span className="glyph">
-              {glyph}
+              <Glyph />
               {badge > 0 && <span className="dot">{badge > 9 ? '9+' : badge}</span>}
             </span>
             {label}
