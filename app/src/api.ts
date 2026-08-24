@@ -203,6 +203,9 @@ export interface SetResult {
   rpe: string | null;
   duration_seconds: number | null;
   avg_hr: number | null;
+  /** When this set was performed. The server has always sent it; declaring it is
+   *  what lets a session's END be derived instead of guessed at from a device. */
+  logged_at: string;
 }
 
 export interface Session {

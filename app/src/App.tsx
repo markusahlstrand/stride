@@ -7,6 +7,7 @@ import {
 } from './api';
 import {
   ChatScreen,
+  initials,
   LibraryScreen,
   PeopleScreen,
   ProgramDetailScreen,
@@ -16,6 +17,16 @@ import {
   TraineesScreen,
 } from './screens';
 import { EXERCISES_DEFAULT, tabOf, useRoute, type Route } from './router';
+import {
+  SessionBar,
+  SessionCountdown,
+  SessionFinish,
+  dismissFinish,
+  endCountdown,
+  useActiveSession,
+  useCountingDown,
+  useFinishSummary,
+} from './session';
 import {
   BarbellIcon,
   CalendarIcon,
@@ -146,6 +157,12 @@ export function App() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [route, navigate] = useRoute();
   const [unread, setUnread] = useState(0);
+  // The active WORKOUT session — device-local state, not a fetch (see
+  // `session.tsx`). Named apart from the auth `session` above: they are two
+  // different things and one of them is a clock.
+  const workout = useActiveSession();
+  const countingDown = useCountingDown();
+  const finished = useFinishSummary();
   const { notice, setNotice, run } = useNotice();
 
   useEffect(() => {
@@ -244,16 +261,6 @@ export function App() {
 
   return (
     <div className="app">
-      <header className="who">
-        <div>
-          <div className="seam">SIGNED IN</div>
-          {me?.name ?? session?.email ?? ''}
-        </div>
-        <a className="signout" href="/api/auth/logout">
-          Sign out
-        </a>
-      </header>
-
       <main>
         {notice && <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} />}
 
@@ -308,7 +315,14 @@ export function App() {
         )}
       </main>
 
+      {workout && <SessionBar onOpen={(id) => navigate({ name: 'workout', id })} />}
+
       <nav className="tabs">
+        {/* Desktop only (hidden under the breakpoint): the rail's wordmark, and
+            at its foot the signed-in person. Identity comes BACK here because the
+            desktop design asks for it — on mobile there is no chrome to hold it,
+            which is why it lives on Me. */}
+        <div className="rail-mark">Stride</div>
         {/*
           The bar follows the PERSON, not the schema. Exercises are part of a
           workout and are reached from one (or from your own library on Me), so
@@ -344,7 +358,32 @@ export function App() {
             {label}
           </button>
         ))}
+
+        {/* Above the tab bar, below everything else — a sibling of the bar so
+            its own margins hold it clear. */}
+        {me && (
+          <div className="rail-user">
+            <span className="avatar">{initials(me.name)}</span>
+            <span className="rail-name">{me.name}</span>
+          </div>
+        )}
       </nav>
+
+      {/* The two moments that take over the screen. Both are transient and
+          neither writes anything — the sets were logged as they happened. */}
+      {countingDown && workout && (
+        <SessionCountdown name={workout.name} onDone={endCountdown} />
+      )}
+      {finished && (
+        <SessionFinish
+          summary={finished}
+          onDone={dismissFinish}
+          onAdherence={() => {
+            dismissFinish();
+            navigate({ name: 'workouts' });
+          }}
+        />
+      )}
     </div>
   );
 }
