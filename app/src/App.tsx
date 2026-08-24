@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
-  DEV,
   api,
-  currentPrincipal,
-  setPrincipal,
   type CastMember,
   type AuthSession,
 } from './api';
 import {
   ChatScreen,
+  initials,
   LibraryScreen,
   PeopleScreen,
   ProgramDetailScreen,
@@ -18,13 +16,17 @@ import {
   TodayScreen,
   TraineesScreen,
 } from './screens';
+import { EXERCISES_DEFAULT, tabOf, useRoute, type Route } from './router';
 import {
-  EXERCISES_DEFAULT,
-  tabOf,
-  useRoute,
-  writePrincipalToUrl,
-  type Route,
-} from './router';
+  SessionBar,
+  SessionCountdown,
+  SessionFinish,
+  dismissFinish,
+  endCountdown,
+  useActiveSession,
+  useCountingDown,
+  useFinishSummary,
+} from './session';
 import {
   BarbellIcon,
   CalendarIcon,
@@ -34,15 +36,17 @@ import {
 } from './icons';
 
 // ============================================================================
-// The shell: the dev persona picker, a notice banner, and the bottom tab bar.
+// The shell: the signed-in header, a notice banner, and the bottom tab bar.
 //
 // WHERE YOU ARE LIVES IN THE URL, not in React state — see router.ts. Refresh
 // lands you back on the same screen, Back works, and a workout has a link.
 //
 // The banner is the point of the app, not decoration. When the kernel refuses
 // something it arrives here as a 403 with the permission that was denied — so
-// switching to a persona who shouldn't be able to do a thing, and watching the
+// signing in as someone who shouldn't be able to do a thing, and watching the
 // refusal land, is a first-class part of the UI rather than a stack trace.
+// Switching person is a sign-out and a sign-in now, which is what it always
+// really was; the dev issuer keeps no SSO cookie, so it costs one click.
 // ============================================================================
 
 export type Notice = { kind: 'deny' | 'error' | 'good'; text: string } | null;
@@ -148,25 +152,23 @@ function NoticeBanner({ notice, onDismiss }: { notice: NonNullable<Notice>; onDi
 }
 
 export function App() {
-  const [cast, setCast] = useState<CastMember[]>([]);
   const [me, setMe] = useState<CastMember | null>(null);
-  /** Deployed only. In dev the persona picker IS the session. */
+  /** Both runtimes. The dev issuer and the hosted one answer the same shape. */
   const [session, setSession] = useState<AuthSession | null>(null);
   const [route, navigate] = useRoute();
   const [unread, setUnread] = useState(0);
+  // The active WORKOUT session — device-local state, not a fetch (see
+  // `session.tsx`). Named apart from the auth `session` above: they are two
+  // different things and one of them is a clock.
+  const workout = useActiveSession();
+  const countingDown = useCountingDown();
+  const finished = useFinishSummary();
   const { notice, setNotice, run } = useNotice();
 
   useEffect(() => {
-    if (DEV) {
-      // Make the address bar honest on first load, so a copied link carries the
-      // persona even when it was only ever in localStorage.
-      writePrincipalToUrl(currentPrincipal());
-      api.cast().then(setCast).catch(() => undefined);
-      return;
-    }
-    // Deployed: the worker answers this while signed out, so a failure here is a
-    // broken instance, not a signed-out one — treat it as signed out either way
-    // rather than hanging on a spinner nobody can get past.
+    // Answered while signed out, so a failure here is a broken instance, not a
+    // signed-out one — treat it as signed out either way rather than hanging on
+    // a spinner nobody can get past.
     api
       .session()
       .then(setSession)
@@ -183,10 +185,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (DEV) {
-      api.me().then(setMe).catch(() => setMe(null));
-      return;
-    }
     if (!session?.seated) {
       setMe(null);
       return;
@@ -201,19 +199,11 @@ export function App() {
           key: who.principal,
           name: who.name ?? session.name ?? session.email ?? 'You',
           role: who.role,
-          subjectId: null,
+          subjectId: who.recordId,
         }),
       )
       .catch(() => setMe(null));
-  }, [cast.length, session?.seated, session?.email, session?.name]);
-
-  const switchTo = (key: string) => {
-    setPrincipal(key);
-    writePrincipalToUrl(key);
-    setNotice(null);
-    navigate({ name: 'today' });
-    api.me().then(setMe).catch(() => setMe(null));
-  };
+  }, [session?.seated, session?.email, session?.name]);
 
   const staff = me?.role === 'admin' || me?.role === 'coach';
   const tab = tabOf(route, me?.role);
@@ -238,66 +228,39 @@ export function App() {
     };
   }, [me?.key, route.name]);
 
-  // The gates, deployed only. Every hook above has already run, so these returns
-  // change what is rendered and never the order anything is called in.
-  if (!DEV) {
-    if (!session) return <div className="app" />;
-    if (!session.signedIn)
-      return (
-        <Gate
-          title={session.needsSetup ? 'Claim this gym' : 'Stride'}
-          body={
-            session.needsSetup
-              ? 'Nobody runs this gym yet. The first person to sign in claims it and becomes its admin.'
-              : 'Sign in to see your workouts.'
-          }
-          action={session.needsSetup ? 'Sign in and claim it' : 'Sign in'}
-          href="/api/auth/login"
-        />
-      );
-    if (!session.seated)
-      return (
-        <Gate
-          title="Not a member here"
-          body={`You are signed in${
-            session.email ? ` as ${session.email}` : ''
-          }, but this account has no seat in this gym. Ask an admin for an invitation.`}
-          action="Sign out"
-          href="/api/auth/logout"
-          quiet
-        />
-      );
-  }
+  // The gates, in BOTH runtimes. Every hook above has already run, so these
+  // returns change what is rendered and never the order anything is called in.
+  // Locally these are the screens the dev issuer sends you through, which is the
+  // point: the sign-in path the deployment runs is the one you see all day.
+  if (!session) return <div className="app" />;
+  if (!session.signedIn)
+    return (
+      <Gate
+        title={session.needsSetup ? 'Claim this gym' : 'Stride'}
+        body={
+          session.needsSetup
+            ? 'Nobody runs this gym yet. The first person to sign in claims it and becomes its admin.'
+            : 'Sign in to see your workouts.'
+        }
+        action={session.needsSetup ? 'Sign in and claim it' : 'Sign in'}
+        href="/api/auth/login"
+      />
+    );
+  if (!session.seated)
+    return (
+      <Gate
+        title="Not a member here"
+        body={`You are signed in${
+          session.email ? ` as ${session.email}` : ''
+        }, but this account has no seat in this gym. Ask an admin for an invitation.`}
+        action="Sign out"
+        href="/api/auth/logout"
+        quiet
+      />
+    );
 
   return (
     <div className="app">
-      <header className="who">
-        {DEV ? (
-          <>
-            <div>
-              <div className="seam">DEV PRINCIPAL</div>
-            </div>
-            <select value={currentPrincipal()} onChange={(e) => switchTo(e.target.value)}>
-              {cast.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.name} · {c.role}
-                </option>
-              ))}
-            </select>
-          </>
-        ) : (
-          <>
-            <div>
-              <div className="seam">SIGNED IN</div>
-              {me?.name ?? session?.email ?? ''}
-            </div>
-            <a className="signout" href="/api/auth/logout">
-              Sign out
-            </a>
-          </>
-        )}
-      </header>
-
       <main>
         {notice && <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} />}
 
@@ -352,7 +315,14 @@ export function App() {
         )}
       </main>
 
+      {workout && <SessionBar onOpen={(id) => navigate({ name: 'workout', id })} />}
+
       <nav className="tabs">
+        {/* Desktop only (hidden under the breakpoint): the rail's wordmark, and
+            at its foot the signed-in person. Identity comes BACK here because the
+            desktop design asks for it — on mobile there is no chrome to hold it,
+            which is why it lives on Me. */}
+        <div className="rail-mark">Stride</div>
         {/*
           The bar follows the PERSON, not the schema. Exercises are part of a
           workout and are reached from one (or from your own library on Me), so
@@ -388,7 +358,32 @@ export function App() {
             {label}
           </button>
         ))}
+
+        {/* Above the tab bar, below everything else — a sibling of the bar so
+            its own margins hold it clear. */}
+        {me && (
+          <div className="rail-user">
+            <span className="avatar">{initials(me.name)}</span>
+            <span className="rail-name">{me.name}</span>
+          </div>
+        )}
       </nav>
+
+      {/* The two moments that take over the screen. Both are transient and
+          neither writes anything — the sets were logged as they happened. */}
+      {countingDown && workout && (
+        <SessionCountdown name={workout.name} onDone={endCountdown} />
+      )}
+      {finished && (
+        <SessionFinish
+          summary={finished}
+          onDone={dismissFinish}
+          onAdherence={() => {
+            dismissFinish();
+            navigate({ name: 'workouts' });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -3,27 +3,64 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { HTTPException } from 'hono/http-exception';
 import type { Context } from 'hono';
-import { PermissionDenied, type ScopeStub } from '@substrat-run/kernel';
-import type { PrincipalId } from '@substrat-run/contracts';
+import { PermissionDenied, ulid, type ScopeStub } from '@substrat-run/kernel';
+import { platformActorId } from '@substrat-run/contracts';
 import { mountOperations } from '@substrat-run/vertical-host';
+import { devLogin } from '@substrat-run/dev-issuer';
 import { knownOperations, operations } from './model.js';
+import { DEV_PROVIDER } from './personas.js';
 import {
   buildStrideHost,
   drainPlatformRequests,
+  linkDevIdentities,
   seedStride,
   type StrideWorld,
 } from './seed.js';
 
 // ============================================================================
-// A deliberately THIN dev API. Each route authenticates (a dev principal picker
-// via the `x-principal` header — a real deployment swaps in a session), gets the
-// scope, and invokes ONE operation. There is no business logic here: every rule
-// lives in an operation, an engine, or the guard.
+// A deliberately THIN dev API. Each route authenticates, gets the scope, and
+// invokes ONE operation. There is no business logic here: every rule lives in
+// an operation, an engine, or the guard.
 //
-// `x-principal` is a DEV SEAM, NOT A LOGIN. It must be replaced with real auth
-// before this is exposed to anyone: shipping it is a cross-tenant hole with a UI.
+// AUTHENTICATION IS REAL, and that is the change worth understanding. There
+// used to be an `x-principal` header here — a dev seam that let the caller name
+// its own principal. It was a bad trade twice over: an impersonation bypass one
+// environment variable away from being live, and a FORK in the auth path, so
+// the login exercised all day was one no deployment ran and the real one was
+// only ever tested in production. That is exactly how a broken sign-in reaches
+// a deployed instance unnoticed.
+//
+// Now `@substrat-run/dev-issuer` runs a real OpenID Connect provider on :8879
+// whose only shortcut is that `/authorize` shows a list of people instead of a
+// password field, and this file is an ordinary relying party in front of it —
+// running the SAME `oidcRpAuthProvider` that `src/worker.ts` runs against the
+// hosted issuer. One auth path, two issuers. Point `OIDC_ISSUER` at Auth0 or
+// Keycloak and nothing in this file changes.
 // ============================================================================
+
+/**
+ * FAIL CLOSED, at the door rather than per request.
+ *
+ * The issuer's signing key is public by design (it is checked into a public
+ * repo, so anyone can mint a token it validates) and the session cookie is
+ * signed with a well-known default secret. Both are the right posture for a
+ * process bound to localhost and the wrong one for anything else, so this
+ * harness refuses to boot unless someone said out loud that it is a dev run.
+ * `pnpm dev` and `pnpm server` set it; nothing else does.
+ *
+ * This is a DEPLOYMENT guard, not an auth branch — there is no code path here
+ * that authenticates anyone differently. `src/worker.ts` is what deploys.
+ */
+if (process.env.STRIDE_DEV_AUTH !== '1') {
+  console.error(
+    'refusing to start: this is a dev harness with a public-key issuer and it will not\n' +
+      'guess that you meant to run it. Set STRIDE_DEV_AUTH=1 (pnpm dev does) — and never\n' +
+      'expose this process. src/worker.ts is the deployed entry point.',
+  );
+  process.exit(1);
+}
 
 const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '.data');
 mkdirSync(dataDir, { recursive: true });
@@ -31,55 +68,33 @@ mkdirSync(dataDir, { recursive: true });
 const host = buildStrideHost(dataDir);
 const world: StrideWorld = await seedStride(host, dataDir);
 
-/**
- * The dev cast, keyed by the `x-principal` header value. Every entry is a real
- * principal with real tuples — nothing here is a bypass. `role` is a LABEL for
- * the UI; it grants nothing.
- */
-const CAST: Record<string, { name: string; role: string; principal: PrincipalId; subjectId?: string }> = {
-  astrid: { name: 'Astrid Kihlberg', role: 'admin', principal: world.astrid },
-  nina: { name: 'Nina Ljung', role: 'coach', principal: world.nina, subjectId: world.ninaId },
-  ola: { name: 'Ola Sandgren', role: 'coach', principal: world.ola, subjectId: world.olaId },
-  vera: { name: 'Vera Holm', role: 'trainee', principal: world.vera, subjectId: world.veraId },
-  bjorn: { name: 'Björn Ek', role: 'trainee', principal: world.bjorn, subjectId: world.bjornId },
-  rutger: { name: 'Rutger Palm — Sydpuls Gym', role: 'outsider', principal: world.rutger },
-  // Nobody yet. Real principal, no records, no role — pick this one to accept an
-  // invitation and watch someone become a member of the gym.
-  newcomer: { name: 'Someone with an invitation', role: 'newcomer', principal: world.newcomer },
-};
+// Bind each persona's `sub` to its principal. Runs on every boot, not just a
+// fresh seed, so an existing `.data` dir picks up its identity links.
+await linkDevIdentities(host, world);
 
 /**
- * FAIL CLOSED. The dev cast only exists when this process was started with
- * `STRIDE_DEV_AUTH=1`, which `pnpm dev` and the tests set and nothing else
- * does.
+ * THE RELYING PARTY. `directory: host.admin` is the same identity directory the
+ * platform writes into when it provisions a hosted instance — `caller()` asks
+ * it which tenant this subject exists in and which principal they are there.
  *
- * Before, an unset variable meant "use the cast" — so this file deployed
- * anywhere was a cross-tenant hole with a UI: anyone could claim to be the
- * admin, or the attacker persona from the other gym. An unset variable now
- * means "there is no authentication here", and the server refuses every request
- * rather than serving one to whoever asks.
- *
- * This is a seam, not a login. `src/worker.ts` is where real auth goes.
+ * Note what this means for the scope: it comes from the DIRECTORY, not from a
+ * constant. Sign in as Rutger and you get Sydpuls Gym, because that is where his
+ * login lives. The old harness pinned everyone to t1, which quietly made "which
+ * gym am I in" a question the harness answered instead of the directory.
  */
-const DEV_AUTH = process.env.STRIDE_DEV_AUTH === '1';
+const login = devLogin({
+  directory: host.admin,
+  actor: platformActorId.parse(ulid()),
+  provider: DEV_PROVIDER,
+});
 
-function principalOf(c: Context): PrincipalId {
-  if (!DEV_AUTH) {
-    throw new PermissionDenied(
-      'no authentication configured: this server is a dev harness and refuses to guess who you are (set STRIDE_DEV_AUTH=1 for local development)',
-    );
-  }
-  const who = c.req.header('x-principal') ?? 'astrid';
-  const entry = CAST[who];
-  if (!entry) throw new PermissionDenied(`unknown principal: ${who}`);
-  return entry.principal;
+async function stub(c: Context): Promise<ScopeStub> {
+  const caller = await login.caller(c.req.raw.headers);
+  // Not a 500 and not a redirect: the app asks `/api/session` whether anyone is
+  // signed in, and every other route answers a denial as a denial.
+  if (!caller) throw new PermissionDenied('not signed in');
+  return host.getScope(caller.principal, caller.tenantId, caller.scopeId);
 }
-
-function stub(c: Context): Promise<ScopeStub> {
-  return host.getScope(principalOf(c), world.t1, world.s1);
-}
-
-const body = (c: Context) => c.req.json<Record<string, unknown>>().catch(() => ({}));
 
 const app = new Hono();
 
@@ -103,8 +118,16 @@ app.use('*', async (c, next) => {
 
 app.onError((err, c) => {
   const message = err instanceof Error ? err.message : String(err);
-  // A denial must arrive AS A DENIAL — never as a generic 500. This is the line
-  // that makes the attack visible in the UI instead of looking like a bug.
+  // A denial must arrive AS A DENIAL — never as a generic 500, and never as a
+  // generic 400 either.
+  //
+  // `mountOperations` has ALREADY classified what the kernel names — a refused
+  // permission, an input that failed to parse, a runtime fault — and re-thrown it
+  // as an HTTPException carrying the right status. Honour that first. Matching on
+  // the message alone silently downgraded "not signed in" from the 403 it was
+  // classified as to a 400, which the app renders as "Rejected" instead of as a
+  // denial. The patterns below stay for this harness's own domain vocabulary.
+  if (err instanceof HTTPException) return c.json({ error: message }, err.status);
   if (err instanceof PermissionDenied) return c.json({ error: message }, 403);
   if (/permission denied/.test(message)) return c.json({ error: message }, 403);
   if (/invalid transition|immutable|already/.test(message)) return c.json({ error: message }, 409);
@@ -112,28 +135,39 @@ app.onError((err, c) => {
   return c.json({ error: message }, 400);
 });
 
-// --- the dev principal picker -----------------------------------------------
-// HARNESS ONLY. These two routes exist so a developer can switch personas; they
-// have no counterpart in the deployed worker, which resolves identity from a
-// verified session. Everything else the app calls comes from `mountApi`, the
-// table BOTH runtimes mount.
-app.get('/api/cast', (c) =>
-  c.json(
-    DEV_AUTH
-      ? Object.entries(CAST).map(([key, v]) => ({
-          key,
-          name: v.name,
-          role: v.role,
-          subjectId: v.subjectId ?? null,
-        }))
-      : [],
-  ),
-);
-app.get('/api/me', (c) => {
-  const who = c.req.header('x-principal') ?? 'astrid';
-  const entry = CAST[who];
-  if (!entry) throw new PermissionDenied(`unknown principal: ${who}`);
-  return c.json({ key: who, name: entry.name, role: entry.role, subjectId: entry.subjectId ?? null });
+/**
+ * Sign-in, callback, sign-out — the Authorization-Code + PKCE round trip. Not
+ * one line of it is written here or in `src/worker.ts`: both hand the request to
+ * the same provider, which is the entire point of moving the user picker out of
+ * the vertical and into an issuer.
+ *
+ * The redirect URI is derived from the request's own origin, so the vite proxy
+ * must NOT rewrite Host (`changeOrigin` is off in `app/vite.config.ts`) — with
+ * it on, the browser is sent to the API port and walks out of the app.
+ */
+app.on(['GET', 'POST'], '/api/auth/*', (c) => login.handle(c.req.raw));
+
+/**
+ * WHO AM I — the app shell's first call, and the only route that answers while
+ * signed out. Deliberately the SAME shape the worker's `/api/session` returns,
+ * so the app has one contract rather than a dev one and a real one.
+ *
+ * `needsSetup` is always false locally: the seed already owns the gym. Signed in
+ * but not seated is a real state here too — a subject the directory has no link
+ * for gets the "not a member" gate, the same answer the hosted instance gives.
+ */
+app.get('/api/session', async (c) => {
+  const headers = c.req.raw.headers;
+  const subject = await login.subject(headers).catch(() => null);
+  const caller = subject ? await login.caller(headers).catch(() => null) : null;
+  return c.json({
+    signedIn: subject !== null,
+    seated: caller !== null,
+    needsSetup: false,
+    principal: caller?.principal ?? null,
+    email: subject?.email ?? null,
+    name: subject?.name ?? null,
+  });
 });
 
 // THE REAL SURFACE, DERIVED. Not one route written here: `mountOperations` reads
@@ -149,4 +183,4 @@ console.log(`${mounted.length} routes derived from the model`);
 const PORT = Number(process.env.API_PORT ?? 8871);
 serve({ fetch: app.fetch, port: PORT });
 console.log(`Stride API on http://localhost:${PORT} — data in ${dataDir}`);
-console.log(`Pick a principal with the "x-principal" header: ${Object.keys(CAST).join(', ')}`);
+console.log(`Signing in against ${login.issuer} — pick a persona there, no password`);

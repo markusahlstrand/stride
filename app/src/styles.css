@@ -162,30 +162,14 @@ body {
   outline-color: var(--text);
 }
 
-/* --- the persona bar: the dev principal picker ---------------------------- */
-.who {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: var(--bg-deep);
-  border-bottom: 1px solid var(--line-2);
-  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.who select {
-  flex: 1;
-  min-height: 44px;
-}
-.who .seam {
-  font: 600 11px var(--font);
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
+/* No identity bar. The design puts NOTHING above a screen's own title — every
+   artboard is status bar → "Today"/"Me" → content — and identity lives in the
+   profile card on Me. The bar that used to sit here was the dev persona picker;
+   "SIGNED IN · Sign out" was only the other half of its ternary, so removing the
+   picker left a strip the canvas never asked for, duplicating what Me already says.
 
-main { flex: 1; padding: 12px 16px 110px; }
+   Its safe-area inset moves here, because `main` is now what meets the notch. */
+main { flex: 1; padding: calc(env(safe-area-inset-top) + 12px) 16px 110px; }
 
 /* --- type ----------------------------------------------------------------- */
 h1 {
@@ -539,7 +523,9 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
    in mono, and states plainly that nothing changed — never a crash, never a
    stack trace. */
 .banner {
-  position: sticky; top: 64px; z-index: 15;
+  /* 64px was the height of the identity bar that used to sit above. With no
+     header left, the banner stops below the notch instead. */
+  position: sticky; top: env(safe-area-inset-top); z-index: 15;
   border-radius: var(--radius);
   padding: 12px 14px;
   margin-bottom: 12px;
@@ -691,12 +677,19 @@ nav.tabs .dot {
   font-size: 14px;
   line-height: 1.55;
 }
+/* These are <a>, not <button>, so nothing centres the label for free. Centre it
+   with flex rather than a line-height matching the height: the `font:` shorthand
+   RESETS line-height, so any such pair is silently undone by the very next line —
+   which is what pinned the label to the top of the button. Flex also survives a
+   label that wraps, where a 52px line-height would double the box. */
 .gate .primary,
 .gate .default {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 16px;
   min-height: 52px;
-  line-height: 52px;
+  padding: 8px 20px;
   border-radius: var(--radius);
   background: var(--accent);
   color: var(--on-accent);
@@ -705,23 +698,362 @@ nav.tabs .dot {
   font: 600 16px var(--font);
 }
 .gate .default {
-  display: inline-block;
+  display: inline-flex;
   min-height: 48px;
-  line-height: 46px;
-  padding: 0 20px;
   background: transparent;
   border: 1px solid var(--line-strong);
   color: var(--text);
   font: 500 15px var(--font);
   border-radius: 12px;
 }
-.who .signout {
-  padding: 0 12px;
-  min-height: 36px;
-  line-height: 34px;
+/* The way out, at the foot of Me. The canvas draws no sign-out on any signed-in
+   screen — a gap in the handoff, not a decision, since an app needs one — so this
+   follows the ONE precedent it does set: the "Not a member here" gate signs you
+   out with the OUTLINE treatment, never the accent fill. Leaving is a way back,
+   not the thing to do. Same metrics as a default `button`. */
+.signout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 10px;
   border: 1px solid var(--line-strong);
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--text);
   text-decoration: none;
-  font: 500 13px var(--font);
+  font: 500 15px var(--font);
 }
+
+/* The rail's two extras. Present in the markup always, shown only once there is
+   a rail to put them in — the mobile bar carries neither. */
+.rail-mark,
+.rail-user { display: none; }
+
+/* --- desktop: the same app in a different frame ----------------------------
+   "Desktop is the same app, not a new layout" — so this is ONE breakpoint, not a
+   second set of components. The tab bar becomes a left rail, the content keeps
+   its 520px column, and everything inside that column is untouched.
+
+   A VIEWPORT query, never user-agent detection. What decides the layout is how
+   much room there is: a half-width desktop window genuinely has a phone's worth
+   of space and should get the phone's layout, while a tablet, a desktop-mode
+   browser or someone dragging a window edge would each defeat a UA guess. 900px
+   is the first width that fits the rail (216) + the column (520) + its gutters
+   (64) with room to spare. */
+@media (min-width: 900px) {
+  .app {
+    max-width: none;
+    flex-direction: row;
+  }
+
+  /* Bottom bar → left rail. Every fixed-position rule above has to be undone,
+     not just overlaid, or the rail keeps the bar's anchoring. */
+  nav.tabs {
+    /* The rail is on the LEFT, but the nav is last in the DOM — correct for the
+       mobile bar, which is fixed to the bottom and so does not care about source
+       order. Turning the shell into a row made that order visible and put the
+       rail on the right. `order` fixes the picture without moving the nav in the
+       markup, which is worth keeping: the document still reads content-then-nav,
+       so a screen reader and the tab key reach the screen before the chrome. */
+    order: -1;
+    position: sticky;
+    top: 0;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    align-self: flex-start;
+    width: 216px;
+    max-width: none;
+    height: 100vh;
+    flex: none;
+    margin: 0;
+    flex-direction: column;
+    gap: 4px;
+    padding: 20px 12px;
+    border-top: 0;
+    border-right: 1px solid var(--line-2);
+  }
+  nav.tabs button {
+    flex: none;
+    min-height: 44px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 0 12px;
+    border-radius: 10px;
+    font: 500 14px var(--font);
+  }
+  nav.tabs button:hover { background: var(--surface-2); color: var(--text); }
+  nav.tabs button.on { background: var(--tint); color: var(--accent); font-weight: 600; }
+  nav.tabs button:focus-visible { outline-offset: -2px; }
+  /* Laid out in a row, the count belongs at the END of the item rather than
+     pinned to a stacked icon. */
+  nav.tabs .glyph { position: static; }
+  nav.tabs .dot {
+    position: static;
+    margin-left: auto;
+    top: auto;
+    left: auto;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font: 700 11px/18px var(--font);
+  }
+
+  .rail-mark {
+    display: block;
+    font: 600 14px var(--mono);
+    color: var(--accent);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0 12px 16px;
+  }
+  .rail-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: auto;
+    padding: 10px 12px;
+    border-top: 1px solid var(--line-2);
+  }
+  .rail-user .avatar {
+    width: 32px;
+    height: 32px;
+    background: var(--tint);
+    border: 1px solid var(--line-accent);
+    color: var(--accent);
+    font: 600 12px var(--font);
+  }
+  .rail-name {
+    font-size: 13px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The column, centred in what the rail leaves. No wrapper element: capping the
+     direct children keeps their existing vertical margins doing the spacing, so
+     the column is identical to the mobile one at the same width. The 110px foot
+     that cleared the fixed bar is not needed once the bar is a rail. */
+  main {
+    flex: 1;
+    min-width: 0;
+    padding: 28px 32px 40px;
+  }
+  main > * {
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Pointer affordances the touch layout has no use for. */
+  .list .rowbtn:hover { background: var(--surface-2); }
+  .card.tappable:hover { border-color: var(--line-strong); }
+  button.primary:hover,
+  .composer .send:hover { opacity: 0.92; }
+}
+
+/* --- the active session -----------------------------------------------------
+   The only moving parts in the app. Three moments — start, the live pulse, and
+   finish — and nothing else animates, which is what keeps them meaning
+   something. The keyframes are the design's own, verbatim.
+
+   Every one of them is skipped under `prefers-reduced-motion`, not shortened:
+   a 3-second countdown you cannot opt out of is worse than no countdown, and
+   confetti is decoration by definition. The countdown is skipped in JS (the
+   session opens immediately instead), so this only has to handle the pulse. */
+@keyframes countNum {
+  0% { opacity: 0; transform: scale(0.5); }
+  8% { opacity: 1; transform: scale(1); }
+  28% { opacity: 1; transform: scale(1.04); }
+  33%, 100% { opacity: 0; transform: scale(1.15); }
+}
+@keyframes confettiFall {
+  0% { transform: translateY(-60px) rotate(0deg); opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateY(620px) rotate(560deg); opacity: 0; }
+}
+@keyframes checkPop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* The start moment, over whatever screen you were on. */
+.countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: color-mix(in oklab, var(--bg-deep) 78%, transparent);
+  backdrop-filter: blur(6px);
+}
+.countdown-label {
+  color: var(--muted);
+  font: 600 12px var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.countdown-digits { position: relative; width: 200px; height: 200px; }
+.countdown-digits span {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 128px var(--mono);
+  color: var(--accent);
+  opacity: 0;
+  /* Once, not `infinite` — the canvas loops because a canvas has to. */
+  animation: countNum 3s 1 both;
+}
+.countdown-digits span:nth-child(2) { animation-delay: 1s; }
+.countdown-digits span:nth-child(3) { animation-delay: 2s; }
+.countdown-name { font-size: 17px; font-weight: 600; }
+.countdown-skip {
+  margin-top: 6px;
+  min-height: 44px;
+  padding: 0 20px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font: 500 14px var(--font);
+  border-radius: 10px;
+}
+
+/* The bar. Docks above the tab bar — a sibling of it, not inside it, so the
+   bar's own margins hold it clear of the bar's border. */
+.session-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 10px 8px;
+  min-height: 56px;
+  padding: 0 14px;
+  background: var(--surface-hi);
+  border: 1px solid var(--line-accent);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  text-align: left;
+}
+.session-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: pulseDot 2s infinite;
+}
+/* Paused: the dot stops rather than keeps insisting something is happening. */
+.session-dot.held { animation: none; opacity: 0.45; }
+.session-what { min-width: 0; }
+.session-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.session-clock {
+  margin-left: auto;
+  font: 600 18px var(--mono);
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+/* The finish moment. */
+.finish {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 16px;
+  background: var(--bg-deep);
+  overflow: hidden;
+}
+.confetti { position: absolute; inset: 0; pointer-events: none; }
+.confetti .bit {
+  position: absolute;
+  top: 0;
+  width: 8px;
+  height: 10px;
+  border-radius: 2px;
+  animation-name: confettiFall;
+  animation-timing-function: linear;
+  /* Once, for about three seconds — not a loop you have to watch. */
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+}
+.confetti .bit.dot { width: 7px; height: 7px; border-radius: 999px; }
+.finish-card { text-align: center; padding: 28px 20px; margin: 0; }
+.finish-card .disc {
+  display: inline-flex;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  align-items: center;
+  justify-content: center;
+}
+.finish-card .disc.pop { animation: checkPop 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.finish-head { font-size: 22px; font-weight: 700; margin-top: 12px; }
+.finish-sub { font: 500 15px var(--mono); color: var(--muted); margin-top: 4px; }
+.finish-stats { display: flex; justify-content: center; gap: 24px; margin-top: 18px; }
+.finish-stat { font: 600 22px var(--mono); font-variant-numeric: tabular-nums; }
+.finish-unit { font-size: 14px; color: var(--muted); }
+.finish-label { color: var(--muted); font-size: 12px; }
+.finish-earned {
+  background: var(--tint-good);
+  border: 1px solid var(--line-good);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-top: 18px;
+  text-align: left;
+}
+.finish-earned-label {
+  color: var(--good);
+  font: 600 11px var(--font);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.finish-earned-body { font-size: 13px; margin-top: 2px; }
+.finish-card .primary { margin-top: 16px; }
+.finish-quiet { margin-top: 6px; min-height: 44px; color: var(--muted); font: 500 14px var(--font); }
+
+/* The session clock in the logging header: the same fact as the bar, bigger,
+   on the screen you are actually working on. */
+.session-head { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
+.session-head .session-clock { margin-left: 0; font: 600 20px var(--mono); }
+.session-head .session-sub { font-size: 13px; }
+.session-head .actions { margin-left: auto; margin-top: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* The pulse is the one thing that survives as a state, so it holds still
+     rather than disappearing — the dot still says "open", it just stops moving. */
+  .session-dot { animation: none; }
+  .countdown-digits span,
+  .confetti .bit,
+  .finish-card .disc.pop { animation: none; }
+}
+

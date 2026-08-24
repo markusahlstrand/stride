@@ -8,17 +8,13 @@ import { useCallback, useEffect, useState } from 'react';
 // that workout. Nothing that decides what you are looking at lives in React
 // state any more.
 //
-// Two places, on purpose:
+// The HASH holds the route — `#/workouts/01J…`, `#/exercises?q=row`. A hash needs
+// no server rewrite, so a deep link survives being opened from a static host, not
+// just from the dev server.
 //
-//   the HASH   holds the route — `#/workouts/01J…`, `#/exercises?q=row`. A hash
-//              needs no server rewrite, so a deep link survives being opened
-//              from a static host, not just from the dev server.
-//   `?as=`     holds the DEV PRINCIPAL. It is deliberately outside the hash: it
-//              is not part of where you are, it is who you are pretending to be,
-//              and it should survive navigating between routes.
-//
-// `?as=` is a dev seam like the `x-principal` header it feeds. Real auth puts
-// the identity in a session, and this parameter disappears with it.
+// There used to be a `?as=` parameter beside it holding the dev principal. It is
+// gone: identity lives in a session cookie now, in both runtimes, so who you are
+// is no longer something the URL can assert.
 // ============================================================================
 
 export type Route =
@@ -150,19 +146,4 @@ export function useRoute(): [Route, (next: Route, replace?: boolean) => void] {
   }, []);
 
   return [route, navigate];
-}
-
-/** The dev principal, from `?as=` — outside the hash because it is not a place. */
-export function principalFromUrl(): string | null {
-  return new URLSearchParams(window.location.search).get('as');
-}
-
-export function writePrincipalToUrl(key: string): void {
-  const q = new URLSearchParams(window.location.search);
-  q.set('as', key);
-  window.history.replaceState(
-    null,
-    '',
-    `${window.location.pathname}?${q.toString()}${window.location.hash}`,
-  );
 }

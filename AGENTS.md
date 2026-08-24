@@ -42,6 +42,7 @@ src/manifest.ts        moduleManifest.parse({…}) + PERM consts   ← module co
 src/migrations.ts      the SqlMigration[]                         ← module code
 src/module.ts          imports both; operations + registration    ← module code
 src/seed.ts            host, tenants, roles, grants, seed world    ← harness
+src/personas.ts        the dev cast: `sub` → the person             ← harness
 src/server.ts          thin wrapper, one route per operation       ← harness
 test/scenario.test.ts  the scenario — including the denials
 ```
@@ -110,10 +111,15 @@ engines resolvable) — a pass that checked nothing is worse than no linter. Nev
 through; fix the setup until it can see your code.
 
 A green scenario test does **not** mean the app works: the test calls operations directly
-and never exercises `server.ts`, its routes, or the principal picker. Before calling a
+and never exercises `server.ts`, its routes, or the sign-in round trip. Before calling a
 vertical done, boot the server and drive the real flow over HTTP as two personas — one who
 should succeed and one who should be denied — and confirm the denial arrives as a denial
 (not a generic error).
+
+That is now a real sign-in rather than a header, so it actually proves something: `pnpm dev`
+starts the dev issuer beside the API, and a persona is one `GET /api/auth/login` away. This
+is exactly how the harness's error envelope was caught downgrading a 403 to a 400 — a bug
+the old `x-principal` seam could not surface, because with it you were never signed out.
 
 ## Two human checkpoints — you may never self-approve
 
@@ -303,10 +309,13 @@ shape. The vertical binds the name (`workorder/start` → `/programs/{orderId}/s
 ## The URL is the state
 
 Every screen is addressable — see `app/src/router.ts`. The **hash** holds the route
-(`#/workouts/:id`, `#/chat/:trainee/:coach`, `#/exercises?q=&type=`), `?as=` holds the dev
-principal *outside* the hash because it is not a place. Filters `replaceState`, navigation
-`pushState`; get that backwards and Back becomes "undo one character". Do not reintroduce
-`useState` for what screen you are on.
+(`#/workouts/:id`, `#/chat/:trainee/:coach`, `#/exercises?q=&type=`). Filters `replaceState`,
+navigation `pushState`; get that backwards and Back becomes "undo one character". Do not
+reintroduce `useState` for what screen you are on.
+
+There used to be a `?as=` parameter beside the hash holding the dev principal. It is gone
+with the picker that fed it: identity lives in a session cookie in both runtimes, so who you
+are is no longer something a URL can assert.
 
 ## Training alone is the default path
 
@@ -396,17 +405,41 @@ platform's directory and is injected; declaring it is refused.
 ## Running it
 
 ```sh
-pnpm dev          # API on :8871 (API_PORT), mobile web on :5173 (WEB_PORT)
+pnpm dev          # dev issuer on :8879, API on :8871 (API_PORT), web on :5173 (WEB_PORT)
 pnpm test         # the scenario, including every denial
 pnpm typecheck    # both packages
 npx @substrat-run/boundary-lint
 ```
 
-The web app is `app/` — Vite + React, mobile-first, with a dev principal picker. A denial
-surfaces as the **"Denied by the kernel"** banner; that banner is a feature, not an error
-state.
+The web app is `app/` — Vite + React, mobile-first. A denial surfaces as the **"Denied by
+the kernel"** banner; that banner is a feature, not an error state.
 
-**Both auth paths fail closed.** The harness refuses every request unless started with
-`STRIDE_DEV_AUTH=1` (`pnpm dev` sets it); the worker's `authFor` throws unless the
-instance has real OIDC config. An unset variable means "there is no authentication here",
-never "let them in".
+## One auth path, two issuers
+
+There is **no dev-only auth branch**, and re-introducing one would undo the point.
+`@substrat-run/dev-issuer` runs a real OpenID Connect provider on :8879 whose only shortcut
+is that `/authorize` lists people instead of asking for a password. `src/server.ts` is an
+ordinary relying party in front of it, running the SAME `oidcRpAuthProvider` that
+`src/worker.ts` runs against the hosted issuer. Sign in locally and you are exercising the
+deployment's login.
+
+- **`src/personas.ts` is read twice**, and that is the point: the issuer renders it as the
+  picker, and `linkDevIdentities` in `seed.ts` binds each `sub` to a principal. `sub` is the
+  join, so the two cannot drift. Change the cast in one place.
+- **The pool is `central`.** `devLogin.caller()` asks `listIdentityTenants`, which is only
+  answerable on a central pool — one issuer serving both gyms, one Rutger.
+- **The scope comes from the DIRECTORY, not a constant.** Sign in as Rutger and you get
+  Sydpuls Gym, because that is where his login lives. The old harness pinned every persona
+  to t1 so he could be turned away on screen; the isolation he demonstrated is proved
+  against the kernel in tests 4 and 14, which call operations directly.
+- **`changeOrigin` is off in `app/vite.config.ts`, deliberately.** The provider derives its
+  redirect URI from the request's own origin, so rewriting Host would send the browser to
+  :8871 after sign-in and strand it outside the app.
+- **Switching person is a sign-out and a sign-in.** The issuer keeps no SSO cookie, so the
+  picker appears on every `/authorize` and it costs one click — no logout dance.
+
+**Both auth paths fail closed.** The harness refuses to **boot** without `STRIDE_DEV_AUTH=1`
+(`pnpm dev` sets it) — a deployment guard, not an auth branch, because the issuer's signing
+key is public by design and the session cookie uses a well-known default secret. The
+worker's `authFor` throws unless the instance has real OIDC config. An unset variable means
+"there is no authentication here", never "let them in".

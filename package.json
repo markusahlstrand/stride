@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,magenta \"STRIDE_DEV_AUTH=1 tsx watch src/server.ts\" \"pnpm --filter stride-app dev\"",
+    "dev": "concurrently -n issuer,api,web -c yellow,blue,magenta \"pnpm issuer\" \"STRIDE_DEV_AUTH=1 tsx watch src/server.ts\" \"pnpm --filter stride-app dev\"",
     "server": "STRIDE_DEV_AUTH=1 tsx src/server.ts",
     "app:dev": "pnpm --filter stride-app dev",
     "app:build": "pnpm --filter stride-app build",
@@ -13,32 +13,34 @@
     "typecheck": "tsc --noEmit && pnpm --filter stride-app exec tsc -b",
     "lint:boundaries": "substrat-boundary-lint",
     "deploy": "substrat push",
-    "deploy:preview": "substrat preview create --empty --tag dev"
+    "deploy:preview": "substrat preview create --empty --tag dev",
+    "issuer": "tsx node_modules/@substrat-run/dev-issuer/dist/cli.js --personas src/personas.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.0",
-    "@substrat-run/adapter-cloudflare": "^0.85.0",
-    "@substrat-run/adapter-sqlite": "^0.85.0",
-    "@substrat-run/contracts": "^0.85.0",
-    "@substrat-run/engine-invites": "^0.4.5",
-    "@substrat-run/engine-workorder": "^0.8.1",
-    "@substrat-run/kernel": "^0.85.0",
-    "@substrat-run/vertical-auth": "^0.7.1",
-    "@substrat-run/vertical-host": "^0.85.0",
+    "@hono/node-server": "^2.1.1",
+    "@substrat-run/adapter-cloudflare": "^0.87.0",
+    "@substrat-run/adapter-sqlite": "^0.87.0",
+    "@substrat-run/contracts": "^0.87.0",
+    "@substrat-run/engine-invites": "^0.4.6",
+    "@substrat-run/engine-workorder": "^0.8.2",
+    "@substrat-run/kernel": "^0.87.0",
+    "@substrat-run/vertical-auth": "^0.8.0",
+    "@substrat-run/vertical-host": "^0.87.0",
     "better-sqlite3": "^13.0.3",
-    "hono": "^4.6.0"
+    "hono": "^4.13.3"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.1",
-    "@cloudflare/workers-types": "^5.20260821.1",
-    "@substrat-run/boundary-lint": "^0.1.1",
-    "@substrat-run/cli": "^0.25.5",
+    "@cloudflare/workers-types": "^5.20260823.1",
+    "@substrat-run/boundary-lint": "^0.1.2",
+    "@substrat-run/cli": "^0.25.7",
+    "@substrat-run/dev-issuer": "^0.1.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
-    "concurrently": "^9.0.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vitest": "^3.0.0"
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   },
   "substrat": {
     "slug": "stride",

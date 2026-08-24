@@ -1,4 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { SessionSummary } from './session';
+import {
+  elapsedMs,
+  finishSession,
+  formatClock,
+  pauseSession,
+  reportProgress,
+  resumeSession,
+  startSession,
+  useActiveSession,
+  useElapsed,
+} from './session';
 import {
   api,
   type CastMember,
@@ -83,7 +95,7 @@ function EquipmentChips({ e }: { e: Exercise }) {
 }
 
 /** Initials for an avatar. Two letters, because a roster is scanned, not read. */
-function initials(name: string): string {
+export function initials(name: string): string {
   return name
     .split(/\s+/)
     .filter(Boolean)
@@ -125,7 +137,12 @@ export function TodayScreen({
       entry.sessionToday ? 'Back to it' : 'Session started',
     );
     reloadAgenda();
-    if (ok) onOpen(entry.programId);
+    if (ok) {
+      // The clock is device-local: the server opened (or reused) the session,
+      // this starts the one on your phone. Resuming skips the countdown.
+      startSession(entry.programId, entry.programTitle, Boolean(entry.sessionToday));
+      onOpen(entry.programId);
+    }
   };
 
   const row = (i: ScheduledItem) => (
@@ -454,6 +471,54 @@ function NewWorkout({
   );
 }
 
+/** The open session on a programme, if it has one. */
+function openSessionOf(detail: ProgramDetail) {
+  return detail.program.status === 'in_progress'
+    ? detail.sessions[detail.sessions.length - 1]
+    : undefined;
+}
+
+/**
+ * IS THE SESSION OVER? Derived, never stored — a session ends when every
+ * prescribed exercise has its target sets logged. `target_sets` says what was
+ * asked for and the append-only results say what was done, so the answer is a
+ * projection of two things that already exist. A stored flag would be a third
+ * source of truth that could disagree with both.
+ */
+function isSessionComplete(detail: ProgramDetail): boolean {
+  const sets = openSessionOf(detail)?.sets ?? [];
+  if (detail.items.length === 0 || sets.length === 0) return false;
+  return detail.items.every(
+    (i) => sets.filter((s) => s.program_item_id === i.id).length >= i.target_sets,
+  );
+}
+
+/**
+ * The receipt. Its duration comes from the DATA — the session opened at
+ * `performed_at`, the last set landed at `logged_at` — not from the phone's
+ * clock, so it reads the same on every device and survives a reload. The device
+ * clock is only the fallback for a session that ended with nothing logged.
+ */
+function summaryOf(detail: ProgramDetail, earned: string | null, fallbackMs: number): SessionSummary {
+  const open = openSessionOf(detail);
+  const sets = open?.sets ?? [];
+  const volume = sets.reduce(
+    (n, x) => n + (x.load ? Number.parseFloat(x.load) || 0 : 0) * x.reps,
+    0,
+  );
+  const last = sets.reduce((t, x) => Math.max(t, Date.parse(x.logged_at)), 0);
+  const started = open ? Date.parse(open.performed_at) : 0;
+  return {
+    name: detail.program.title,
+    ms: last && started && last > started ? last - started : fallbackMs,
+    sets: sets.length,
+    done: new Set(sets.map((x) => x.program_item_id)).size,
+    total: detail.items.length,
+    volume: volume > 0 ? Math.round(volume).toLocaleString('sv-SE') : null,
+    earned,
+  };
+}
+
 export function ProgramDetailScreen({
   programId,
   me,
@@ -471,12 +536,44 @@ export function ProgramDetailScreen({
   }, [programId]);
   useEffect(reload, [reload]);
 
+  // The session bar's counts come from HERE — the one screen that already knows
+  // them. Reporting beats fetching: the shell would otherwise have to pull a
+  // whole programme just to render a subline, and it would lag every logged set.
+  const active = useActiveSession();
+  const live = active?.programId === programId ? active : null;
+  useEffect(() => {
+    if (!detail) return;
+    const open =
+      detail.program.status === 'in_progress' ? detail.sessions[detail.sessions.length - 1] : undefined;
+    const logged = new Set((open?.sets ?? []).map((x) => x.program_item_id));
+    reportProgress(programId, logged.size, detail.items.length);
+  }, [detail, programId]);
+
+  // THE NATURAL END. A session is over when the last prescribed set is logged,
+  // so the finish moment arrives on its own rather than waiting to be asked for.
+  // Firing needs a live session, and finishing clears it — so this runs exactly
+  // once, and reopening a finished workout later does not replay the confetti.
+  useEffect(() => {
+    if (!detail || !live) return;
+    if (isSessionComplete(detail)) finishSession(summaryOf(detail, earned, elapsedMs(live)));
+  }, [detail, live, earned]);
+
   if (!detail) return <div className="empty">Not visible to {me?.name ?? 'you'}.</div>;
 
   const { program, items, sessions, summary, slots } = detail;
   const openSession = program.status === 'in_progress' ? sessions[sessions.length - 1] : undefined;
 
   const setsFor = (itemId: string) => openSession?.sets.filter((s) => s.program_item_id === itemId) ?? [];
+
+  /**
+   * End the session by hand — the early exit, for when you stop before the end.
+   * The natural end fires on its own (see the effect above): a session is over
+   * when the last prescribed set is logged.
+   *
+   * Either way this writes NOTHING. Every set was logged when it happened, so
+   * the card is a receipt for rows that are already durable.
+   */
+  const endNow = () => finishSession(summaryOf(detail, earned, live ? elapsedMs(live) : 0));
 
   /** One prescription row. `tag` is the superset position (A1, A2) or null. */
   const itemCard = (
@@ -596,6 +693,7 @@ export function ProgramDetailScreen({
         #{program.number} · {program.kind}
         {program.traineeName ? ` · ${program.traineeName}` : ''}
       </div>
+      {live && <SessionClock session={live} onEnd={endNow} />}
       <div className="card">
         {program.status === 'in_progress' && (
           <div className="sub" style={{ marginTop: 0 }}>
@@ -2157,6 +2255,7 @@ export function PeopleScreen({
         <MyLibrary me={me} run={run} onBrowse={onBrowse} />
         <MyEquipment me={me} run={run} />
         <InvitePanel me={me} run={run} />
+        <SignOut />
       </>
     );
   }
@@ -2188,6 +2287,59 @@ export function PeopleScreen({
           </div>
         ))}
       </div>
+
+      <SignOut />
     </>
   );
 }
+
+/**
+ * The way out. It lives on Me because that is where the design puts everything
+ * about you, and nowhere else: the canvas has no identity bar on any screen, so
+ * there is no other honest home for it.
+ *
+ * A plain `<a>` to the logout route rather than a button — signing out is a
+ * navigation the server performs, and the session cookie is cleared by the same
+ * provider that set it.
+ */
+function SignOut() {
+  return (
+    <a className="signout" href="/api/auth/logout">
+      Sign out
+    </a>
+  );
+}
+
+
+
+/**
+ * The session clock on the logging screen — the same fact the bar carries, at
+ * the size it deserves on the screen you are actually working on. Counting UP;
+ * the design's interval mode is the same component counting down, and is not
+ * built because the domain has no notion of rounds yet.
+ */
+function SessionClock({
+  session,
+  onEnd,
+}: {
+  session: NonNullable<ReturnType<typeof useActiveSession>>;
+  onEnd: () => void;
+}) {
+  const ms = useElapsed(session);
+  return (
+    <div className="session-head">
+      <span className={`session-dot${session.pausedAt ? ' held' : ''}`} />
+      <span>
+        <span className="session-clock mono">{formatClock(ms)}</span>
+        <span className="session-sub">session · {session.pausedAt ? 'paused' : 'counting up'}</span>
+      </span>
+      <span className="actions">
+        <button onClick={() => (session.pausedAt ? resumeSession() : pauseSession())}>
+          {session.pausedAt ? 'Resume' : 'Pause session'}
+        </button>
+        <button onClick={onEnd}>End session</button>
+      </span>
+    </div>
+  );
+}
+

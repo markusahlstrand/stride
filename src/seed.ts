@@ -28,6 +28,7 @@ import {
 // a Durable Object bundle). Re-exported so existing callers are unaffected.
 export { MODULES, ROLES, ENTITY_GRANTS } from './modules.js';
 import { EQUIPMENT, EXERCISES } from './catalogue.js';
+import { DEV_PROVIDER, SUB } from './personas.js';
 
 // ============================================================================
 // The seeded world. TWO tenants on purpose: the first is the gym the scenario
@@ -501,4 +502,60 @@ export async function seedStride(host: SqliteScopeHost, dir: string): Promise<St
 
   writeFileSync(castPath, JSON.stringify(world, null, 2));
   return world;
+}
+
+
+// ============================================================================
+// THE IDENTITY DIRECTORY — how a verified login becomes a principal.
+//
+// Harness, and the local stand-in for what the platform delivers with
+// provisioning. `src/server.ts` calls this after `seedStride` on EVERY boot,
+// not just a fresh one: `linkIdentity` is idempotent when it re-binds the same
+// principal (and throws loudly when a subject is already bound to someone
+// else), so an existing `.data` dir from before the dev issuer picks up its
+// links instead of failing to sign anyone in.
+//
+// Note where Rutger goes. He is linked into t2 — his OWN gym — because that is
+// the only honest answer: a login resolves to the tenant it belongs to, and
+// there is no cross-tenant API for him to point at Nordkraft. The old harness
+// forced every persona into t1 so he could be turned away in the UI; the
+// isolation he demonstrated is proved against the kernel in tests 4 and 14,
+// which call the operations directly and are unaffected by any of this.
+// ============================================================================
+
+/** Bind every dev persona's `sub` to its principal. Idempotent. */
+export async function linkDevIdentities(
+  host: SqliteScopeHost,
+  world: StrideWorld,
+): Promise<void> {
+  const staff = platformActorId.parse(ulid());
+
+  // A pool must be registered before it may link: an unregistered pool has not
+  // said whether the same subject in two tenants is one human or two, and the
+  // kernel will not guess. Central — one issuer, both gyms, one Rutger.
+  await host.admin.registerIdentityPool(staff, {
+    provider: DEV_PROVIDER,
+    topology: 'central',
+    tenantId: null,
+  });
+
+  const links: [string, PrincipalId, TenantId, ScopeId][] = [
+    [SUB.astrid, world.astrid, world.t1, world.s1],
+    [SUB.nina, world.nina, world.t1, world.s1],
+    [SUB.ola, world.ola, world.t1, world.s1],
+    [SUB.vera, world.vera, world.t1, world.s1],
+    [SUB.bjorn, world.bjorn, world.t1, world.s1],
+    [SUB.rutger, world.rutger, world.t2, world.s2],
+    [SUB.newcomer, world.newcomer, world.t1, world.s1],
+  ];
+
+  for (const [externalId, principal, tenant, scope] of links) {
+    await host.admin.linkIdentity(staff, {
+      provider: DEV_PROVIDER,
+      externalId,
+      principal,
+      tenantId: tenant,
+      scopeId: scope,
+    });
+  }
 }
