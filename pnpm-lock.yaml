@@ -12,29 +12,29 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.3)
       '@substrat-run/adapter-cloudflare':
-        specifier: ^0.87.0
-        version: 0.87.0(zod@4.4.3)
+        specifier: ^0.113.0
+        version: 0.113.0(zod@4.4.3)
       '@substrat-run/adapter-sqlite':
-        specifier: ^0.87.0
-        version: 0.87.0(zod@4.4.3)
+        specifier: ^0.113.0
+        version: 0.113.0(zod@4.4.3)
       '@substrat-run/contracts':
-        specifier: ^0.87.0
-        version: 0.87.0(zod@4.4.3)
+        specifier: ^0.113.0
+        version: 0.113.0(zod@4.4.3)
       '@substrat-run/engine-invites':
-        specifier: ^0.4.6
-        version: 0.4.7(zod@4.4.3)
+        specifier: ^0.7.12
+        version: 0.7.12(zod@4.4.3)
       '@substrat-run/engine-workorder':
-        specifier: ^0.8.2
-        version: 0.8.3(zod@4.4.3)
+        specifier: ^0.11.12
+        version: 0.11.12(zod@4.4.3)
       '@substrat-run/kernel':
-        specifier: ^0.87.0
-        version: 0.87.0(zod@4.4.3)
+        specifier: ^0.113.0
+        version: 0.113.0(zod@4.4.3)
       '@substrat-run/vertical-auth':
-        specifier: ^0.8.0
-        version: 0.8.0(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))
+        specifier: ^0.14.2
+        version: 0.14.2(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))(zod@4.4.3)
       '@substrat-run/vertical-host':
-        specifier: ^0.87.0
-        version: 0.87.0(zod@4.4.3)
+        specifier: ^0.113.0
+        version: 0.113.0(@ai-sdk/provider@4.0.7)(zod@4.4.3)
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3
@@ -49,14 +49,14 @@ importers:
         specifier: ^5.20260823.1
         version: 5.20260823.1
       '@substrat-run/boundary-lint':
-        specifier: ^0.1.2
-        version: 0.1.2
+        specifier: ^0.4.2
+        version: 0.4.2
       '@substrat-run/cli':
-        specifier: ^0.25.7
-        version: 0.25.7(zod@4.4.3)
+        specifier: ^0.32.3
+        version: 0.32.3(zod@4.4.3)
       '@substrat-run/dev-issuer':
-        specifier: ^0.1.1
-        version: 0.1.1(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))(zod@4.4.3)
+        specifier: ^0.1.28
+        version: 0.1.28(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))(zod@4.4.3)
       '@types/better-sqlite3':
         specifier: ^9.6.0
         version: 9.6.0
@@ -102,6 +102,28 @@ importers:
         version: 8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)
 
 packages:
+
+  '@ai-sdk/gateway@4.0.49':
+    resolution: {integrity: sha512-qdSUr4FAN7e+MHBdVzkmbGMtpf7XQdQp1AgMI3jV0QPmld/4k4QbR7mXRQgjUsPeIfAwBzMPMPziHAPP1tXRwg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/openai-compatible@3.0.30':
+    resolution: {integrity: sha512-BB35G4fS/Ey5OHbWrVLxRLX1gkTlO+9I4YhlmdH1skNVoPaFXZlR6bQ+1C76d/ug7O6ocbIw4qcd2G4+GPdWEA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider-utils@5.0.27':
+    resolution: {integrity: sha512-EzAn4pdgG5g0xXtH6lE2zyNmfjDQIDjATkfqzuidEI35g++hh4+07vnjzkT/RmGmIClPZiRj/Q2GMPV2V7mkHw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider@4.0.7':
+    resolution: {integrity: sha512-6or44XprPzKbr8zkmzosowSE0pxkvJcoojBL+mCZvPUt3kvXp3XSNqeVun9golb1acEfSo6yaEBRT18h2VU+1Q==}
+    engines: {node: '>=22'}
 
   '@better-auth/core@1.7.1':
     resolution: {integrity: sha512-eZ9lqcnVLMZ3QtUByRo4VZqkB1ESyRddd9NfWjBdDPgh+jcwLScoIUAqhtHLR8zaSUJZah8OLGlkzObyPdUH7A==}
@@ -711,58 +733,67 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@substrat-run/adapter-cloudflare@0.87.0':
-    resolution: {integrity: sha512-XkxskcNe4jPIBlDVzZ/tjAX0igXAaKDzFFwEmVPqY/liAeDgmgs0xrwuferGyG8U2hEmNBhGkdfVgWtzF4/mQQ==}
+  '@substrat-run/adapter-cloudflare@0.113.0':
+    resolution: {integrity: sha512-asFpO0uyBNFgi0BeOMvhUjVUNUuLCLa8KvkXGAd/uvtlULHzdB7A8vx00jmfAro4Bi8zV9u0iAQ4+a6iCcBLBQ==}
 
-  '@substrat-run/adapter-sqlite@0.87.0':
-    resolution: {integrity: sha512-2AZ04uYLlk64syiqMPxxfWv5ap8iOUZ5gHz+zuITGtKhbm+yJCgJssYIyreFhx18/zellkAikLrHpK1d16lsCw==}
+  '@substrat-run/adapter-sqlite@0.113.0':
+    resolution: {integrity: sha512-yQ4a/WKKBEg+gAoxpPGgGzH8haj5aEQvSHzFIKTTwCNBCWW9jNr25lbXHVeEYveIoWa/uokZckN7QkyL7HyWUQ==}
 
-  '@substrat-run/boundary-lint@0.1.2':
-    resolution: {integrity: sha512-FThiMj8D9UPR1Tjpa/TFtTnHsxxkdRfMV5PTUPpZTiTakNKqco/Qs4t7xHwowG1JzIoNNh5UXxq5f6Vfq5gd+g==}
+  '@substrat-run/boundary-lint@0.4.2':
+    resolution: {integrity: sha512-PUZBVrBu7x7jopWj8EI2+UEqTxHpkL8e4n8zXKkMGLN54LICyqXb7NTCYpV9SG2Lk18mEevK7BLY8dcToyRGOw==}
     hasBin: true
 
-  '@substrat-run/cli@0.25.7':
-    resolution: {integrity: sha512-ihQmPhsr2Ck5jFFd29NOxglzIa3tJTfOSF1bWoxMpud+tR06kMlA7riFMPxXoEgdZBHHuMURIAUTWp4ZHZBYUQ==}
+  '@substrat-run/cli@0.32.3':
+    resolution: {integrity: sha512-vsY4ApHyJUlgNhYjqaQuklAs4hQxW6fc2gZzYgImqx+qU1xdFip2cvOS0qE49yjYzS3PM34EFSD82PkUpDyIjg==}
     engines: {node: '>=20'}
     hasBin: true
 
-  '@substrat-run/contracts@0.87.0':
-    resolution: {integrity: sha512-LWk58FEyDvisShoI+DhVYxWRYc9MPOcZrbiP3tzczTfMjj1X0z4H3IbDi4+RurSGRLF7/2D8Ox+gi5I+qNOkGg==}
+  '@substrat-run/contracts@0.113.0':
+    resolution: {integrity: sha512-MP9BBlY6bYpYTSUUWm7iLuvkD5/8WsQlUDwnd91TbJKH4IUqhZsFoRN+IRIjTJUBGPyFTjYjpYUsOYvIrDQpuw==}
     peerDependencies:
       zod: ^4.4.0
 
-  '@substrat-run/dev-issuer@0.1.1':
-    resolution: {integrity: sha512-u8qdwwXVTVbnP9sTX4Fpr9N2wXmqaj+sMRLq4cThZsY65YnOReFrTzHxSk0AhKu8+D4Et5PL/REkvJlVC6dxgg==}
+  '@substrat-run/dev-issuer@0.1.28':
+    resolution: {integrity: sha512-VoIFsNfFlVme1ZGKv0iNk4IeYn3jtpwLCq5N399kUZmSF3TdsjvORPjbskitHEgpxrU7gEc0IfizqUvnwA5ZkA==}
     hasBin: true
     peerDependencies:
       hono: ^4.6.0
 
-  '@substrat-run/engine-invites@0.4.7':
-    resolution: {integrity: sha512-TLQ9rhjMOxMwaRSjp0u8mXSVqoKw/jSRLeNQta1z9UWjkHJvCSG0/KpWJ9h2YNWxDY8ZrEP5XD/8M0p7n32bcQ==}
+  '@substrat-run/engine-invites@0.7.12':
+    resolution: {integrity: sha512-qrIKcuuPvyG3MPlAqquKkPcNwhVAlK8y8AoOFkrnFkNrdExkRD3/7DgW+DggeXM+02oILRhdCJxJTCwggjFGfw==}
     peerDependencies:
       zod: ^4.4.0
 
-  '@substrat-run/engine-workorder@0.8.3':
-    resolution: {integrity: sha512-MFA3ZyYqS3M45qgu54YoFZFtBlRDcJjpe58LKQp908lzL3ukdadXUpEuz7yacRgttJ+13xzmQ6bRvJl33KDBfw==}
+  '@substrat-run/engine-workorder@0.11.12':
+    resolution: {integrity: sha512-VD2U90bmvHGJJd5F5GBP2a2xr7pCUAYB4pDmmm4tb3AleokQsV/6TwkAeYbZgftWepJwhYQ5p6+ZZQPpPzJiPA==}
     peerDependencies:
       zod: ^4.4.0
 
-  '@substrat-run/kernel@0.87.0':
-    resolution: {integrity: sha512-PfoFBahWdXEbLmk6VMdUMgune+23sLMbLJ0wXtxE4Lo795SyzflqhET3JouyeLY6xtDR6Ze4nbBt8cBpP9ChDg==}
+  '@substrat-run/kernel@0.113.0':
+    resolution: {integrity: sha512-koOmyNkdjcMqtwc46z/4Rjuxy/qlgy5EtIZyDBkZkkix6ju4/1h/1BxlYLLOEck0+dVqjSfgegQrqEiSVHqByQ==}
 
-  '@substrat-run/oidc-rp@0.5.1':
-    resolution: {integrity: sha512-kC1fETobm2ti67I3QDy3eOarlZNdc7gY0FGWC05aM1fYpbe1o6GfmJzL54M1vnyH6R0UAsJ+Oy0SjePFrzcHsg==}
+  '@substrat-run/model-providers@0.5.3':
+    resolution: {integrity: sha512-o7rAbqZ5kIhZ0rAnHpMqMrdny/PZ7X7riztHy2e10RH4MFol+S9J7mCLlOEw8BJy5jKpBANF2kF8nwS2zpyPTA==}
+
+  '@substrat-run/model-view@0.2.14':
+    resolution: {integrity: sha512-9pC3bsRXI30fEa1RS+jmuTDoanknGYDRu17UDKH1BIsDhtrYSb147G5B/7exsvQEy8CwFadLGG87+cLOlWVWfQ==}
+    engines: {node: '>=22.5'}
+
+  '@substrat-run/oidc-rp@0.9.0':
+    resolution: {integrity: sha512-P9hkGYIGhXb40nOuL001inKSRydjOgZhbRWtrPfQ+79sYvsa+45qvKvCA6PyU1etqgQtVPRmKamYg6JRIVBr5A==}
     peerDependencies:
       hono: ^4.6.0
 
-  '@substrat-run/psl@0.2.2':
-    resolution: {integrity: sha512-u9og9XRDkPLNFacjiDa/Tx5H0gBe1fQvtfGUkVOT36O2lCw+6hHYtlr21XjoWHpPNFhGgzHAh8vu8UYKzf5Dcw==}
+  '@substrat-run/psl@0.2.5':
+    resolution: {integrity: sha512-PFbL+it2y675B78nZ5wAd2dOOv+Rb7qh2hyj8a9rfqDGNNxYljgbXD9Am4DlMh5yTT1z3aqiBsrMJ8FYCa+rOw==}
 
-  '@substrat-run/vertical-auth@0.8.0':
-    resolution: {integrity: sha512-sDUNeV2jncA1xQyWGAGVSVd9MOlLjpXOD9I65qYrRm/PcQrtVHiY5DSPkf2AbCGreZ89WS14uBmQ9ZnXXwZrHQ==}
+  '@substrat-run/vertical-auth@0.14.2':
+    resolution: {integrity: sha512-W5cbCXOX53D8A8IYpH9KvnOALxlAsdsIRw5nRsdO+4pqBWOTNi/Xf8EqS74+hE7LxUZQ7Da0EyKb+Q6IVyO13w==}
+    peerDependencies:
+      hono: ^4.6.0
 
-  '@substrat-run/vertical-host@0.87.0':
-    resolution: {integrity: sha512-u4ZNwC+Nr8aoE7A7SvGtI4255xtoTIkJFwO4uAx3jcdN+JUOG45/Q9tcnIoQ0YKO4mV6geg5VXqHyxzrAqu3bw==}
+  '@substrat-run/vertical-host@0.113.0':
+    resolution: {integrity: sha512-h/rBr9HXJym03Go1gGD0WyWcGZj+YqLqcAocgbNKP6al8RIstA1NhKaAw2cwLwlimW1NKj+fDJ02uWSxPOnUmg==}
 
   '@types/better-sqlite3@9.6.0':
     resolution: {integrity: sha512-ZEEwBSgMu7GYJOynoagg5X9JbxfL6dTJDsgViJIqh67jV44kyOr9RXfmFjLK5rzC4MWssP06t9hu/JwGDnUbCg==}
@@ -907,6 +938,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@vercel/oidc@3.2.0':
+    resolution: {integrity: sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==}
+    engines: {node: '>= 20'}
+
   '@vitejs/plugin-react@6.1.0':
     resolution: {integrity: sha512-qd2BzUBehkov86WFhg0JkEFEYyCLG9uPCe6qWTY/kRlss9OvJrOF2UbIWT7p+8IzZHkEu0DNGHc4HSv+JdDLsw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -951,6 +986,15 @@ packages:
 
   '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
+
+  '@workflow/serde@4.1.0':
+    resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
+
+  ai@7.0.62:
+    resolution: {integrity: sha512-/YiuaaFIUPAiGqzHphnu9NuHQKbToZjlZkKoqGsQx6TFd7CZj6Z3eQUNeK6er1kXb9Ou5hRntRX4dvvE/kHYiQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
 
   ansi-regex@6.3.0:
     resolution: {integrity: sha512-WpDfL7NO6j7tH88IDBNVdUJxDh9nmCteAVW9dsep846XdwF4naCBK+/tGLX3KJgcpgMRXCFlTM2hKGoK9FsdrQ==}
@@ -1187,6 +1231,10 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
+  eventsource-parser@3.1.1:
+    resolution: {integrity: sha512-EKN1vKAMcZ8MlYMpaNuxN6R9yakzH6uajHcHVTqWJzvu5pWw9DyhbP35HH8MVBQ+dZjAfDxk+A8NiR9KWaXiyQ==}
+    engines: {node: '>=18.0.0'}
+
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
@@ -1238,6 +1286,9 @@ packages:
 
   jose@6.2.10:
     resolution: {integrity: sha512-iiW7J9qRFlGxvCOIBDBDxFePQSn7ZMAnrYGhrrOo6siO/MIqwfyilLR27pkfDgUk+raLuzADS8A3S/KLBisc0g==}
+
+  json-schema@0.4.0:
+    resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
 
   jsonc-parser@3.3.1:
     resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
@@ -1458,6 +1509,10 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
+  undici@7.29.1:
+    resolution: {integrity: sha512-RYONW2MeafgYlkVOKYKkA/Ag7BmXqgIWCa8t1m0JcxrQg9pI9lEqRhAOruOBCbAohOa/gkCF+iPi9hrgvTzu6Q==}
+    engines: {node: '>=20.18.1'}
+
   vite@8.2.2:
     resolution: {integrity: sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1547,6 +1602,22 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  workers-ai-provider@4.0.0:
+    resolution: {integrity: sha512-FkhwMP1EP/MKXR8Jv1o7wLVKfTqu0h/PUaEmhZ7gyDiioib5Wsh3oPAKhG+7+SWfU3roTDHaEWlJpkJjpXu+fQ==}
+    peerDependencies:
+      '@ai-sdk/anthropic': ^4.0.0
+      '@ai-sdk/google': ^4.0.0
+      '@ai-sdk/openai': ^4.0.0
+      '@ai-sdk/provider': ^4.0.0
+      ai: ^7.0.0
+    peerDependenciesMeta:
+      '@ai-sdk/anthropic':
+        optional: true
+      '@ai-sdk/google':
+        optional: true
+      '@ai-sdk/openai':
+        optional: true
+
   wrap-ansi@9.0.2:
     resolution: {integrity: sha512-42AtmgqjV+X1VpdOfyTGOYRi0/zsoLqtXQckTmqTeybT+BDIbM/Guxo7x3pE2vtpr1ok6xRqM9OpBe+Jyoqyww==}
     engines: {node: '>=18'}
@@ -1572,6 +1643,32 @@ packages:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
+
+  '@ai-sdk/gateway@4.0.49(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.7
+      '@ai-sdk/provider-utils': 5.0.27(zod@4.4.3)
+      '@vercel/oidc': 3.2.0
+      zod: 4.4.3
+
+  '@ai-sdk/openai-compatible@3.0.30(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.7
+      '@ai-sdk/provider-utils': 5.0.27(zod@4.4.3)
+      zod: 4.4.3
+
+  '@ai-sdk/provider-utils@5.0.27(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.7
+      '@standard-schema/spec': 1.1.0
+      '@workflow/serde': 4.1.0
+      eventsource-parser: 3.1.1
+      undici: 7.29.1
+      zod: 4.4.3
+
+  '@ai-sdk/provider@4.0.7':
+    dependencies:
+      json-schema: 0.4.0
 
   '@better-auth/core@1.7.1(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260823.1)(better-call@1.4.0(zod@4.4.3))(jose@6.2.10)(kysely@0.29.5)(nanostores@1.5.2)':
     dependencies:
@@ -1990,39 +2087,41 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@substrat-run/adapter-cloudflare@0.87.0(zod@4.4.3)':
+  '@substrat-run/adapter-cloudflare@0.113.0(zod@4.4.3)':
     dependencies:
-      '@substrat-run/contracts': 0.87.0(zod@4.4.3)
-      '@substrat-run/kernel': 0.87.0(zod@4.4.3)
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      '@substrat-run/kernel': 0.113.0(zod@4.4.3)
     transitivePeerDependencies:
       - zod
 
-  '@substrat-run/adapter-sqlite@0.87.0(zod@4.4.3)':
+  '@substrat-run/adapter-sqlite@0.113.0(zod@4.4.3)':
     dependencies:
-      '@substrat-run/contracts': 0.87.0(zod@4.4.3)
-      '@substrat-run/kernel': 0.87.0(zod@4.4.3)
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      '@substrat-run/kernel': 0.113.0(zod@4.4.3)
       better-sqlite3: 13.0.3
     transitivePeerDependencies:
       - zod
 
-  '@substrat-run/boundary-lint@0.1.2': {}
+  '@substrat-run/boundary-lint@0.4.2': {}
 
-  '@substrat-run/cli@0.25.7(zod@4.4.3)':
+  '@substrat-run/cli@0.32.3(zod@4.4.3)':
     dependencies:
-      '@substrat-run/contracts': 0.87.0(zod@4.4.3)
+      '@substrat-run/boundary-lint': 0.4.2
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      '@substrat-run/model-view': 0.2.14(zod@4.4.3)
       esbuild: 0.25.12
     transitivePeerDependencies:
       - zod
 
-  '@substrat-run/contracts@0.87.0(zod@4.4.3)':
+  '@substrat-run/contracts@0.113.0(zod@4.4.3)':
     dependencies:
       zod: 4.4.3
 
-  '@substrat-run/dev-issuer@0.1.1(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))(zod@4.4.3)':
+  '@substrat-run/dev-issuer@0.1.28(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 1.19.17(hono@4.13.3)
-      '@substrat-run/contracts': 0.87.0(zod@4.4.3)
-      '@substrat-run/vertical-auth': 0.8.0(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      '@substrat-run/vertical-auth': 0.14.2(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))(zod@4.4.3)
       hono: 4.13.3
       jose: 6.2.10
     transitivePeerDependencies:
@@ -2070,37 +2169,54 @@ snapshots:
       - vue
       - zod
 
-  '@substrat-run/engine-invites@0.4.7(zod@4.4.3)':
+  '@substrat-run/engine-invites@0.7.12(zod@4.4.3)':
     dependencies:
-      '@substrat-run/contracts': 0.87.0(zod@4.4.3)
-      '@substrat-run/kernel': 0.87.0(zod@4.4.3)
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      '@substrat-run/kernel': 0.113.0(zod@4.4.3)
       zod: 4.4.3
 
-  '@substrat-run/engine-workorder@0.8.3(zod@4.4.3)':
+  '@substrat-run/engine-workorder@0.11.12(zod@4.4.3)':
     dependencies:
-      '@substrat-run/contracts': 0.87.0(zod@4.4.3)
-      '@substrat-run/kernel': 0.87.0(zod@4.4.3)
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      '@substrat-run/kernel': 0.113.0(zod@4.4.3)
       zod: 4.4.3
 
-  '@substrat-run/kernel@0.87.0(zod@4.4.3)':
+  '@substrat-run/kernel@0.113.0(zod@4.4.3)':
     dependencies:
-      '@substrat-run/contracts': 0.87.0(zod@4.4.3)
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
     transitivePeerDependencies:
       - zod
 
-  '@substrat-run/oidc-rp@0.5.1(hono@4.13.3)':
+  '@substrat-run/model-providers@0.5.3(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/openai-compatible': 3.0.30(zod@4.4.3)
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      ai: 7.0.62(zod@4.4.3)
+    transitivePeerDependencies:
+      - zod
+
+  '@substrat-run/model-view@0.2.14(zod@4.4.3)':
+    dependencies:
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+    transitivePeerDependencies:
+      - zod
+
+  '@substrat-run/oidc-rp@0.9.0(hono@4.13.3)':
     dependencies:
       hono: 4.13.3
       jose: 6.2.10
 
-  '@substrat-run/psl@0.2.2': {}
+  '@substrat-run/psl@0.2.5': {}
 
-  '@substrat-run/vertical-auth@0.8.0(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))':
+  '@substrat-run/vertical-auth@0.14.2(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.3)(kysely@0.29.5)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))(zod@4.4.3)':
     dependencies:
-      '@substrat-run/oidc-rp': 0.5.1(hono@4.13.3)
-      '@substrat-run/psl': 0.2.2
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      '@substrat-run/kernel': 0.113.0(zod@4.4.3)
+      '@substrat-run/oidc-rp': 0.9.0(hono@4.13.3)
+      '@substrat-run/psl': 0.2.5
       better-auth: 1.7.1(@cloudflare/workers-types@5.20260823.1)(better-sqlite3@13.0.3)(drizzle-orm@0.45.2(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(kysely@0.29.5))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@4.1.11(@types/node@26.2.0)(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0)))
       drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260823.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(kysely@0.29.5)
+      hono: 4.13.3
       jose: 6.2.10
     transitivePeerDependencies:
       - '@aws-sdk/client-rds-data'
@@ -2129,7 +2245,6 @@ snapshots:
       - drizzle-kit
       - expo-sqlite
       - gel
-      - hono
       - knex
       - kysely
       - mongodb
@@ -2146,13 +2261,21 @@ snapshots:
       - svelte
       - vitest
       - vue
+      - zod
 
-  '@substrat-run/vertical-host@0.87.0(zod@4.4.3)':
+  '@substrat-run/vertical-host@0.113.0(@ai-sdk/provider@4.0.7)(zod@4.4.3)':
     dependencies:
-      '@substrat-run/contracts': 0.87.0(zod@4.4.3)
-      '@substrat-run/kernel': 0.87.0(zod@4.4.3)
+      '@substrat-run/contracts': 0.113.0(zod@4.4.3)
+      '@substrat-run/kernel': 0.113.0(zod@4.4.3)
+      '@substrat-run/model-providers': 0.5.3(zod@4.4.3)
+      ai: 7.0.62(zod@4.4.3)
       hono: 4.13.3
+      workers-ai-provider: 4.0.0(@ai-sdk/provider@4.0.7)(ai@7.0.62(zod@4.4.3))
     transitivePeerDependencies:
+      - '@ai-sdk/anthropic'
+      - '@ai-sdk/google'
+      - '@ai-sdk/openai'
+      - '@ai-sdk/provider'
       - zod
 
   '@types/better-sqlite3@9.6.0':
@@ -2240,6 +2363,8 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
+  '@vercel/oidc@3.2.0': {}
+
   '@vitejs/plugin-react@6.1.0(vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
@@ -2285,6 +2410,15 @@ snapshots:
       '@vitest/pretty-format': 4.1.11
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
+
+  '@workflow/serde@4.1.0': {}
+
+  ai@7.0.62(zod@4.4.3):
+    dependencies:
+      '@ai-sdk/gateway': 4.0.49(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.7
+      '@ai-sdk/provider-utils': 5.0.27(zod@4.4.3)
+      zod: 4.4.3
 
   ansi-regex@6.3.0: {}
 
@@ -2438,6 +2572,8 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
+  eventsource-parser@3.1.1: {}
+
   expect-type@1.4.0: {}
 
   fast-string-truncated-width@3.0.3: {}
@@ -2470,6 +2606,8 @@ snapshots:
   jju@1.4.0: {}
 
   jose@6.2.10: {}
+
+  json-schema@0.4.0: {}
 
   jsonc-parser@3.3.1: {}
 
@@ -2667,6 +2805,8 @@ snapshots:
 
   undici-types@8.3.0: {}
 
+  undici@7.29.1: {}
+
   vite@8.2.2(@types/node@26.2.0)(esbuild@0.28.2)(tsx@4.23.12)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
@@ -2712,6 +2852,11 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  workers-ai-provider@4.0.0(@ai-sdk/provider@4.0.7)(ai@7.0.62(zod@4.4.3)):
+    dependencies:
+      '@ai-sdk/provider': 4.0.7
+      ai: 7.0.62(zod@4.4.3)
 
   wrap-ansi@9.0.2:
     dependencies:
