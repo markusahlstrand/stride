@@ -29,13 +29,7 @@ import {
   useCountingDown,
   useFinishSummary,
 } from './session';
-import {
-  BarbellIcon,
-  CalendarIcon,
-  ClipboardIcon,
-  PeopleIcon,
-  PersonIcon,
-} from './icons';
+import { Figure, type Pose } from './figures';
 
 // ============================================================================
 // The shell: the signed-in header, a notice banner, and the bottom tab bar.
@@ -96,7 +90,14 @@ function Gate({
     <div className="app">
       <main className="gate">
         <div className="wordmark">Stride</div>
-        <div className={quiet ? 'card' : 'card raised'}>
+        {/* Somebody is home. The figure stands on the card's top edge. */}
+        <div className={`${quiet ? 'card' : 'card raised'} has-topfig`}>
+          <Figure
+            pose={quiet ? 'sit' : 'wave'}
+            size={104}
+            className="topfig"
+            style={{ '--s': '104px' } as React.CSSProperties}
+          />
           <h1>{title}</h1>
           <p>{body}</p>
           <a className={quiet ? 'default' : 'primary'} href={href}>
@@ -348,8 +349,14 @@ export function App() {
             at its foot the signed-in person. Identity comes BACK here because the
             desktop design asks for it — on mobile there is no chrome to hold it,
             which is why it lives on Me. */}
-        <div className="rail-mark">Stride</div>
+        <div className="rail-mark">
+          <Figure pose="run" size={44} />
+          stride
+        </div>
         {/*
+          The icons are the cast (figures.tsx): a runner for Today, a lifter for
+          the workouts, somebody cheering for the people you coach, a wave for Me.
+
           The bar follows the PERSON, not the schema. Exercises are part of a
           workout and are reached from one (or from your own library on Me), so
           they are no longer a destination; a conversation belongs to the person
@@ -358,17 +365,17 @@ export function App() {
         */}
         {(staff
           ? ([
-              ['today', CalendarIcon, 'Today', { name: 'today' } as Route, 0],
-              ['workouts', ClipboardIcon, 'Programmes', { name: 'workouts' } as Route, 0],
-              ['trainees', PeopleIcon, 'Trainees', { name: 'trainees' } as Route, unread],
-              ['me', PersonIcon, 'Me', { name: 'me' } as Route, 0],
+              ['today', 'run' as Pose, 'Today', { name: 'today' } as Route, 0],
+              ['workouts', 'press' as Pose, 'Programmes', { name: 'workouts' } as Route, 0],
+              ['trainees', 'cheer' as Pose, 'Trainees', { name: 'trainees' } as Route, unread],
+              ['me', 'wave' as Pose, 'Me', { name: 'me' } as Route, 0],
             ] as const)
           : ([
-              ['today', CalendarIcon, 'Today', { name: 'today' } as Route, 0],
-              ['workouts', BarbellIcon, 'Workouts', { name: 'workouts' } as Route, 0],
-              ['me', PersonIcon, 'Me', { name: 'me' } as Route, unread],
+              ['today', 'run' as Pose, 'Today', { name: 'today' } as Route, 0],
+              ['workouts', 'press' as Pose, 'Workouts', { name: 'workouts' } as Route, 0],
+              ['me', 'wave' as Pose, 'Me', { name: 'me' } as Route, unread],
             ] as const)
-        ).map(([key, Glyph, label, target, badge]) => (
+        ).map(([key, pose, label, target, badge]) => (
           <button
             key={key}
             /* `tab-me` is what the desktop rail hides: down there the signed-in
@@ -381,7 +388,7 @@ export function App() {
             }}
           >
             <span className="glyph">
-              <Glyph />
+              <Figure pose={pose} size={30} mini />
               {badge > 0 && <span className="dot">{badge > 9 ? '9+' : badge}</span>}
             </span>
             {label}

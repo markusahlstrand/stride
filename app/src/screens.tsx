@@ -40,7 +40,8 @@ import {
   type Summary,
   type Trainee,
 } from './api';
-import { CheckIcon, SendIcon } from './icons';
+import { SendIcon } from './icons';
+import { Figure, FigureTile, poseFor, type Pose } from './figures';
 
 type Run = (fn: () => Promise<unknown>, ok?: string) => Promise<boolean>;
 export type ExerciseFilters = {
@@ -157,32 +158,45 @@ export function TodayScreen({
     <button
       key={i.itemId}
       type="button"
-      className="card tappable"
+      className="card tappable with-fig"
       onClick={() => onOpen(i.programId)}
     >
-      <div className="row">
-        <span className="title">{i.exerciseName}</span>
-        <span className={`badge mono${i.doneThisWeek >= i.targetThisWeek ? ' earned' : ''}`}>
-          {i.doneThisWeek}/{i.targetThisWeek} this week
-        </span>
-      </div>
-      {/* The quantity gets its own line and its own typeface: it is the thing
-          you came to read, and mono keeps a column of them aligned. */}
-      <div className="quantity">
-        {i.targetSets} × {i.targetReps} {i.unit}
-        {i.targetLoad ? ` @ ${i.targetLoad}` : ''}
-        {i.laterality === 'unilateral' ? ' · each side' : ''}
-      </div>
-      <div className="sub">
-        {recurrenceLabel(i.recurDays, i.recurPerWeek)} · {i.programTitle}
+      <FigureTile pose={poseFor(i.exerciseName, i.unit)} size={62} />
+      <div className="grow">
+        <div className="row center">
+          <span className="title">{i.exerciseName}</span>
+          <span className={`badge mono${i.doneThisWeek >= i.targetThisWeek ? ' earned' : ''}`}>
+            {i.doneThisWeek}/{i.targetThisWeek} this week
+          </span>
+        </div>
+        {/* The quantity gets its own line and its own typeface: it is the thing
+            you came to read, and mono keeps a column of them aligned. */}
+        <div className="quantity">
+          {i.targetSets} × {i.targetReps} {i.unit}
+          {i.targetLoad ? ` @ ${i.targetLoad}` : ''}
+          {i.laterality === 'unilateral' ? ' · each side' : ''}
+        </div>
+        <div className="sub">
+          {recurrenceLabel(i.recurDays, i.recurPerWeek)} · {i.programTitle}
+        </div>
       </div>
     </button>
   );
 
+  // Which days of this week have something booked — the plan, not a record.
+  const bookedDays = new Set(agenda.map((a) => a.weekday));
+  // ISO weekday, Monday = 1, to match the slots.
+  const todayIso = ((new Date().getDay() + 6) % 7) + 1;
+  // The hero's figure does whatever is first on today's list.
+  const heroPose: Pose = due[0] ? poseFor(due[0].exerciseName, due[0].unit) : 'press';
+
   return (
     <>
       <h1>Today</h1>
-      <div className="sub" style={{ margin: '-8px 0 14px', paddingLeft: 4 }}>
+      {/* Top and bottom only, here and under every other title: a `margin`
+          shorthand zeroes the auto side margins that centre the column on
+          desktop, and strands the line in the gutter. */}
+      <div className="sub" style={{ marginTop: -6, marginBottom: 16, paddingLeft: 2 }}>
         {new Date().toLocaleDateString(undefined, {
           weekday: 'long',
           day: 'numeric',
@@ -190,18 +204,51 @@ export function TodayScreen({
         })}
       </div>
 
-      {/* WHAT'S NEXT is raised and accent-bordered; everything below it is
-          reference. At most one card on the screen gets that treatment. */}
-      {booked.map((a) => (
-        <div key={`${a.programId}-${a.time}`} className="card raised accent">
-          <div className="row center">
+      {/* The week at a glance: the days you train are inked in, and a runner
+          stands on today. Only drawn once something is booked — seven empty
+          dots say nothing the empty state below does not say better. */}
+      {agenda.length > 0 && (
+        <div className="week" aria-hidden="true">
+          {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((letter, idx) => {
+            const iso = idx + 1;
+            const isToday = iso === todayIso;
+            return (
+              <div key={iso} className="week-day">
+                {isToday ? <Figure pose="run" size={42} /> : <span className="week-letter">{letter}</span>}
+                <span
+                  className={`week-dot${bookedDays.has(iso) ? ' booked' : ''}${isToday ? ' today' : ''}`}
+                >
+                  {isToday ? letter : ''}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* WHAT'S NEXT is the one mint card; everything below it is reference.
+          The first of them gets a figure standing on its button. */}
+      {booked.map((a, idx) => (
+        <div key={`${a.programId}-${a.time}`} className={`card hero${idx === 0 ? ' has-fig' : ''}`}>
+          {idx === 0 && (
+            <Figure
+              pose={heroPose}
+              size={180}
+              className="hero-fig"
+              style={{ '--s': '180px' } as React.CSSProperties}
+            />
+          )}
+          <div className="hero-text">
+            <div className="hero-meta">
+              <span className="badge time">{a.time}</span>
+              <span className="hero-label">Up next</span>
+            </div>
             <span className="title big">{a.programTitle}</span>
-            <span className="badge time">{a.time}</span>
-          </div>
-          <div className="sub mono">
-            {a.traineeName ? `${a.traineeName} · ` : ''}
-            {a.exercises} exercises
-            {a.setsToday > 0 ? ` · ${a.setsToday} logged today` : ''}
+            <div className="sub mono">
+              {a.traineeName ? `${a.traineeName} · ` : ''}
+              {a.exercises} exercises
+              {a.setsToday > 0 ? ` · ${a.setsToday} logged today` : ''}
+            </div>
           </div>
           <div className="actions">
             <button className="primary wide" onClick={() => begin(a)}>
@@ -241,6 +288,7 @@ export function TodayScreen({
 
       {items.length === 0 && agenda.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">Nothing booked.</span>
           {me?.role === 'trainee' ? (
             <>
@@ -309,6 +357,7 @@ export function ProgramsScreen({
 
       {programs.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           {solo ? (
             <>
               <span className="head">No workouts yet.</span>
@@ -432,6 +481,7 @@ function NewWorkout({
     if (!canTrainMyself && others.length === 0) {
       return (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">Nobody to write a programme for yet.</span>
           Invite a trainee from the Trainees screen; their first workout starts there.
         </div>
@@ -822,7 +872,8 @@ export function ProgramDetailScreen({
     if (isSessionComplete(detail)) finishSession(summaryOf(detail, earned, elapsedMs(live)));
   }, [detail, live, earned]);
 
-  if (!detail) return <div className="empty">Not visible to {me?.name ?? 'you'}.</div>;
+  if (!detail) return <div className="empty">
+          <Figure pose="rest" size={132} />Not visible to {me?.name ?? 'you'}.</div>;
 
   const { program, items, sessions, summary, slots } = detail;
   const openSession = program.status === 'in_progress' ? sessions[sessions.length - 1] : undefined;
@@ -889,10 +940,13 @@ export function ProgramDetailScreen({
 
     return (
       <div key={item.id} className={`card${openSession ? ' raised' : ''}`}>
-        <div className="row">
-          <span className="title">
-            {tag && <span className="tag" style={{ marginRight: 8 }}>{tag}</span>}
-            {item.exercise?.name ?? 'Unknown exercise'}
+        <div className="row center">
+          <span className="title with-fig">
+            <FigureTile pose={poseFor(item.exercise?.name, unit)} size={46} />
+            <span>
+              {tag && <span className="tag" style={{ marginRight: 8 }}>{tag}</span>}
+              {item.exercise?.name ?? 'Unknown exercise'}
+            </span>
           </span>
           {editable && editing !== item.id && (
             <button
@@ -1014,7 +1068,7 @@ export function ProgramDetailScreen({
         <h1 style={{ margin: 0 }}>{program.title}</h1>
         <span className={`badge ${program.status}`}>{program.status.replace('_', ' ')}</span>
       </div>
-      <div className="sub mono" style={{ margin: '2px 0 14px' }}>
+      <div className="sub mono" style={{ marginTop: 6, marginBottom: 14 }}>
         #{program.number} · {program.kind}
         {program.traineeName ? ` · ${program.traineeName}` : ''}
       </div>
@@ -1088,9 +1142,7 @@ export function ProgramDetailScreen({
       )}
       {earned && (
         <div className="earned-card" onClick={() => setEarned(null)}>
-          <span className="disc">
-            <CheckIcon />
-          </span>
+          <Figure pose="cheer" size={120} />
           <div className="head">Yours forever</div>
           <div className="what">{earned} · earned</div>
           <div className="why">
@@ -1107,6 +1159,7 @@ export function ProgramDetailScreen({
       <h2>Sessions</h2>
       {sessions.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">No sessions yet.</span>
           Every set you log lands in one — and a correction is a new row, never an edit.
         </div>
@@ -1145,7 +1198,7 @@ function AdherenceCard({ summary }: { summary: Summary }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
         <div className="ring">
           <svg width="124" height="124" viewBox="0 0 124 124">
-            <circle cx="62" cy="62" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="8" />
+            <circle cx="62" cy="62" r={r} fill="none" stroke="var(--line)" strokeWidth="8" />
             <circle
               cx="62"
               cy="62"
@@ -1617,7 +1670,7 @@ export function LibraryScreen({
         placeholder="Search exercises…"
       />
 
-      <div className="sets" style={{ margin: '10px 0' }}>
+      <div className="sets" style={{ marginTop: 10, marginBottom: 10 }}>
         {['strength', 'cardio', 'mobility', 'rehab'].map((m) => (
           <button
             key={m}
@@ -1712,14 +1765,18 @@ export function LibraryScreen({
 
       {rows.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">Nothing matches those filters.</span>
           Clear them to see every exercise available to you.
         </div>
       )}
       {rows.map((e) => (
         <div key={e.id} className="card">
-          <div className="row">
-            <span className="title">{e.name}</span>
+          <div className="row center">
+            <span className="title with-fig">
+              <FigureTile pose={poseFor(e.name, e.unit)} size={46} />
+              <span>{e.name}</span>
+            </span>
             {badge(e)}
           </div>
           <div className="sub">
@@ -2220,6 +2277,7 @@ export function ChatScreen({
       <h1>Chat</h1>
       {threads.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">No conversations.</span>
           {solo
             ? 'A conversation opens when you connect with a coach — and closes if you end it.'
@@ -2293,13 +2351,15 @@ export function ThreadScreen({
           ‹ Back
         </button>
         <div className="empty">
+          <Figure pose="sit" size={132} />
           <span className="head">This conversation is not yours to read.</span>
           A thread lives and dies with the coaching relationship.
         </div>
       </>
     );
   }
-  if (!state) return <div className="empty">…</div>;
+  if (!state) return <div className="empty">
+          <Figure pose="rest" size={132} />…</div>;
 
   return (
     <>
@@ -2317,6 +2377,7 @@ export function ThreadScreen({
       </div>
       {state.messages.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">Nothing yet.</span>
           Say hello — the thread is the relationship, not the training.
         </div>
@@ -2520,6 +2581,7 @@ export function TraineesScreen({
 
       {trainees.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">Nobody yet.</span>
           Invite a trainee above — they decide what they share when they join.
         </div>
@@ -2607,8 +2669,18 @@ export function PeopleScreen({
             answer is the honest source. */}
         {/* The profile card. An avatar and a line saying where you are — a
             person, not a record id, even though the id is right there. */}
-        {trainees.map((t) => (
-          <div key={t.id} className="card">
+        {/* Somebody waves from the top edge of the profile card — beside the
+            heading, so it costs the column no height of its own. */}
+        {trainees.map((t, idx) => (
+          <div key={t.id} className={`card${idx === 0 ? ' has-topfig' : ''}`} style={idx === 0 ? { marginTop: 40 } : undefined}>
+            {idx === 0 && (
+              <Figure
+              pose="wave"
+              size={100}
+              className="topfig"
+              style={{ '--s': '100px' } as React.CSSProperties}
+            />
+            )}
             <div className="person">
               <span className="avatar lg me">{initials(t.name)}</span>
               <span>
@@ -2655,7 +2727,13 @@ export function PeopleScreen({
   return (
     <>
       <h1>Me</h1>
-      <div className="card">
+      <div className="card has-topfig" style={{ marginTop: 40 }}>
+        <Figure
+          pose="wave"
+          size={100}
+          className="topfig"
+          style={{ '--s': '100px' } as React.CSSProperties}
+        />
         <div className="person">
           <span className="avatar lg me">{initials(me?.name ?? '?')}</span>
           <span>
@@ -2780,7 +2858,25 @@ function SessionClock({
   onEnd: () => void;
 }) {
   const ms = useElapsed(session);
+  // How far through: exercises with a set logged, of exercises prescribed. The
+  // same counts the bar reports, so the two can never disagree.
+  const known = session.total !== undefined && session.done !== undefined && session.total > 0;
+  const pct = known ? Math.min(100, Math.round((session.done! / session.total!) * 100)) : 0;
   return (
+    <>
+    {known && (
+      <div className="track" aria-hidden="true">
+        <span className="track-label">
+          {session.done} of {session.total}
+        </span>
+        <div className="track-bar">
+          <i style={{ width: `${pct}%` }} data-empty={pct === 0} />
+        </div>
+        {/* `left` runs from 0 to (100% − the figure), so the runner starts on
+            the track and finishes on it rather than half off either end. */}
+        <Figure pose={pct >= 100 ? 'cheer' : 'run'} size={56} style={{ left: `calc(${pct}% - ${(pct / 100) * 56}px)` }} />
+      </div>
+    )}
     <div className="session-head">
       <span className={`session-dot${session.pausedAt ? ' held' : ''}`} />
       <span>
@@ -2794,6 +2890,7 @@ function SessionClock({
         <button onClick={onEnd}>End session</button>
       </span>
     </div>
+    </>
   );
 }
 
@@ -2854,7 +2951,13 @@ function BaselineStep({ me, run, onOpen }: ScreenProps & { onOpen: (id: string) 
   };
 
   return (
-    <div className="card accent">
+    <div className="card hero has-topfig">
+      <Figure
+        pose="rope"
+        size={96}
+        className="topfig"
+        style={{ '--s': '96px' } as React.CSSProperties}
+      />
       <div className="row center">
         <span className="title">Measure where you start</span>
         <span className="badge mono">optional</span>
@@ -2937,7 +3040,7 @@ function Spark({
       />
       {pts.map(([x, y], i) =>
         marks?.[i] ? (
-          <circle key={i} cx={x} cy={y} r="3.5" fill="var(--surface)" stroke="var(--accent)" strokeWidth="2" />
+          <circle key={i} cx={x} cy={y} r="4" fill="var(--accent)" stroke="var(--ink)" strokeWidth="2" />
         ) : null,
       )}
     </svg>
@@ -3038,6 +3141,9 @@ function ExerciseCurve({ e, onOpen }: { e: ExerciseProgress; onOpen: (id: string
  * first pair is recomputed here from the same points, display only, so the card
  * can say "was 50%, now 67%" — the sentence the baseline exists to produce.
  */
+/** The poses that read as one-sided when mirrored; anything else falls back. */
+const SIDED_POSE: Partial<Record<Pose, Pose>> = { lunge: 'lunge', squat: 'lunge', row: 'row', run: 'lunge' };
+
 function SymmetryCard({ e }: { e: ExerciseProgress }) {
   const sym = e.symmetry!;
   const left = e.series.find((s) => s.side === 'left')?.points ?? [];
@@ -3063,6 +3169,13 @@ function SymmetryCard({ e }: { e: ExerciseProgress }) {
         <span className="sub mono" style={{ marginTop: 0 }}>
           {new Date(sym.performedAt).toLocaleDateString()}
         </span>
+      </div>
+      {/* Left and right, facing each other. Only a pose that is itself lopsided
+          can say "one side": a mirrored barbell press is the same picture twice.
+          So legs get the lunge and everything else gets the one-armed curl. */}
+      <div className="sym-pair" aria-hidden="true">
+        <Figure pose={SIDED_POSE[poseFor(e.name)] ?? 'curl'} size={84} />
+        <Figure pose={SIDED_POSE[poseFor(e.name)] ?? 'curl'} size={84} flip />
       </div>
       <div className="bars">
         <span className="side-label left">L</span>
@@ -3156,6 +3269,7 @@ function BodyCard({
       <h2>Body</h2>
       {!readable && (
         <div className="empty">
+          <Figure pose="sit" size={132} />
           <span className="head">Not shared with you.</span>
           Body measurements are visible to a coach only when the person shares all of their
           training. You can still record one for them.
@@ -3163,6 +3277,7 @@ function BodyCard({
       )}
       {readable && groups.size === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">Nothing measured yet.</span>
           Weight, a waist, how far each shoulder goes. The first one is the baseline.
         </div>
@@ -3285,6 +3400,7 @@ export function ProgressScreen({
         </button>
         <h1>Progress</h1>
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">No trainee record yet.</span>
           Make yourself a workout on the Workouts screen and your curve starts there.
         </div>
@@ -3327,7 +3443,7 @@ export function ProgressScreen({
         ‹ {mine ? 'Me' : 'Trainees'}
       </button>
       <h1>{mine ? 'My progress' : who ? `${who.name}` : 'Progress'}</h1>
-      <div className="sub" style={{ margin: '-8px 0 14px', paddingLeft: 4 }}>
+      <div className="sub" style={{ marginTop: -6, marginBottom: 16, paddingLeft: 2 }}>
         {progress
           ? `${progress.sessionsSeen} session${progress.sessionsSeen === 1 ? '' : 's'} ${mine ? 'logged' : 'shared with you'}`
           : 'Loading…'}
@@ -3362,6 +3478,7 @@ export function ProgressScreen({
       <h2>Exercises</h2>
       {curves.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">{mine ? 'Nothing logged yet.' : 'Nothing shared yet.'}</span>
           {mine
             ? 'Every set you log becomes a point. Take the baseline and there is a first one on nine curves at once.'
@@ -3682,7 +3799,7 @@ export function PlansScreen({
         ‹ {me?.role === 'trainee' ? 'Workouts' : 'Programmes'}
       </button>
       <h1>Plans</h1>
-      <div className="sub" style={{ margin: '-8px 0 14px', paddingLeft: 4 }}>
+      <div className="sub" style={{ marginTop: -6, marginBottom: 16, paddingLeft: 2 }}>
         Reusable workout plans. Follow one from the gym, or build your own and share it.
       </div>
       <NewPlan run={run} onCreated={reload} />
@@ -3690,6 +3807,7 @@ export function PlansScreen({
       <h2>My plans</h2>
       {mine.length === 0 && (
         <div className="empty">
+          <Figure pose="rest" size={132} />
           <span className="head">None yet.</span>
           Make one above, add exercises, and it is yours to run and — if you like — to share.
         </div>
@@ -3707,7 +3825,8 @@ export function PlansScreen({
       ))}
 
       <h2>In this gym</h2>
-      {others.length === 0 && <div className="empty">Nothing shared here yet.</div>}
+      {others.length === 0 && <div className="empty">
+          <Figure pose="rest" size={132} />Nothing shared here yet.</div>}
       {others.map((p) => (
         <PlanCard
           key={p.id}
