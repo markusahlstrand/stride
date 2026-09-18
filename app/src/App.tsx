@@ -10,6 +10,8 @@ import {
   initials,
   LibraryScreen,
   PeopleScreen,
+  PlansScreen,
+  ProgressScreen,
   ProgramDetailScreen,
   ProgramsScreen,
   ThreadScreen,
@@ -200,6 +202,7 @@ export function App() {
           name: who.name ?? session.name ?? session.email ?? 'You',
           role: who.role,
           subjectId: who.recordId,
+          traineeId: who.traineeId,
         }),
       )
       .catch(() => setMe(null));
@@ -281,15 +284,37 @@ export function App() {
           />
         ) : route.name === 'chat' ? (
           <ChatScreen me={me} run={run} onOpen={openThread} />
+        ) : route.name === 'progress' ? (
+          <ProgressScreen
+            // No id in the URL means mine. Staff reach someone else's from the roster.
+            traineeId={route.traineeId ?? me?.traineeId ?? null}
+            me={me}
+            run={run}
+            onBack={() => navigate(staff && route.traineeId ? { name: 'trainees' } : { name: 'me' })}
+            onOpen={openWorkout}
+          />
         ) : route.name === 'trainees' ? (
           <TraineesScreen
             me={me}
             run={run}
             onOpen={openWorkout}
             onThread={openThread}
+            onProgress={(traineeId) => navigate({ name: 'progress', traineeId })}
+          />
+        ) : route.name === 'plans' ? (
+          <PlansScreen
+            me={me}
+            run={run}
+            onBack={() => navigate({ name: 'workouts' })}
+            onOpen={openWorkout}
           />
         ) : route.name === 'workouts' ? (
-          <ProgramsScreen me={me} run={run} onOpen={openWorkout} />
+          <ProgramsScreen
+            me={me}
+            run={run}
+            onOpen={openWorkout}
+            onPlans={() => navigate({ name: 'plans' })}
+          />
         ) : route.name === 'exercises' ? (
           <LibraryScreen
             me={me}
@@ -304,6 +329,7 @@ export function App() {
             onOpen={openWorkout}
             onThread={openThread}
             onBrowse={() => navigate(EXERCISES_DEFAULT as Route)}
+            onProgress={() => navigate({ name: 'progress', traineeId: null })}
           />
         ) : (
           <TodayScreen
@@ -345,7 +371,10 @@ export function App() {
         ).map(([key, Glyph, label, target, badge]) => (
           <button
             key={key}
-            className={tab === key ? 'on' : ''}
+            /* `tab-me` is what the desktop rail hides: down there the signed-in
+               person at the foot IS the Me item, and two doors to one screen in
+               one strip of chrome read as two screens. */
+            className={`${key === 'me' ? 'tab-me ' : ''}${tab === key ? 'on' : ''}`}
             onClick={() => {
               setNotice(null);
               navigate(target);
@@ -359,13 +388,22 @@ export function App() {
           </button>
         ))}
 
-        {/* Above the tab bar, below everything else — a sibling of the bar so
-            its own margins hold it clear. */}
+        {/* The foot of the rail, and on desktop the ONLY way to Me — so it is a
+            button, it lights like a tab, and it carries the unread count that
+            rode the Me tab before it. Hidden entirely on mobile, where the bar
+            has the Me tab and no room for chrome. */}
         {me && (
-          <div className="rail-user">
+          <button
+            className={`rail-user${tab === 'me' ? ' on' : ''}`}
+            onClick={() => {
+              setNotice(null);
+              navigate({ name: 'me' });
+            }}
+          >
             <span className="avatar">{initials(me.name)}</span>
             <span className="rail-name">{me.name}</span>
-          </div>
+            {unread > 0 && <span className="dot">{unread > 9 ? '9+' : unread}</span>}
+          </button>
         )}
       </nav>
 

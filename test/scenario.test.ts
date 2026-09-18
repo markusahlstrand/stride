@@ -19,7 +19,10 @@ import type {
   ProgramCard,
   ProgramDetail,
   ItemSetRow,
+  MeasurementRow,
   MessageRow,
+  ProgressView,
+  TemplateView,
   ThreadView,
   ProgramSummaryRow,
   SessionRow,
@@ -1339,6 +1342,12 @@ describe('training scenario', () => {
     const theirs = await astrid.invoke<WhoAmI>('stride/whoami');
     expect(theirs.role).toBe('admin');
     expect(theirs.recordId).toBeNull();
+    expect(theirs.traineeId).toBeNull();
+
+    // `traineeId` is reported beside the role, not instead of it: it says whose
+    // training is "mine", and staff can have one too (test 29).
+    expect(her.traineeId).toBe(her.recordId);
+    expect(hers.traineeId).toBeNull();
 
     // The one that matters: a valid principal from the OTHER gym holds no role
     // here, so the question itself is denied. Signing in is not membership, and
@@ -1347,5 +1356,560 @@ describe('training scenario', () => {
     await expect(rutger.invoke<WhoAmI>('stride/whoami')).rejects.toThrow(
       /permission denied: exercise:read-shared/,
     );
+  });
+
+  it('28. the starter library is an admin act, and installing it twice adds nothing', async () => {
+    // The seed installed it through this very operation, so by now the gym has
+    // it. A second call must therefore be a no-op rather than 62 duplicate
+    // slugs — the UI offers this as a button, and a button gets pressed twice.
+    const again = await astrid.invoke<{
+      equipment: number;
+      exercises: number;
+      templates: number;
+      templateItems: number;
+      alreadyInstalled: boolean;
+    }>('stride/install-starter-library');
+    expect(again).toEqual({
+      equipment: 0,
+      exercises: 0,
+      templates: 0,
+      templateItems: 0,
+      alreadyInstalled: true,
+    });
+
+    // It publishes to the WHOLE gym, so it is the publish key — not the author
+    // key every member holds. A coach and a trainee are both refused.
+    await expect(nina.invoke('stride/install-starter-library')).rejects.toThrow(
+      /permission denied: library:publish/,
+    );
+    await expect(bjorn.invoke('stride/install-starter-library')).rejects.toThrow(
+      /permission denied: library:publish/,
+    );
+
+    // And what it installed is really there, templates included — the thing the
+    // first deployed gym was missing.
+    const templates = await astrid.invoke<TemplateRow[]>('stride/templates');
+    expect(templates.map((t) => t.name)).toEqual(
+      expect.arrayContaining(['Foundation Strength', 'Upper Push — ramp & superset']),
+    );
+  });
+
+  it('29. an admin can train in their own gym — and is still the admin', async () => {
+    // The gym of one person. Astrid runs this gym and has no trainee record, so
+    // until she has one there is nobody `assign-program` can assign to — not
+    // even herself.
+    await expect(
+      astrid.invoke('stride/assign-program', { title: 'Mine', kind: 'strength' }),
+    ).rejects.toThrow(/no trainee record for this principal/);
+
+    const mine = await astrid.invoke<TraineeRow>('stride/train-myself', { name: 'Astrid Berg' });
+    expect(mine.principal_id).toBe(w.astrid);
+
+    // Idempotent: the unique index on `principal_id` meant a second row was
+    // never an option, so the second call returns the first record.
+    const same = await astrid.invoke<TraineeRow>('stride/train-myself', {});
+    expect(same.id).toBe(mine.id);
+
+    // THE ONE THAT MATTERS. Role is derived from the records a principal
+    // carries, so having a trainee record used to make her a trainee — which
+    // would have taken the Trainees screen away from the person who runs the
+    // gym. `trainee:manage` is asked first, and it is the key no coach and no
+    // trainee holds.
+    const who = await astrid.invoke<WhoAmI>('stride/whoami');
+    expect(who.role).toBe('admin');
+    expect(who.traineeId).toBe(mine.id);
+
+    // With a record she can do the thing the whole change is for.
+    const program = await astrid.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'My own block',
+      kind: 'strength',
+    });
+    expect(program.program.customer.entityId).toBe(mine.id);
+
+    // A COACH CANNOT. `train-myself` is `trainee:manage`, an admin key: a coach
+    // who wants to train here joins the way everybody else does, by invitation,
+    // which is the path that mints their own grants.
+    await expect(nina.invoke('stride/train-myself', { name: 'Nina' })).rejects.toThrow(
+      /permission denied: trainee:manage/,
+    );
+  });
+
+  it('30. a prescription can be reshaped while it is a plan, by the person whose plan it is', async () => {
+    const program = await bjorn.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Reshape me',
+      kind: 'strength',
+    });
+    const exercises = await bjorn.invoke<ExerciseView[]>('stride/exercises');
+    const squat = exercises.find((e) => e.slug === 'back-squat')!;
+    const item = await bjorn.invoke<ItemRow>('stride/add-program-item', {
+      programId: program.program.id,
+      exerciseId: squat.id,
+      targetSets: 3,
+      targetReps: 5,
+      targetLoad: '60',
+    });
+
+    // Taking the numbers down. `set-item-sets` keeps the uniform columns in step
+    // with the list, so the card, the schedule and adherence all still read
+    // `target_sets` and get the truth.
+    await bjorn.invoke('stride/set-item-sets', {
+      itemId: item.id,
+      sets: [
+        { reps: 3, load: '40' },
+        { reps: 3, load: '45' },
+      ],
+    });
+    let detail = await bjorn.invoke<ProgramDetail>('stride/get-program', {
+      programId: program.program.id,
+    });
+    expect(detail.items[0]!.target_sets).toBe(2);
+    expect(detail.items[0]!.sets.map((x) => [x.target_reps, x.target_load])).toEqual([
+      [3, '40'],
+      [3, '45'],
+    ]);
+
+    // NOBODY ELSE'S. Vera is a trainee in this same gym and holds `result:log`
+    // only against her own record, so Björn's plan is not hers to edit — the
+    // narrowed check is the same one that guards adding an item.
+    await expect(vera.invoke('stride/remove-program-item', { itemId: item.id })).rejects.toThrow(
+      /permission denied: result:log/,
+    );
+
+    // His own, he can drop.
+    await bjorn.invoke('stride/remove-program-item', { itemId: item.id });
+    detail = await bjorn.invoke<ProgramDetail>('stride/get-program', {
+      programId: program.program.id,
+    });
+    expect(detail.items).toHaveLength(0);
+  });
+
+  it('31. SIDES: a one-sided exercise is two numbers, and the boundary keeps them apart', async () => {
+    const exercises = await vera.invoke<ExerciseView[]>('stride/exercises');
+    const press = exercises.find((e) => e.slug === 'single-arm-dumbbell-press')!;
+    const squat = exercises.find((e) => e.slug === 'back-squat')!;
+    expect(press.laterality).toBe('unilateral');
+    expect(squat.laterality).toBe('bilateral');
+    // A row the catalogue has always called "single-arm" is retagged by the
+    // migration — shared rows only, because those are the installer's to
+    // interpret.
+    expect(exercises.find((e) => e.slug === 'dumbbell-row')!.laterality).toBe('unilateral');
+
+    const program = await vera.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Sides',
+      kind: 'strength',
+    });
+    const programId = program.program.id;
+    const item = await vera.invoke<ItemRow>('stride/add-program-item', {
+      programId,
+      exerciseId: press.id,
+      targetSets: 2, // PER SIDE — "2 × 10 each arm"
+      targetReps: 10,
+      targetLoad: '4',
+    });
+    const squatItem = await vera.invoke<ItemRow>('stride/add-program-item', {
+      programId,
+      exerciseId: squat.id,
+      targetSets: 1,
+      targetReps: 5,
+    });
+    await vera.invoke('workorder/start', { orderId: programId });
+    const session = await vera.invoke<SessionRow>('stride/log-session', { programId });
+
+    // No side on a one-sided exercise collapses two numbers into one — refused.
+    await expect(
+      vera.invoke('stride/log-set', { sessionId: session.id, programItemId: item.id, reps: 8, load: '4' }),
+    ).rejects.toThrow(/one side at a time/);
+    // A side on a barbell squat is a claim nothing can be done with — refused.
+    await expect(
+      vera.invoke('stride/log-set', {
+        sessionId: session.id,
+        programItemId: squatItem.id,
+        reps: 5,
+        side: 'left',
+      }),
+    ).rejects.toThrow(/not one-sided/);
+
+    // Numbered PER SIDE: left 1, right 1, left 2 — so the pills line up.
+    const log = (side: 'left' | 'right', reps: number) =>
+      vera.invoke<{ set: { set_no: number; side: string | null } }>('stride/log-set', {
+        sessionId: session.id,
+        programItemId: item.id,
+        reps,
+        load: '4',
+        side,
+      });
+    const l1 = await log('left', 8);
+    const r1 = await log('right', 12);
+    const l2 = await log('left', 7);
+    expect([l1.set.set_no, r1.set.set_no, l2.set.set_no]).toEqual([1, 1, 2]);
+    expect([l1.set.side, r1.set.side]).toEqual(['left', 'right']);
+    await vera.invoke('stride/log-set', {
+      sessionId: session.id,
+      programItemId: squatItem.id,
+      reps: 5,
+    });
+
+    // Adherence counts both arms: 2 per side + 1 squat = 5 asked for, 4 done.
+    const done = await vera.invoke<{ summary: ProgramSummaryRow }>('stride/complete-program', {
+      programId,
+    });
+    expect([done.summary.prescribed_sets, done.summary.performed_sets]).toEqual([5, 4]);
+    expect(done.summary.adherence_pct).toBe('80.00');
+  });
+
+  it('32. THE BASELINE: one session, two arms, the gap as a number — and shared on her terms', async () => {
+    const await_exercises_by_id = new Map(
+      (await vera.invoke<ExerciseView[]>('stride/exercises')).map((e) => [e.id, e] as const),
+    );
+    const templates = await vera.invoke<(TemplateRow & { items: ItemRow[] })[]>('stride/templates');
+    const baseline = templates.find((t) => t.name.startsWith('Baseline'))!;
+    // The whole body: shoulders, squat, hinge, one leg, calves, push, pull,
+    // arms, trunk, balance, a kilometre — sixteen rows, ten of them per side.
+    expect(baseline.items).toHaveLength(16);
+    const perSide = baseline.items.filter(
+      (i) => (await_exercises_by_id.get(i.exercise_id)?.laterality ?? 'bilateral') === 'unilateral',
+    );
+    expect(perSide).toHaveLength(10);
+    // Every row a person with dumbbells, a band and a mat can do — Vera's kit.
+    for (const i of baseline.items) expect(await_exercises_by_id.get(i.exercise_id)?.canDo).toBe(true);
+
+    const program = await vera.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Baseline #1',
+      kind: 'assessment',
+      templateId: baseline.id,
+    });
+    const programId = program.program.id;
+    expect(program.program.kind).toBe('assessment');
+    let detail = await vera.invoke<ProgramDetail>('stride/get-program', { programId });
+    const press = detail.items.find((i) => i.exercise?.slug === 'single-arm-dumbbell-press')!;
+    // The instruction rode the snapshot: the row says what a baseline set is.
+    expect(press.notes).toMatch(/each arm/);
+
+    await vera.invoke('workorder/start', { orderId: programId });
+    // Dated after everything the seed and test 31 logged: symmetry is read off
+    // the LATEST session both arms appear in, so this has to be that one.
+    const session = await vera.invoke<SessionRow>('stride/log-session', {
+      programId,
+      performedAt: '2026-09-30T09:00:00.000Z',
+    });
+    await vera.invoke('stride/log-set', {
+      sessionId: session.id,
+      programItemId: press.id,
+      reps: 8,
+      load: '4',
+      side: 'left',
+    });
+    await vera.invoke('stride/log-set', {
+      sessionId: session.id,
+      programItemId: press.id,
+      reps: 12,
+      load: '4',
+      side: 'right',
+    });
+
+    // THE NUMBER. Left 8 × 4 = 32 against right 12 × 4 = 48: the left arm is at
+    // two thirds, to the hundredth and without a float anywhere.
+    const progress = await vera.invoke<ProgressView>('stride/progress', { traineeId: w.veraId });
+    const curve = progress.exercises.find((e) => e.slug === 'single-arm-dumbbell-press')!;
+    expect(curve.series.map((x) => x.side)).toEqual(['left', 'right']);
+    expect(curve.symmetry).toMatchObject({
+      weaker: 'left',
+      measure: 'volume',
+      left: '32',
+      right: '48',
+      weakerPct: '66.66',
+    });
+    // A baseline point knows it is one, so a later curve can draw it apart. The
+    // seed's first baseline is the first point on this curve; this is the latest.
+    const left = curve.series[0]!.points;
+    expect(left[0]!.programKind).toBe('assessment');
+    expect(left[left.length - 1]).toMatchObject({
+      programKind: 'assessment',
+      bestReps: 8,
+      bestLoad: '4',
+      sets: 1,
+    });
+
+    // ADJUSTING THE NEXT SESSION. The prescription can now differ per arm —
+    // the weak side lighter, the strong side capped to its reps — as an
+    // explicit list where every row names its side.
+    const next = await vera.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Shoulder — week 1',
+      kind: 'rehab',
+    });
+    const item = await vera.invoke<ItemRow>('stride/add-program-item', {
+      programId: next.program.id,
+      exerciseId: press.exercise_id,
+      targetSets: 3,
+      targetReps: 10,
+      targetLoad: '4',
+    });
+    await vera.invoke('stride/set-item-sets', {
+      itemId: item.id,
+      sets: [
+        { reps: 8, load: '2', side: 'left' },
+        { reps: 8, load: '2', side: 'left' },
+        { reps: 8, load: '4', side: 'right' },
+        { reps: 8, load: '4', side: 'right' },
+      ],
+    });
+    detail = await vera.invoke<ProgramDetail>('stride/get-program', { programId: next.program.id });
+    // `target_sets` is per side, so it is 2 — not 4 — and the rows are numbered
+    // per side, the way the results they will be compared with are.
+    expect(detail.items[0]!.target_sets).toBe(2);
+    expect(detail.items[0]!.sets.map((x) => [x.side, x.set_no, x.target_load])).toEqual([
+      ['left', 1, '2'],
+      ['left', 2, '2'],
+      ['right', 1, '4'],
+      ['right', 2, '4'],
+    ]);
+    // A half-sided list is refused whole rather than stored half.
+    await expect(
+      vera.invoke('stride/set-item-sets', {
+        itemId: item.id,
+        sets: [{ reps: 8, load: '2', side: 'left' }, { reps: 8, load: '4' }],
+      }),
+    ).rejects.toThrow(/one side at a time/);
+    detail = await vera.invoke<ProgramDetail>('stride/get-program', { programId: next.program.id });
+    expect(detail.items[0]!.sets).toHaveLength(4);
+
+    // WHO SEES THE CURVE. It is a walk over sessions, so the answer is whatever
+    // Vera shared — and nothing is a denial, it is an empty room.
+    const asBjorn = await bjorn.invoke<ProgressView>('stride/progress', { traineeId: w.veraId });
+    expect(asBjorn).toEqual({ traineeId: w.veraId, sessionsSeen: 0, exercises: [] });
+    // Nina is on the 'assigned' floor: she may prescribe, not read history.
+    const asNina = await nina.invoke<ProgressView>('stride/progress', { traineeId: w.veraId });
+    expect(asNina.exercises.find((e) => e.slug === 'single-arm-dumbbell-press')).toBeUndefined();
+    // The admin reads everything in the gym.
+    const asAstrid = await astrid.invoke<ProgressView>('stride/progress', { traineeId: w.veraId });
+    expect(asAstrid.exercises.find((e) => e.slug === 'single-arm-dumbbell-press')?.symmetry?.weaker).toBe(
+      'left',
+    );
+    // Vera opens up, Nina sees the gap; Vera closes, and it is gone again.
+    await vera.invoke('stride/set-sharing', { coachId: w.ninaId, mode: 'all' });
+    const opened = await nina.invoke<ProgressView>('stride/progress', { traineeId: w.veraId });
+    expect(opened.exercises.find((e) => e.slug === 'single-arm-dumbbell-press')?.symmetry?.weakerPct).toBe(
+      '66.66',
+    );
+    await vera.invoke('stride/set-sharing', { coachId: w.ninaId, mode: 'assigned' });
+    const closed = await nina.invoke<ProgressView>('stride/progress', { traineeId: w.veraId });
+    expect(closed.exercises.find((e) => e.slug === 'single-arm-dumbbell-press')).toBeUndefined();
+  });
+
+  it('33. MEASUREMENTS: the body over time, sided where a body is, on the result keys', async () => {
+    const before = await vera.invoke<MeasurementRow[]>('stride/measurements', { traineeId: w.veraId });
+    const first = await vera.invoke<MeasurementRow>('stride/log-measurement', {
+      traineeId: w.veraId,
+      kind: 'weight',
+      value: '72.4',
+      measuredAt: '2026-08-01T07:00:00.000Z',
+    });
+    expect([first.unit, first.side, first.value]).toEqual(['kg', null, '72.4']);
+    await vera.invoke('stride/log-measurement', {
+      traineeId: w.veraId,
+      kind: 'weight',
+      value: '71.6',
+      measuredAt: '2026-09-01T07:00:00.000Z',
+    });
+
+    // A shoulder has a side; a body weight does not. Both mistakes are refused.
+    await expect(
+      vera.invoke('stride/log-measurement', { traineeId: w.veraId, kind: 'shoulder-flexion', value: '95' }),
+    ).rejects.toThrow(/one side at a time/);
+    await expect(
+      vera.invoke('stride/log-measurement', { traineeId: w.veraId, kind: 'weight', value: '70', side: 'left' }),
+    ).rejects.toThrow(/not one-sided/);
+    // And a value is a decimal STRING above zero — never a float, never nothing.
+    await expect(
+      vera.invoke('stride/log-measurement', { traineeId: w.veraId, kind: 'weight', value: 72.4 }),
+    ).rejects.toThrow();
+    await expect(
+      vera.invoke('stride/log-measurement', { traineeId: w.veraId, kind: 'waist', value: '0' }),
+    ).rejects.toThrow(/more than 0/);
+
+    await vera.invoke('stride/log-measurement', {
+      traineeId: w.veraId,
+      kind: 'shoulder-flexion',
+      side: 'left',
+      value: '95',
+      measuredAt: '2026-09-02T07:00:00.000Z',
+    });
+    await vera.invoke('stride/log-measurement', {
+      traineeId: w.veraId,
+      kind: 'shoulder-flexion',
+      side: 'right',
+      value: '170',
+      measuredAt: '2026-09-02T07:00:00.000Z',
+    });
+    const mine = await vera.invoke<MeasurementRow[]>('stride/measurements', { traineeId: w.veraId });
+    const seen = new Set(before.map((m) => m.id));
+    // Oldest first, by when it was TAKEN — the seed's rows interleave with these.
+    expect(mine.filter((m) => !seen.has(m.id)).map((m) => [m.kind, m.side, m.value, m.unit])).toEqual([
+      ['weight', null, '72.4', 'kg'],
+      ['weight', null, '71.6', 'kg'],
+      ['shoulder-flexion', 'left', '95', 'deg'],
+      ['shoulder-flexion', 'right', '170', 'deg'],
+    ]);
+
+    // Another trainee neither writes nor reads about her, and the denial names
+    // the key — the same two keys that guard sessions and sets.
+    await expect(
+      bjorn.invoke('stride/log-measurement', { traineeId: w.veraId, kind: 'weight', value: '80' }),
+    ).rejects.toThrow(/permission denied: result:log/);
+    await expect(bjorn.invoke('stride/measurements', { traineeId: w.veraId })).rejects.toThrow(
+      /permission denied: result:read/,
+    );
+    // Her coach on the 'assigned' floor holds the coaching grant, so she can
+    // measure a shoulder in the room — and cannot read the history back, exactly
+    // as she cannot read Vera's sessions. Vera's decision, not ours.
+    await nina.invoke('stride/log-measurement', {
+      traineeId: w.veraId,
+      kind: 'grip',
+      side: 'left',
+      value: '22',
+    });
+    await expect(nina.invoke('stride/measurements', { traineeId: w.veraId })).rejects.toThrow(
+      /permission denied: result:read/,
+    );
+    const all = await astrid.invoke<MeasurementRow[]>('stride/measurements', { traineeId: w.veraId });
+    expect(all).toHaveLength(before.length + 5);
+  });
+
+  it('34. RUNNING: a distance with a time on it, and pace falls out', async () => {
+    const templates = await bjorn.invoke<(TemplateRow & { items: ItemRow[] })[]>('stride/templates');
+    const base = templates.find((t) => t.name.startsWith('Running'))!;
+    expect(base.items).toHaveLength(3);
+    const program = await bjorn.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Running',
+      kind: 'conditioning',
+      templateId: base.id,
+    });
+    const programId = program.program.id;
+    await bjorn.invoke('workorder/start', { orderId: programId });
+    const detail = await bjorn.invoke<ProgramDetail>('stride/get-program', { programId });
+    const easy = detail.items.find((i) => i.target_reps === 3000)!;
+    expect(easy.recur_per_week).toBe(2);
+
+    // Two weeks, same 3 km, twenty seconds a kilometre quicker the second time.
+    for (const [day, seconds, hr] of [
+      ['2026-09-01', 1080, 155],
+      ['2026-09-08', 1020, 151],
+    ] as const) {
+      const session = await bjorn.invoke<SessionRow>('stride/log-session', {
+        programId,
+        performedAt: `${day}T07:00:00.000Z`,
+      });
+      await bjorn.invoke('stride/log-set', {
+        sessionId: session.id,
+        programItemId: easy.id,
+        reps: 3000,
+        durationSeconds: seconds,
+        avgHr: hr,
+      });
+    }
+    const progress = await bjorn.invoke<ProgressView>('stride/progress', { traineeId: w.bjornId });
+    const run = progress.exercises.find((e) => e.slug === 'run-outdoor')!;
+    expect(run.series.map((x) => x.side)).toEqual([null]);
+    expect(run.symmetry).toBeNull();
+    // Seconds per kilometre, integers: 6:00 then 5:40.
+    expect(run.series[0]!.points.map((p) => p.paceSecondsPerKm)).toEqual([360, 340]);
+    expect(run.series[0]!.points.map((p) => [p.totalQuantity, p.totalSeconds, p.avgHr])).toEqual([
+      [3000, 1080, 155],
+      [3000, 1020, 151],
+    ]);
+
+    // And it is on the week: twice, the days his to choose.
+    const week = await bjorn.invoke<ScheduledItem[]>('stride/schedule', { on: '2026-09-08' });
+    const due = week.find((i) => i.programId === programId && i.targetReps === 3000)!;
+    expect([due.recurPerWeek, due.doneThisWeek, due.targetThisWeek]).toEqual([2, 1, 2]);
+  });
+
+  it('35. PLANS: a programme that belongs to nobody — made alone, shared with the gym, taken back', async () => {
+    // Björn has no coach. He makes a PLAN — the reusable prescription, tied to
+    // no one — and puts two exercises in it.
+    const plan = await bjorn.invoke<TemplateRow>('stride/author-template', {
+      name: 'Garage strength',
+      description: 'Kettlebell and a pull-up bar.',
+    });
+    const exercises = await bjorn.invoke<ExerciseView[]>('stride/exercises');
+    const swing = exercises.find((e) => e.slug === 'kettlebell-swing')!;
+    const pullUp = exercises.find((e) => e.slug === 'pull-up')!;
+    const swingItem = await bjorn.invoke<ItemRow>('stride/add-template-item', {
+      templateId: plan.id,
+      exerciseId: swing.id,
+      targetSets: 5,
+      targetReps: 15,
+      targetLoad: '24',
+      recurDays: '1,3,5',
+    });
+    await bjorn.invoke('stride/add-template-item', {
+      templateId: plan.id,
+      exerciseId: pullUp.id,
+      targetSets: 3,
+      targetReps: 6,
+      recurDays: '1,3,5',
+    });
+
+    // Private: his, and nobody else's — not Vera's to see, and not hers to edit.
+    let veraSees = await vera.invoke<TemplateView[]>('stride/templates');
+    expect(veraSees.find((t) => t.id === plan.id)).toBeUndefined();
+    await expect(
+      vera.invoke('stride/add-template-item', {
+        templateId: plan.id,
+        exerciseId: swing.id,
+        targetSets: 1,
+        targetReps: 1,
+      }),
+    ).rejects.toThrow(/permission denied: template:read/);
+    // And not hers to share on his behalf.
+    await expect(
+      vera.invoke('stride/share-template', { templateId: plan.id, with: 'gym' }),
+    ).rejects.toThrow(/permission denied: template:read/);
+    const mine = await bjorn.invoke<TemplateView[]>('stride/templates');
+    expect(mine.find((t) => t.id === plan.id)).toMatchObject({ mine: true, ownerName: 'Björn Ek' });
+
+    // SHARED WITH THE GYM. Vera sees it, sees whose it is, and starts a workout
+    // from it — her own run of his plan, snapshot.
+    await bjorn.invoke('stride/share-template', { templateId: plan.id, with: 'gym' });
+    veraSees = await vera.invoke<TemplateView[]>('stride/templates');
+    expect(veraSees.find((t) => t.id === plan.id)).toMatchObject({
+      visibility: 'shared',
+      ownerName: 'Björn Ek',
+      mine: false,
+    });
+    const workout = await vera.invoke<{ program: WorkOrder; items: ItemRow[] }>('stride/assign-program', {
+      title: 'Garage strength — me',
+      kind: 'strength',
+      templateId: plan.id,
+    });
+    expect(workout.items).toHaveLength(2);
+    // Browsing a shared plan is still not permission to edit it.
+    await expect(
+      vera.invoke('stride/remove-template-item', { itemId: swingItem.id }),
+    ).rejects.toThrow(/permission denied: template:read/);
+    // A coach sees it too — the gym is the gym.
+    expect((await nina.invoke<TemplateView[]>('stride/templates')).find((t) => t.id === plan.id)).toBeDefined();
+
+    // Björn reshapes his plan. Vera's workout is a SNAPSHOT and keeps both rows.
+    await bjorn.invoke('stride/remove-template-item', { itemId: swingItem.id });
+    const detail = await vera.invoke<ProgramDetail>('stride/get-program', {
+      programId: workout.program.id,
+    });
+    expect(detail.items).toHaveLength(2);
+    expect((await bjorn.invoke<TemplateView[]>('stride/templates')).find((t) => t.id === plan.id)!.items).toHaveLength(1);
+
+    // TAKEN BACK. It leaves the shelf; the workout she made from it stays hers.
+    await bjorn.invoke('stride/share-template', { templateId: plan.id, with: 'nobody' });
+    veraSees = await vera.invoke<TemplateView[]>('stride/templates');
+    expect(veraSees.find((t) => t.id === plan.id)).toBeUndefined();
+    expect(
+      (await vera.invoke<ProgramCard[]>('stride/my-programs')).map((p) => p.id),
+    ).toContain(workout.program.id);
+
+    // The gym's own library plans are not anyone's to withdraw this way — an
+    // admin publishes and retires those on the publish key.
+    await expect(
+      astrid.invoke('stride/share-template', { templateId: w.templateId, with: 'nobody' }),
+    ).rejects.toThrow(/gym's own library plan/);
   });
 });

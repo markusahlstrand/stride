@@ -354,4 +354,63 @@ export const strideMigrations: SqlMigration[] = [
       CREATE INDEX train_messages_thread ON train_messages(trainee_id, coach_id, created_at);
     `,
   },
+  {
+    version: '0009-sides-and-measurements',
+    sql: `
+      -- SIDES ---------------------------------------------------------------
+      -- A single-arm press is two exercises wearing one name: the left arm's
+      -- and the right arm's. After an operation they are not the same strength,
+      -- and the whole point of measuring is to see the two numbers apart and
+      -- watch the gap close. So an exercise now says whether it is done one
+      -- side at a time, and a set — prescribed or performed — says which side.
+      --
+      --   laterality  'bilateral'  both sides at once; a set carries no side
+      --               'unilateral' one side at a time; every set names one
+      --
+      -- Every row written before this migration is bilateral, which is what it
+      -- always was. For a unilateral exercise \`target_sets\` counts sets PER
+      -- SIDE — "3 × 10 each arm" — and adherence doubles it. Explicit rows in
+      -- train_item_sets each name their side, which is how a prescription says
+      -- "left: 10 @ 2 kg, right: 10 @ 4 kg" after the baseline showed the gap.
+      ALTER TABLE train_exercises   ADD COLUMN laterality TEXT NOT NULL DEFAULT 'bilateral';
+      ALTER TABLE train_item_sets   ADD COLUMN side TEXT;
+      ALTER TABLE train_set_results ADD COLUMN side TEXT;
+
+      -- The shared catalogue rows that were always one-sided, retagged. Only
+      -- SHARED rows: those were published from this very catalogue by the
+      -- installer, so the slug is ours to interpret. A private row with one of
+      -- these slugs was authored by a person and is left exactly as they made it.
+      UPDATE train_exercises SET laterality = 'unilateral'
+       WHERE visibility = 'shared'
+         AND slug IN ('dumbbell-row', 'side-plank', 'band-external-rotation',
+                      'shoulder-abduction', 'clamshell', 'ankle-dorsiflexion',
+                      'copenhagen-plank', 'single-leg-balance', 'heel-slide');
+
+      -- MEASUREMENTS --------------------------------------------------------
+      -- The body, over time: weight, a waist, an arm's girth, how far a shoulder
+      -- goes, how hard a hand can grip. Not a set — nothing was performed — but
+      -- the same shape of question as a set: a number, a date, and for a limb
+      -- which side. Append-only for the same reason results are: a correction
+      -- is a new row, and the history is the point.
+      --
+      --   kind   a controlled vocabulary (module.ts MEASUREMENT_KINDS), each
+      --          with its unit and whether a side is required
+      --   value  a decimal string, never a float — 72.4 kg is exactly that
+      CREATE TABLE train_measurements (
+        id          TEXT PRIMARY KEY,
+        trainee_id  TEXT NOT NULL REFERENCES train_trainees(id),
+        kind        TEXT NOT NULL,
+        side        TEXT,
+        value       TEXT NOT NULL,
+        unit        TEXT NOT NULL,
+        measured_at TEXT NOT NULL,
+        note        TEXT,
+        logged_by   TEXT NOT NULL,
+        created_at  TEXT NOT NULL
+      );
+
+      CREATE INDEX train_measurements_trainee ON train_measurements(trainee_id, kind, measured_at);
+      CREATE INDEX train_set_results_exercise ON train_set_results(exercise_id, side);
+    `,
+  },
 ];

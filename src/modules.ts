@@ -127,6 +127,11 @@ export const coachEntityPerms: PermissionKey[] = [
 /** What a trainee holds against their OWN trainee record. */
 export const traineeEntityPerms: PermissionKey[] = [
   TRAIN_PERM.exerciseRead,
+  // Their own PLANS. `library:author` let a trainee create a template, but with
+  // no `template:read` against their own record the walk `template → trainee`
+  // reached nothing, so they could never add an exercise to it — self-serve
+  // authoring was half a door. Narrowed to their record, like everything else.
+  TRAIN_PERM.templateRead,
   TRAIN_PERM.resultLog,
   TRAIN_PERM.resultRead,
   // Their own side of every conversation about them. The coach's side is minted

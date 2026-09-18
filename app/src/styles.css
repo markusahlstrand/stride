@@ -360,6 +360,8 @@ button.wide { width: 100%; }
    invitation to talk rather than the screen's main move. */
 button.accent-text { color: var(--accent); min-height: 44px; }
 button.ghost { background: transparent; border-color: transparent; color: var(--accent); }
+/* Beside a title rather than under it, so it does not read as the card's action. */
+button.small { min-height: 32px; padding: 0 10px; font: 600 13px var(--font); }
 button.danger { color: var(--deny); border-color: var(--line-deny); }
 button.ghost.danger { border-color: transparent; }
 /* A quiet call to action in an empty state: tinted, never a full accent fill. */
@@ -401,6 +403,27 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline-offset: 0;
 }
 textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
+
+
+/* --- reshaping one prescription row ----------------------------------------
+   A grid rather than a stack: set number, quantity, load, and the − that drops
+   the row, all on one line, because a ramp is read down a column. The inputs
+   keep the 16px floor that stops iOS zooming on focus. */
+.item-editor { margin-top: 10px; border-top: 1px solid var(--line-2); }
+.item-editor .editor-row {
+  display: grid;
+  grid-template-columns: 20px 1fr 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.item-editor .editor-no { color: var(--muted); font-size: 13px; text-align: center; }
+.item-editor input { min-height: 44px; }
+.item-editor .editor-row button.ghost {
+  min-height: 44px;
+  padding: 0;
+  font: 600 20px var(--font);
+}
 
 .search { margin-top: 10px; }
 .search::-webkit-search-cancel-button { filter: invert(0.6); }
@@ -726,9 +749,11 @@ nav.tabs .dot {
 }
 
 /* The rail's two extras. Present in the markup always, shown only once there is
-   a rail to put them in — the mobile bar carries neither. */
-.rail-mark,
-.rail-user { display: none; }
+   a rail to put them in — the mobile bar carries neither. `.rail-user` needs the
+   full `nav.tabs button` selector to be hidden at all: it IS a button now, and
+   the rule above would otherwise out-specify a bare class. */
+.rail-mark { display: none; }
+nav.tabs button.rail-user { display: none; }
 
 /* --- desktop: the same app in a different frame ----------------------------
    "Desktop is the same app, not a new layout" — so this is ONE breakpoint, not a
@@ -809,14 +834,28 @@ nav.tabs .dot {
     text-transform: uppercase;
     padding: 0 12px 16px;
   }
-  .rail-user {
+  /* The Me TAB is hidden here, not removed from the markup: the mobile bar
+     still needs it, and the rail's own foot takes its place. */
+  nav.tabs button.tab-me { display: none; }
+
+  nav.tabs button.rail-user {
     display: flex;
     align-items: center;
     gap: 10px;
     margin-top: auto;
+    margin-bottom: 0;
     padding: 10px 12px;
+    min-height: 0;
     border-top: 1px solid var(--line-2);
+    border-radius: 0;
+    color: var(--text);
+    text-align: left;
   }
+  nav.tabs button.rail-user:hover { background: var(--surface-2); }
+  /* Lit like any other item, but without the pill: it is the foot of the rail
+     and its top border is what separates it, so a rounded tint would fight it. */
+  nav.tabs button.rail-user.on { background: var(--tint); font-weight: 500; }
+  nav.tabs button.rail-user.on .rail-name { color: var(--accent); font-weight: 600; }
   .rail-user .avatar {
     width: 32px;
     height: 32px;
@@ -832,6 +871,9 @@ nav.tabs .dot {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* The unread count follows the conversation to wherever it is reached from —
+     here, the person at the foot of the rail. */
+  nav.tabs button.rail-user .dot { margin-left: auto; }
 
   /* The column, centred in what the rail leaves. No wrapper element: capping the
      direct children keeps their existing vertical margins doing the spacing, so
@@ -1057,3 +1099,49 @@ nav.tabs .dot {
   .finish-card .disc.pop { animation: none; }
 }
 
+
+/* --- sides: left against right ---------------------------------------------
+   One-sided exercises are two numbers. The toggle picks which arm the set is
+   for; the small label heads a row of pills; the editor's L/R button moves a
+   prescribed set to the other side. Left is accent, right is share-blue, and
+   both are always also spelled out — colour is never the only signal. */
+.side-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
+.side-toggle .pill.toggle { flex: 1; text-align: center; min-height: 40px; text-transform: capitalize; font: 600 14px var(--font); }
+.side-toggle .pill.toggle.left.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.side-toggle .pill.toggle.right.on { background: var(--share); border-color: var(--share); color: #0b1020; }
+.side-label {
+  display: inline-block; min-width: 18px; margin-right: 6px;
+  font: 700 12px var(--mono); letter-spacing: 0.04em; color: var(--muted);
+}
+.side-label.left { color: var(--accent); }
+.side-label.right { color: var(--share); }
+.side-pick {
+  min-height: 44px; width: 44px; padding: 0; border-radius: 10px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font: 700 15px var(--mono); line-height: 1;
+}
+.side-pick small { font: 500 10px var(--mono); color: var(--muted); margin-top: 2px; }
+.side-pick.left { color: var(--accent); border-color: var(--line-accent); }
+.side-pick.right { color: var(--share); border-color: var(--line-share); }
+.item-editor .editor-row.sided { grid-template-columns: 44px 1fr 1fr 44px; }
+.last-time { color: var(--accent); }
+
+/* --- progress: curves, bars, deltas ----------------------------------------
+   A sparkline per side, a pair of bars for the symmetry, and a delta in mono.
+   Ringed points on a curve are baselines. */
+.spark { display: block; width: 100%; height: 36px; margin-top: 6px; }
+.curve-row { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line-2); }
+.curve-row:first-of-type { border-top: 0; }
+.curve-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.curve-head .mono { font: 600 16px var(--mono); }
+.bars {
+  display: grid; grid-template-columns: 24px 1fr 64px; gap: 8px 10px;
+  align-items: center; margin-top: 12px;
+}
+.bars .mono { text-align: right; font: 600 14px var(--mono); }
+.bar { display: block; height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.bar.weak i { background: var(--warn); }
+.delta { font: 600 13px var(--mono); }
+.delta.up { color: var(--good); }
+.delta.down { color: var(--warn); }

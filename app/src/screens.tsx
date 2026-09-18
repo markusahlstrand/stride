@@ -20,7 +20,15 @@ import {
   type Exercise,
   type Goal,
   type Invitation,
+  type Measurement,
+  type MeasurementKind,
+  MEASUREMENT_KINDS,
   type Message,
+  type ExerciseProgress,
+  type Progress,
+  type ProgressPoint,
+  type SetResult,
+  type Side,
   type Thread,
   type Me as TraineeMe,
   type ScheduledItem,
@@ -163,6 +171,7 @@ export function TodayScreen({
       <div className="quantity">
         {i.targetSets} × {i.targetReps} {i.unit}
         {i.targetLoad ? ` @ ${i.targetLoad}` : ''}
+        {i.laterality === 'unilateral' ? ' · each side' : ''}
       </div>
       <div className="sub">
         {recurrenceLabel(i.recurDays, i.recurPerWeek)} · {i.programTitle}
@@ -277,7 +286,8 @@ export function ProgramsScreen({
   me,
   run,
   onOpen,
-}: ScreenProps & { onOpen: (id: string) => void }) {
+  onPlans,
+}: ScreenProps & { onOpen: (id: string) => void; onPlans: () => void }) {
   const [programs, reload] = useList<ProgramCard>(() => api.programs(), [me?.key]);
   const solo = me?.role === 'trainee';
 
@@ -289,18 +299,31 @@ export function ProgramsScreen({
           on the Me screen, which meant the answer to "how do I add a workout?"
           was somewhere you had no reason to look. */}
       <NewWorkout me={me} run={run} onOpen={onOpen} onCreated={reload} />
+      {/* A workout is one person's run of a PLAN. The plans themselves — tied
+          to nobody, shareable — live one screen over. */}
+      <div className="actions" style={{ marginTop: -6, marginBottom: 14 }}>
+        <button className="accent-text" onClick={onPlans}>
+          Plans — make one, share one ›
+        </button>
+      </div>
 
       {programs.length === 0 && (
         <div className="empty">
-          {me?.role === 'trainee' ? (
+          {solo ? (
             <>
               <span className="head">No workouts yet.</span>
               Add one above, or Me → <b>Set up my training</b> to build a week of them at once.
             </>
           ) : (
             <>
-              <span className="head">Nothing here for {me?.name ?? 'you'}.</span>
-              Not an error — the permission walk simply reaches nothing.
+              {/* Staff, and the copy has to be true of a gym of one: an admin
+                  who has not enrolled themselves reaches nothing because there
+                  is nothing, not because they were refused. It must also not
+                  point at a button — a coach with no trainees yet does not have
+                  one. */}
+              <span className="head">Nothing here yet.</span>
+              Programmes you write for a trainee, and workouts of your own, both land here.
+              Nothing is hidden from you; the permission walk simply reaches nothing.
             </>
           )}
         </div>
@@ -324,14 +347,22 @@ export function ProgramsScreen({
 
 /**
  * Add one workout — the single-item sibling of `RoutineSetup`, which builds a
- * whole week. Adapts to who is asking rather than existing twice:
+ * whole week. Adapts to who is asking rather than existing twice.
  *
- *   a trainee  makes their own and starts it, because they came here to train;
- *   staff      pick whose it is and leave it `planned`, because a coach writes a
- *              programme before the person does it.
+ * WHO IT IS FOR is a question only when there is more than one answer. A gym of
+ * one person — which is what every gym is on its first day — has exactly one:
+ * you. So the picker appears only when somebody else is actually in the roster,
+ * and the rest of the time the workout is simply yours. It used to be shown to
+ * all staff unconditionally, which meant the admin of a new gym met an empty
+ * "for whom" with no option but their own name missing from it.
  *
- * `traineeId` is simply omitted for a trainee — the operation resolves it from
- * the caller, and the narrowed check means it can only ever be themselves.
+ * "You" needs a trainee record to hang from, because role is not a column — you
+ * are a trainee because a trainee record carries your principal. An admin who
+ * has never enrolled gets one on the way through, from `train-myself`; it is
+ * idempotent, so this costs nothing on every later workout.
+ *
+ * Nothing here STARTS what it creates. That is the next screen's job, with the
+ * prescription in front of you.
  */
 function NewWorkout({
   me,
@@ -343,19 +374,31 @@ function NewWorkout({
   const [trainees] = useList<Trainee>(() => api.trainees(), [me?.key]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** '' means ME. Anything else is that trainee's id. */
   const [f, setF] = useState({ title: '', kind: 'strength', templateId: '', traineeId: '' });
   const [days, setDays] = useState<number[]>([]);
   const [time, setTime] = useState('18:00');
 
-  const solo = me?.role === 'trainee';
   if (!me || me.role === 'outsider') return null;
+
+  // Everyone in the roster who is not me. A staff member who has enrolled
+  // themselves appears in their own `trainees` list, and offering them twice —
+  // once as "Me" and once by name — would be two names for one person.
+  const others = trainees.filter((t) => t.id !== me.traineeId);
+  /** Can this person train here at all? An admin can always enrol themselves. */
+  const canTrainMyself = Boolean(me.traineeId) || me.role === 'admin';
+  const forMe = f.traineeId === '';
+  const solo = me.role === 'trainee';
 
   const create = async () => {
     setBusy(true);
     let id = '';
     const slots = days.map((d) => ({ weekday: d, time }));
     const ok = await run(async () => {
-      if (solo) {
+      if (forMe) {
+        // Idempotent, and a no-op for anyone who already has a record — which is
+        // everyone but an admin on their first workout.
+        if (!me.traineeId) await api.trainMyself(me.name);
         const p = await api.createRoutine({
           title: f.title,
           kind: f.kind,
@@ -373,7 +416,7 @@ function NewWorkout({
         });
         id = res.program.id;
       }
-    }, solo ? 'Ready to train' : 'Programme created');
+    }, 'Created — check it over, then start it');
     setBusy(false);
     if (!ok) return;
     setOpen(false);
@@ -384,6 +427,16 @@ function NewWorkout({
   };
 
   if (!open) {
+    // A coach with no trainees and no record of their own has nobody to write
+    // for. Say that, rather than opening a form whose every path is a denial.
+    if (!canTrainMyself && others.length === 0) {
+      return (
+        <div className="empty">
+          <span className="head">Nobody to write a programme for yet.</span>
+          Invite a trainee from the Trainees screen; their first workout starts there.
+        </div>
+      );
+    }
     return (
       <div className="actions" style={{ marginBottom: 14 }}>
         <button className="primary wide" onClick={() => setOpen(true)}>
@@ -395,12 +448,13 @@ function NewWorkout({
 
   return (
     <div className="card">
-      {!solo && (
+      {others.length > 0 && (
         <>
           <label>for whom</label>
           <select value={f.traineeId} onChange={(e) => setF({ ...f, traineeId: e.target.value })}>
-            <option value="">choose…</option>
-            {trainees.map((t) => (
+            {canTrainMyself && <option value="">Me</option>}
+            {!canTrainMyself && <option value="">choose…</option>}
+            {others.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
@@ -413,25 +467,47 @@ function NewWorkout({
       <input
         value={f.title}
         onChange={(e) => setF({ ...f, title: e.target.value })}
-        placeholder={solo ? 'Workout A' : 'Block 1'}
+        placeholder={forMe ? 'Workout A' : 'Block 1'}
       />
 
       <label>kind</label>
       <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
-        {['strength', 'rehab', 'conditioning'].map((k) => (
-          <option key={k}>{k}</option>
-        ))}
-      </select>
-
-      <label>start from a template?</label>
-      <select value={f.templateId} onChange={(e) => setF({ ...f, templateId: e.target.value })}>
-        <option value="">empty — add exercises after</option>
-        {templates.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name} ({t.items.length} exercises)
+        {['strength', 'rehab', 'conditioning', 'assessment'].map((k) => (
+          <option key={k} value={k}>
+            {k === 'assessment' ? 'assessment — a baseline, not a workout' : k}
           </option>
         ))}
       </select>
+
+      <label>start from a plan?</label>
+      <select
+        value={f.templateId}
+        onChange={(e) => {
+          const chosen = templates.find((t) => t.id === e.target.value);
+          // A baseline template IS an assessment: picking it says so, and names
+          // the thing, so the two do not have to be set by hand to agree.
+          const baseline = Boolean(chosen?.name.startsWith('Baseline'));
+          setF({
+            ...f,
+            templateId: e.target.value,
+            ...(baseline ? { kind: 'assessment', title: f.title || 'Baseline' } : {}),
+          });
+        }}
+      >
+        <option value="">empty — add exercises after</option>
+        {templates.map((t) => (
+          <option key={t.id} value={t.id}>
+            {t.name} ({t.items.length} exercises{t.mine ? ', yours' : t.ownerName ? `, by ${t.ownerName}` : ''})
+          </option>
+        ))}
+      </select>
+      {templates.length === 0 && (
+        <div className="sub">
+          No plans in this gym yet — an empty workout is the normal way to start, you can
+          make a plan of your own on the Plans screen, and an admin can install the gym&apos;s
+          default library from Me.
+        </div>
+      )}
 
       <label>book it (optional)</label>
       <div className="sets">
@@ -452,23 +528,209 @@ function NewWorkout({
       <div className="actions">
         <button
           className="primary"
-          disabled={busy || !f.title || (!solo && !f.traineeId)}
+          disabled={busy || !f.title || (!forMe && !f.traineeId) || (forMe && !canTrainMyself)}
           onClick={create}
         >
-          {solo ? 'Create and start' : 'Create'}
+          Create
         </button>
         <button className="ghost" onClick={() => setOpen(false)}>
           Cancel
         </button>
       </div>
-      {solo && (
-        <div className="sub" style={{ marginTop: 8 }}>
-          Yours alone unless you share it. Booking is optional — an unbooked workout is
-          still there whenever you want it.
-        </div>
-      )}
+      <div className="sub" style={{ marginTop: 8 }}>
+        {forMe
+          ? 'Yours alone unless you share it. '
+          : 'Theirs to run when they are ready. '}
+        It opens next so you can swap exercises and set the reps — starting it is a
+        separate, deliberate tap. Booking is optional.
+      </div>
     </div>
   );
+}
+
+/**
+ * RESHAPE ONE PRESCRIPTION ROW — change the sets, change the reps, change the
+ * load, or take the exercise out altogether.
+ *
+ * The whole flow leans on this existing: creating a workout no longer starts it,
+ * precisely so there is a moment to come in here and make it yours. A template
+ * is somebody's guess at your numbers, and an empty workout is a list you are
+ * still building.
+ *
+ * It always writes an EXPLICIT set list, even when you leave every row the same.
+ * That is `set-item-sets`, which is also how a ramp is stored — and it keeps
+ * `target_sets` / `target_reps` in step, so adherence, the schedule and the card
+ * all still read the uniform columns and get the truth. Editing 3 × 5 down to
+ * 3 × 3 therefore turns it into three listed sets; the pills say the same thing
+ * the one-line target said, just row by row.
+ *
+ * Removing is NOT undoing. Sets you already logged stay logged, and an exercise
+ * you have performed stays in your library — the edge that earned it is
+ * permanent and nothing here touches it.
+ */
+function ItemEditor({
+  item,
+  unit,
+  unilateral,
+  run,
+  onDone,
+  onCancel,
+}: {
+  item: ProgramDetail['items'][number];
+  unit: string;
+  /** One side at a time: every row carries a side, and the two can differ. */
+  unilateral: boolean;
+  run: ScreenProps['run'];
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  type Row = { reps: string; load: string; side: Side | null };
+  const uniform = (side: Side | null): Row[] =>
+    Array.from({ length: Math.max(1, item.target_sets) }, () => ({
+      reps: String(item.target_reps),
+      load: item.target_load ?? '',
+      side,
+    }));
+  const initial: Row[] =
+    item.sets.length > 0
+      ? item.sets.map((s) => ({ reps: String(s.target_reps), load: s.target_load ?? '', side: s.side }))
+      : unilateral
+        ? [...uniform('left'), ...uniform('right')]
+        : uniform(null);
+  const [sets, setSets] = useState(initial);
+  const [busy, setBusy] = useState(false);
+
+  const patch = (i: number, next: Partial<Row>) =>
+    setSets(sets.map((s, j) => (i === j ? { ...s, ...next } : s)));
+
+  const save = async () => {
+    setBusy(true);
+    const ok = await run(
+      () =>
+        api.setItemSets(
+          item.id,
+          sets.map((s) => ({
+            reps: Number.parseInt(s.reps, 10) || 1,
+            ...(s.load.trim() ? { load: s.load.trim() } : {}),
+            ...(s.side ? { side: s.side } : {}),
+          })),
+        ),
+      'Prescription updated',
+    );
+    setBusy(false);
+    if (ok) onDone();
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    const ok = await run(() => api.removeProgramItem(item.id), 'Taken out of this workout');
+    setBusy(false);
+    if (ok) onDone();
+  };
+
+  const quantity = unit === 'metres' ? 'metres' : unit === 'seconds' ? 'seconds' : 'reps';
+
+  /** Row numbers count per side, the way the server numbers them. */
+  const numberOf = (i: number) => sets.slice(0, i + 1).filter((s) => s.side === sets[i]!.side).length;
+
+  return (
+    <div className="item-editor">
+      <label>
+        each set — {quantity}, and load in kg if it takes one
+        {unilateral ? '. Left and right can differ.' : ''}
+      </label>
+      {sets.map((s, i) => (
+        <div key={i} className={`editor-row${unilateral ? ' sided' : ''}`}>
+          {unilateral ? (
+            <button
+              type="button"
+              className={`side-pick ${s.side ?? ''}`}
+              aria-label={`set ${numberOf(i)} side: ${s.side ?? 'unset'}`}
+              onClick={() => patch(i, { side: s.side === 'left' ? 'right' : 'left' })}
+            >
+              {s.side === 'right' ? 'R' : 'L'}
+              <small>{numberOf(i)}</small>
+            </button>
+          ) : (
+            <span className="editor-no mono">{i + 1}</span>
+          )}
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            value={s.reps}
+            aria-label={`set ${i + 1} ${quantity}`}
+            onChange={(e) => patch(i, { reps: e.target.value })}
+          />
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="kg"
+            value={s.load}
+            aria-label={`set ${i + 1} load`}
+            onChange={(e) => patch(i, { load: e.target.value })}
+          />
+          <button
+            className="ghost"
+            aria-label={`remove set ${i + 1}`}
+            disabled={sets.length === 1}
+            onClick={() => setSets(sets.filter((_, j) => j !== i))}
+          >
+            −
+          </button>
+        </div>
+      ))}
+      <div className="actions">
+        <button
+          className="ghost"
+          onClick={() =>
+            setSets([
+              ...sets,
+              sets[sets.length - 1] ?? { reps: '8', load: '', side: unilateral ? 'left' : null },
+            ])
+          }
+        >
+          + set
+        </button>
+        <button className="primary" disabled={busy} onClick={save}>
+          Save
+        </button>
+        <button className="ghost" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+      <div className="actions">
+        <button className="danger" disabled={busy} onClick={remove}>
+          Remove this exercise
+        </button>
+      </div>
+      <div className="sub">
+        Anything already logged against it stays logged, and an exercise you have
+        performed stays in your library for good.
+        {unilateral &&
+          ' Tap L/R to move a set to the other side — a weaker arm can get its own load and its own reps.'}
+      </div>
+    </div>
+  );
+}
+
+/** How many sets a prescription row asks for in total — per side on a
+ *  unilateral exercise, so "3 × 10 each arm" is six. Mirrors the server. */
+function prescribedTotal(item: ProgramDetail['items'][number]): number {
+  if (item.sets.length > 0) return item.sets.length;
+  return item.target_sets * (item.exercise?.laterality === 'unilateral' ? 2 : 1);
+}
+
+/** "L 6 × 4 · R 12 × 4" — one line summarising a set of results per side. */
+function sideSummary(sets: SetResult[], unit: string): string {
+  const part = (side: Side | null) => {
+    const own = sets.filter((s) => s.side === side);
+    if (own.length === 0) return null;
+    const best = own.reduce((a, b) => (b.reps > a.reps ? b : a));
+    const label = side === 'left' ? 'L ' : side === 'right' ? 'R ' : '';
+    return `${label}${formatQuantity(best.reps, unit)}${best.load ? ` × ${best.load}` : ''}`;
+  };
+  return [part('left'), part('right'), part(null)].filter(Boolean).join(' · ');
 }
 
 /** The open session on a programme, if it has one. */
@@ -489,7 +751,7 @@ function isSessionComplete(detail: ProgramDetail): boolean {
   const sets = openSessionOf(detail)?.sets ?? [];
   if (detail.items.length === 0 || sets.length === 0) return false;
   return detail.items.every(
-    (i) => sets.filter((s) => s.program_item_id === i.id).length >= i.target_sets,
+    (i) => sets.filter((s) => s.program_item_id === i.id).length >= prescribedTotal(i),
   );
 }
 
@@ -527,6 +789,8 @@ export function ProgramDetailScreen({
 }: ScreenProps & { programId: string; onBack: () => void }) {
   const [detail, setDetail] = useState<ProgramDetail | null>(null);
   const [earned, setEarned] = useState<string | null>(null);
+  /** Which prescription row is open for editing, if any. One at a time. */
+  const [editing, setEditing] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     api
@@ -582,27 +846,46 @@ export function ProgramDetailScreen({
   ) => {
     const done = setsFor(item.id);
     const unit = item.exercise?.unit ?? 'reps';
-    const suffix = unit === 'metres' ? ' m' : '';
+    const unilateral = item.exercise?.laterality === 'unilateral';
+    // One side at a time means two rows of pills, L and R, each numbered from 1
+    // — the way the server numbers both the prescription and the results.
+    const sides: (Side | null)[] = unilateral ? ['left', 'right'] : [null];
     // A uniform prescription and an explicit ramp are the same list once you
     // expand the first — so the pills below never have to know which it was.
-    const prescribed =
+    const prescribedFor = (side: Side | null) =>
       item.sets.length > 0
-        ? item.sets.map((s) => ({
-            no: s.set_no,
-            reps: s.target_reps,
-            load: s.target_load,
-            note: s.note,
-          }))
+        ? item.sets
+            .filter((s) => s.side === side)
+            .map((s) => ({ no: s.set_no, reps: s.target_reps, load: s.target_load, note: s.note }))
         : Array.from({ length: item.target_sets }, (_, i) => ({
             no: i + 1,
             reps: item.target_reps,
             load: item.target_load,
             note: null as string | null,
           }));
-    const total = Math.max(prescribed.length, done.length);
     // One row of pills, not two: a performed set REPLACES its target in place,
     // filled and ticked, so "where am I" is one glance rather than a comparison.
     const showPills = Boolean(openSession) || item.sets.length > 0;
+    // LAST TIME — the most recent earlier session with sets on this row. This
+    // is the moment the baseline pays off: the number from a month ago sits
+    // right under the field you are about to fill in, per arm.
+    const previous = [...sessions]
+      .reverse()
+      .find((s) => s.id !== openSession?.id && s.sets.some((x) => x.program_item_id === item.id));
+    const lastTime = previous
+      ? sideSummary(previous.sets.filter((x) => x.program_item_id === item.id), unit)
+      : null;
+    // The side to offer next: the one with fewer sets logged, left first.
+    const nextSide: Side | undefined = unilateral
+      ? done.filter((s) => s.side === 'left').length <= done.filter((s) => s.side === 'right').length
+        ? 'left'
+        : 'right'
+      : undefined;
+
+    // Reshaping is for a plan, not for a record: once a block is completed or
+    // closed the prescription is what was asked for, and rewriting it would make
+    // the adherence number a comparison against something that never happened.
+    const editable = program.status === 'planned' || program.status === 'in_progress';
 
     return (
       <div key={item.id} className={`card${openSession ? ' raised' : ''}`}>
@@ -611,44 +894,80 @@ export function ProgramDetailScreen({
             {tag && <span className="tag" style={{ marginRight: 8 }}>{tag}</span>}
             {item.exercise?.name ?? 'Unknown exercise'}
           </span>
-          <Counter done={done.length} total={item.target_sets} />
+          {editable && editing !== item.id && (
+            <button
+              className="ghost small"
+              onClick={() => setEditing(item.id)}
+              aria-label={`edit ${item.exercise?.name ?? 'exercise'}`}
+            >
+              Edit
+            </button>
+          )}
+          <Counter done={done.length} total={prescribedTotal(item)} />
         </div>
+        {item.notes && <div className="sub">{item.notes}</div>}
+        {editing === item.id && (
+          <ItemEditor
+            item={item}
+            unit={unit}
+            unilateral={unilateral}
+            run={run}
+            onDone={() => {
+              setEditing(null);
+              reload();
+            }}
+            onCancel={() => setEditing(null)}
+          />
+        )}
         {showPills ? (
-          <div className="sets">
-            {Array.from({ length: total }, (_, i) => {
-              const no = i + 1;
-              const performed = done.find((s) => s.set_no === no);
-              if (performed) {
-                return (
-                  <span key={performed.id} className="pill done">
-                    {no}: {formatQuantity(performed.reps, unit)}
-                    {suffix}
-                    {performed.load ? ` × ${performed.load}` : ''}
-                    {performed.duration_seconds
-                      ? ` · ${formatQuantity(performed.duration_seconds, 'seconds')}`
-                      : ''}
-                    {performed.avg_hr ? ` · ${performed.avg_hr} bpm` : ''}
-                    {performed.rpe ? ` · RPE ${performed.rpe}` : ''} ✓
-                  </span>
-                );
-              }
-              const target = prescribed[i];
-              if (!target) return null;
-              return (
-                <span key={`t${no}`} className="pill">
-                  {no}: {formatQuantity(target.reps, unit)}
-                  {suffix}
-                  {target.load ? ` × ${target.load}` : ''}
-                  {target.note ? ` · ${target.note}` : ''}
-                </span>
-              );
-            })}
-          </div>
+          sides.map((side) => {
+            const prescribed = prescribedFor(side);
+            const onSide = done.filter((s) => s.side === side);
+            const total = Math.max(prescribed.length, onSide.length);
+            return (
+              <div key={side ?? 'both'} className="sets">
+                {side && <span className={`side-label ${side}`}>{side === 'left' ? 'L' : 'R'}</span>}
+                {Array.from({ length: total }, (_, i) => {
+                  const no = i + 1;
+                  const performed = onSide.find((s) => s.set_no === no);
+                  if (performed) {
+                    return (
+                      <span key={performed.id} className="pill done">
+                        {no}: {formatAmount(performed.reps, unit)}
+                        {performed.load ? ` × ${performed.load}` : ''}
+                        {performed.duration_seconds
+                          ? ` · ${formatQuantity(performed.duration_seconds, 'seconds')}`
+                          : ''}
+                        {performed.avg_hr ? ` · ${performed.avg_hr} bpm` : ''}
+                        {performed.rpe ? ` · RPE ${performed.rpe}` : ''} ✓
+                      </span>
+                    );
+                  }
+                  const target = prescribed[i];
+                  if (!target) return null;
+                  return (
+                    <span key={`t${no}`} className="pill">
+                      {no}: {formatAmount(target.reps, unit)}
+                      {target.load ? ` × ${target.load}` : ''}
+                      {target.note ? ` · ${target.note}` : ''}
+                    </span>
+                  );
+                })}
+              </div>
+            );
+          })
         ) : (
           <div className="sub mono">
             target {item.target_sets} × {formatQuantity(item.target_reps, unit)}{' '}
             {unit === 'reps' ? 'reps' : unit === 'metres' ? 'm' : ''}
             {item.target_load ? ` @ ${item.target_load}` : ''}
+            {unilateral ? ' · each side' : ''}
+          </div>
+        )}
+        {lastTime && (
+          <div className="sub last-time">
+            Last time · {lastTime}
+            {previous ? ` · ${new Date(previous.performed_at).toLocaleDateString()}` : ''}
           </div>
         )}
         {recurrenceLabel(item.recur_days, item.recur_per_week) && (
@@ -658,8 +977,14 @@ export function ProgramDetailScreen({
           <SetLogger
             unit={item.exercise?.unit ?? 'reps'}
             modality={item.exercise?.modality ?? 'strength'}
-            defaultReps={item.sets[done.length]?.target_reps ?? item.target_reps}
-            defaultLoad={item.sets[done.length]?.target_load ?? item.target_load}
+            defaultSide={nextSide}
+            // The next prescribed set ON THAT SIDE is the default — so after the
+            // baseline, the left arm is offered its own lighter load.
+            defaultFor={(side) => {
+              const onSide = done.filter((s) => s.side === (side ?? null)).length;
+              const target = prescribedFor(side ?? null)[onSide];
+              return { reps: target?.reps ?? item.target_reps, load: target?.load ?? item.target_load };
+            }}
             onLog={async (bodyInput) => {
               let gotEarned = false;
               await run(async () => {
@@ -1068,6 +1393,17 @@ function formatQuantity(value: number, unit: string): string {
 
 const UNIT_LABEL: Record<string, string> = { reps: 'reps', seconds: 'time', metres: 'metres' };
 
+/** A quantity with its unit where one is needed on the pill: "5 km", "800 m", "1:30", "12". */
+function formatAmount(value: number, unit: string): string {
+  if (unit === 'metres') return value >= 1000 ? `${(value / 1000).toFixed(value % 1000 ? 1 : 0)} km` : `${value} m`;
+  return formatQuantity(value, unit);
+}
+
+/** 340 → "5:40 /km". Running's number, derived from distance and time. */
+function formatPace(secondsPerKm: number): string {
+  return `${Math.floor(secondsPerKm / 60)}:${String(secondsPerKm % 60).padStart(2, '0')} /km`;
+}
+
 /**
  * The thumb-sized set logger, shaped by what the exercise is MEASURED IN.
  *
@@ -1081,41 +1417,74 @@ const UNIT_LABEL: Record<string, string> = { reps: 'reps', seconds: 'time', metr
 function SetLogger({
   unit,
   modality,
-  defaultReps,
-  defaultLoad,
+  defaultSide,
+  defaultFor,
   onLog,
 }: {
   unit: string;
   modality: string;
-  defaultReps: number;
-  defaultLoad: string | null;
+  /** Set on a unilateral exercise: the side to offer first. Undefined = bilateral. */
+  defaultSide: Side | undefined;
+  /** The next prescribed set for a side — its reps and load prefill the fields. */
+  defaultFor: (side: Side | undefined) => { reps: number; load: string | null };
   onLog: (body: {
     reps: number;
     load?: string;
     rpe?: string;
     durationSeconds?: number;
     avgHr?: number;
+    side?: Side;
   }) => Promise<void>;
 }) {
   const isTime = unit === 'seconds';
+  const isDistance = unit === 'metres';
   const isCardio = modality === 'cardio';
-  const [amount, setAmount] = useState(isTime ? formatQuantity(defaultReps, unit) : String(defaultReps));
-  const [load, setLoad] = useState(defaultLoad ?? '');
+  const [side, setSide] = useState<Side | undefined>(defaultSide);
+  const initial = defaultFor(side);
+  const [amount, setAmount] = useState(isTime ? formatQuantity(initial.reps, unit) : String(initial.reps));
+  const [load, setLoad] = useState(initial.load ?? '');
   const [rpe, setRpe] = useState('');
   const [mins, setMins] = useState('');
   const [hr, setHr] = useState('');
   const [busy, setBusy] = useState(false);
 
+  /** Switching arm re-prefills from THAT arm's prescription — which may differ. */
+  const pick = (next: Side) => {
+    setSide(next);
+    const d = defaultFor(next);
+    setAmount(isTime ? formatQuantity(d.reps, unit) : String(d.reps));
+    setLoad(d.load ?? '');
+  };
+
   /** '2:30' → 150, '45' → 45. Time is the one field people write two ways. */
-  const parseAmount = (raw: string): number => {
-    if (!isTime || !raw.includes(':')) return Number(raw);
+  const parseClock = (raw: string): number => {
+    if (!raw.includes(':')) return Number(raw);
     const [m, sec] = raw.split(':');
     return Number(m) * 60 + Number(sec || 0);
   };
-  const quantity = parseAmount(amount);
+  const quantity = isTime ? parseClock(amount) : Number(amount);
+  // Minutes accept "22" and "22:30" alike — a run is timed in both.
+  const seconds = mins.trim() ? Math.round(mins.includes(':') ? parseClock(mins) : Number(mins) * 60) : 0;
+  const pace = isDistance && quantity > 0 && seconds > 0 ? Math.round((seconds * 1000) / quantity) : null;
 
   return (
     <div style={{ marginTop: 12 }}>
+      {defaultSide && (
+        <div className="side-toggle" role="radiogroup" aria-label="which side">
+          {(['left', 'right'] as const).map((x) => (
+            <button
+              key={x}
+              type="button"
+              role="radio"
+              aria-checked={side === x}
+              className={`pill toggle ${x}${side === x ? ' on' : ''}`}
+              onClick={() => pick(x)}
+            >
+              {x}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="setgrid">
         <div>
           <label>{UNIT_LABEL[unit] ?? unit}</label>
@@ -1128,8 +1497,13 @@ function SetLogger({
         </div>
         {isCardio ? (
           <div>
-            <label>minutes</label>
-            <input inputMode="decimal" value={mins} onChange={(e) => setMins(e.target.value)} />
+            <label>time</label>
+            <input
+              inputMode="text"
+              placeholder="mm:ss"
+              value={mins}
+              onChange={(e) => setMins(e.target.value)}
+            />
           </div>
         ) : (
           <div>
@@ -1146,6 +1520,12 @@ function SetLogger({
           />
         </div>
       </div>
+      {(pace !== null || (isDistance && quantity >= 1000)) && (
+        <div className="sub mono" style={{ textAlign: 'center' }}>
+          {isDistance && quantity >= 1000 ? formatAmount(quantity, unit) : ''}
+          {pace !== null ? ` · ${formatPace(pace)}` : ''}
+        </div>
+      )}
       <div className="actions">
         <button
           className="primary wide"
@@ -1156,13 +1536,14 @@ function SetLogger({
               reps: Math.round(quantity),
               ...(!isCardio && load ? { load } : {}),
               ...(!isCardio && rpe ? { rpe } : {}),
-              ...(isCardio && mins ? { durationSeconds: Math.round(Number(mins) * 60) } : {}),
+              ...(isCardio && seconds > 0 ? { durationSeconds: seconds } : {}),
               ...(isCardio && hr ? { avgHr: Number(hr) } : {}),
+              ...(side ? { side } : {}),
             });
             setBusy(false);
           }}
         >
-          Log {isCardio ? 'it' : 'set'}
+          Log {isCardio ? 'it' : side ? `${side} set` : 'set'}
         </button>
       </div>
     </div>
@@ -1332,8 +1713,7 @@ export function LibraryScreen({
       {rows.length === 0 && (
         <div className="empty">
           <span className="head">Nothing matches those filters.</span>
-          Every filter here narrows what the kernel already returned — none of them is an access
-          decision.
+          Clear them to see every exercise available to you.
         </div>
       )}
       {rows.map((e) => (
@@ -1542,7 +1922,7 @@ function RoutineSetup({ me, run, onOpen }: ScreenProps & { onOpen: (id: string) 
           slots,
         });
         if (!first) first = p.id;
-      }, 'Ready to train');
+      }, 'Built and booked — open each one to start it');
       if (!ok) break;
     }
     setBusy(false);
@@ -1560,7 +1940,7 @@ function RoutineSetup({ me, run, onOpen }: ScreenProps & { onOpen: (id: string) 
       </div>
       <div className="sub">
         No coach needed. Pick how many workouts you rotate and which days you train — you
-        get one booked workout per slot, ready to log.
+        get one booked workout per slot, ready to fill in and start.
       </div>
       <div className="actions">
         <button className="primary" onClick={() => setOpen(!open)}>
@@ -1601,12 +1981,12 @@ function RoutineSetup({ me, run, onOpen }: ScreenProps & { onOpen: (id: string) 
           <label>what time?</label>
           <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
 
-          <label>start from a template?</label>
+          <label>start from a plan?</label>
           <select value={from} onChange={(e) => setFrom(e.target.value)}>
             <option value="">empty — I&apos;ll add my own exercises</option>
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.name} ({t.items.length} exercises)
+                {t.name} ({t.items.length} exercises{t.mine ? ', yours' : t.ownerName ? `, by ${t.ownerName}` : ''})
               </option>
             ))}
           </select>
@@ -1690,8 +2070,8 @@ function Onboarding({ me, run }: ScreenProps) {
         <>
           <div className="title">Let&apos;s set you up</div>
           <div className="sub">
-            Two questions. They shape what gets suggested — nothing here locks you into
-            anything.
+            Two questions, then an optional baseline. They shape what gets suggested —
+            nothing here locks you into anything.
           </div>
         </>
       )}
@@ -2123,9 +2503,11 @@ export function TraineesScreen({
   run,
   onOpen,
   onThread,
+  onProgress,
 }: ScreenProps & {
   onOpen: (id: string) => void;
   onThread: (traineeId: string, coachId: string) => void;
+  onProgress: (traineeId: string) => void;
 }) {
   const [trainees] = useList<Trainee>(() => api.trainees(), [me?.key]);
   const [threads] = useList<Thread>(() => api.threads(), [me?.key]);
@@ -2172,16 +2554,22 @@ export function TraineesScreen({
               </div>
             )}
             {theirs.length === 0 && <div className="sub">No programmes you can see</div>}
-            {thread && (
-              <div className="actions">
+            <div className="actions">
+              {/* The curve and the body. What it shows is whatever this person
+                  shared — the screen says so rather than showing an empty chart
+                  as though nothing had happened. */}
+              <button className="accent-text" onClick={() => onProgress(t.id)}>
+                Progress
+              </button>
+              {thread && (
                 <button
-                  className="wide accent-text"
+                  className="accent-text"
                   onClick={() => onThread(thread.traineeId, thread.coachId)}
                 >
                   {thread.unread > 0 ? `Message · ${thread.unread} new` : 'Message'}
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         );
       })}
@@ -2199,10 +2587,12 @@ export function PeopleScreen({
   onOpen,
   onThread,
   onBrowse,
+  onProgress,
 }: ScreenProps & {
   onOpen: (id: string) => void;
   onThread: (traineeId: string, coachId: string) => void;
   onBrowse: () => void;
+  onProgress: () => void;
 }) {
   const [trainees] = useList<Trainee>(() => api.trainees(), [me?.key]);
   const [coaches] = useList<Coach>(() => api.coaches(), [me?.key]);
@@ -2250,6 +2640,8 @@ export function PeopleScreen({
 
         <h2>My training</h2>
         <Onboarding me={me} run={run} />
+        <BaselineStep me={me} run={run} onOpen={onOpen} />
+        <ProgressCard me={me} onProgress={onProgress} />
         <RoutineSetup me={me} run={run} onOpen={onOpen} />
         <MyCoaches me={me} run={run} onThread={onThread} />
         <MyLibrary me={me} run={run} onBrowse={onBrowse} />
@@ -2273,6 +2665,8 @@ export function PeopleScreen({
         </div>
       </div>
 
+      <StarterLibrary me={me} run={run} />
+      <ProgressCard me={me} onProgress={onProgress} />
       <MyLibrary me={me} run={run} onBrowse={onBrowse} />
       <MyEquipment me={me} run={run} />
 
@@ -2290,6 +2684,66 @@ export function PeopleScreen({
 
       <SignOut />
     </>
+  );
+}
+
+/**
+ * THE GYM'S DEFAULT LIBRARY, offered once.
+ *
+ * A gym the platform provisions starts genuinely empty — no equipment
+ * vocabulary, no exercises, no templates. The local harness never showed that,
+ * because the seed publishes the catalogue on its way in, so the first deployed
+ * instance came up with an exercise picker with nothing in it and a "start from
+ * a template?" list with nothing to start from.
+ *
+ * Deliberately a BUTTON and not something provisioning does. Installing it
+ * writes ~90 rows and every one of them is attributed to whoever pressed this —
+ * which is the honest answer, and one that provisioning, having no principal,
+ * cannot give. The operation is idempotent, so pressing it twice is safe, and a
+ * gym that has built its own library never sees the card at all.
+ */
+function StarterLibrary({ me, run }: ScreenProps) {
+  const [exercises, reloadExercises] = useList<Exercise>(() => api.exercises(), [me?.key]);
+  const [templates, reloadTemplates] = useList<Template>(() => api.templates(), [me?.key]);
+  const [busy, setBusy] = useState(false);
+
+  // Only an admin holds `library:publish`; only an empty shelf needs stocking.
+  if (me?.role !== 'admin') return null;
+  if (exercises.length > 0 && templates.length > 0) return null;
+
+  const install = async () => {
+    setBusy(true);
+    await run(
+      () => api.installStarterLibrary(),
+      'Library installed — the catalogue and five plans are live',
+    );
+    setBusy(false);
+    reloadExercises();
+    reloadTemplates();
+  };
+
+  return (
+    <div className="card accent">
+      <div className="row">
+        <span className="title">Stock the library</span>
+      </div>
+      <div className="sub">
+        This gym has {exercises.length === 0 ? 'no exercises' : `${exercises.length} exercises`} and{' '}
+        {templates.length === 0 ? 'no templates' : `${templates.length} templates`} yet. Install the
+        default library and you get an equipment vocabulary, a catalogue of common exercises, and
+        five plans — two lifting blocks, a baseline that measures each arm and leg on its own, a
+        shoulder-rehab week and a running base week.
+      </div>
+      <div className="sub">
+        They are published as this gym&apos;s own, shared with everyone in it. Edit or retire any of
+        them afterwards; nothing here is locked.
+      </div>
+      <div className="actions">
+        <button className="tinted" disabled={busy} onClick={install}>
+          {busy ? 'Installing…' : 'Install the default library'}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -2343,3 +2797,933 @@ function SessionClock({
   );
 }
 
+/**
+ * THE OPTIONAL THIRD STEP of onboarding: measure where you start.
+ *
+ * Shown once the two questions are answered and until a baseline exists — or
+ * until it is skipped, which is remembered on this device only (a dismissal is
+ * a per-viewer convenience, not a fact about the person). The Progress screen
+ * offers the same button for ever, so skipping costs nothing.
+ *
+ * Taking it creates an assessment from the gym's baseline plan and opens it
+ * PLANNED, like every other workout: you start it when you are warmed up.
+ */
+function BaselineStep({ me, run, onOpen }: ScreenProps & { onOpen: (id: string) => void }) {
+  const [trainee, setTrainee] = useState<TraineeMe | null>(null);
+  const [programs] = useList<ProgramCard>(() => api.programs(), [me?.key]);
+  const [templates] = useList<Template>(() => api.templates(), [me?.key]);
+  const [skipped, setSkipped] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const key = `stride:baseline-skipped:${me?.traineeId ?? ''}`;
+
+  useEffect(() => {
+    api.meTrainee().then(setTrainee).catch(() => setTrainee(null));
+    try {
+      setSkipped(window.localStorage.getItem(key) === '1');
+    } catch {
+      setSkipped(false);
+    }
+  }, [me?.key, key]);
+
+  const baseline = templates.find((t) => t.name.startsWith('Baseline'));
+  const taken = programs.some((p) => p.kind === 'assessment');
+  if (!trainee?.onboarded_at || taken || skipped || !baseline) return null;
+
+  const skip = () => {
+    try {
+      window.localStorage.setItem(key, '1');
+    } catch {
+      /* a private window forgets; the card simply comes back next time */
+    }
+    setSkipped(true);
+  };
+
+  const take = async () => {
+    setBusy(true);
+    let id = '';
+    const ok = await run(async () => {
+      const res = await api.assignProgram({
+        title: 'Baseline #1',
+        kind: 'assessment',
+        templateId: baseline.id,
+      });
+      id = res.program.id;
+    }, 'Baseline created — start it when you are warmed up');
+    setBusy(false);
+    if (ok && id) onOpen(id);
+  };
+
+  return (
+    <div className="card accent">
+      <div className="row center">
+        <span className="title">Measure where you start</span>
+        <span className="badge mono">optional</span>
+      </div>
+      <div className="sub">
+        One session, about forty minutes: {baseline.items.length} light sets covering the
+        whole body, each arm and each leg logged on its own, and a timed kilometre. You write
+        down how many you managed and at what weight — that is the first point on every curve,
+        and the left/right gap as a number.
+      </div>
+      <div className="actions">
+        <button className="primary" disabled={busy} onClick={take}>
+          Take the baseline
+        </button>
+        <button className="ghost" onClick={skip}>
+          Skip for now
+        </button>
+      </div>
+      <div className="sub">You can take it any time from Progress. Retake it monthly.</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PROGRESS — the evolution: every exercise as a curve, left against right, and
+// the body over time. Nothing here is stored; it is all read off the
+// append-only log, so it cannot disagree with what was done.
+// ---------------------------------------------------------------------------
+
+/** The door to the curve, on Me. Only for someone with a trainee record. */
+function ProgressCard({ me, onProgress }: { me: CastMember | null; onProgress: () => void }) {
+  if (!me?.traineeId) return null;
+  return (
+    <button type="button" className="card tappable" onClick={onProgress}>
+      <div className="row">
+        <span className="title">Progress &amp; measurements</span>
+        <span className="chev">›</span>
+      </div>
+      <div className="sub">
+        Where you started, where you are. Each exercise as a curve, the left arm against the
+        right, and your weight and range of motion over time.
+      </div>
+    </button>
+  );
+}
+
+/** An inline sparkline. Baseline points (an assessment) get a ring. */
+function Spark({
+  values,
+  marks,
+  lowerIsBetter,
+}: {
+  values: number[];
+  marks?: boolean[];
+  lowerIsBetter?: boolean;
+}) {
+  if (values.length < 2) return null;
+  const w = 160;
+  const h = 36;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const pts = values.map((v, i) => {
+    const x = 4 + (i * (w - 8)) / (values.length - 1);
+    const y = 4 + ((max - v) / span) * (h - 8);
+    return [x, y] as const;
+  });
+  const last = values[values.length - 1]!;
+  const first = values[0]!;
+  const better = lowerIsBetter ? last < first : last > first;
+  return (
+    <svg className="spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
+      <polyline
+        points={pts.map(([x, y]) => `${x},${y}`).join(' ')}
+        fill="none"
+        stroke={better ? 'var(--good)' : 'var(--muted)'}
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      {pts.map(([x, y], i) =>
+        marks?.[i] ? (
+          <circle key={i} cx={x} cy={y} r="3.5" fill="var(--surface)" stroke="var(--accent)" strokeWidth="2" />
+        ) : null,
+      )}
+    </svg>
+  );
+}
+
+/** Which number a curve is drawn on, per exercise. Pace for a run, volume for a
+ *  loaded lift, the longest hold for a timed one, the most reps otherwise. */
+function metricOf(e: ExerciseProgress): {
+  label: string;
+  lowerIsBetter: boolean;
+  value: (p: ProgressPoint) => number | null;
+  format: (p: ProgressPoint) => string;
+} {
+  const loaded = e.series.some((s) => s.points.some((p) => p.bestLoad));
+  if (e.unit === 'metres' && e.series.some((s) => s.points.some((p) => p.paceSecondsPerKm)))
+    return {
+      label: 'pace',
+      lowerIsBetter: true,
+      value: (p) => p.paceSecondsPerKm,
+      format: (p) =>
+        `${formatAmount(p.totalQuantity, 'metres')}${p.paceSecondsPerKm ? ` · ${formatPace(p.paceSecondsPerKm)}` : ''}${
+          p.avgHr ? ` · ${p.avgHr} bpm` : ''
+        }`,
+    };
+  if (loaded)
+    return {
+      label: 'best set',
+      lowerIsBetter: false,
+      value: (p) => (Number.parseFloat(p.volume) || 0),
+      format: (p) => `${p.bestReps} × ${p.bestLoad ?? '—'}${p.sets > 1 ? ` · ${p.sets} sets` : ''}`,
+    };
+  return {
+    label: e.unit === 'seconds' ? 'longest hold' : 'most reps',
+    lowerIsBetter: false,
+    value: (p) => p.bestReps,
+    format: (p) => `${formatAmount(p.bestReps, e.unit)}${p.sets > 1 ? ` · ${p.sets} sets` : ''}`,
+  };
+}
+
+const SIDE_NAME: Record<string, string> = { left: 'Left', right: 'Right' };
+
+function ExerciseCurve({ e, onOpen }: { e: ExerciseProgress; onOpen: (id: string) => void }) {
+  const metric = metricOf(e);
+  return (
+    <div className="card">
+      <div className="row center">
+        <span className="title">{e.name}</span>
+        <span className="sub mono" style={{ marginTop: 0 }}>
+          {metric.label}
+        </span>
+      </div>
+      {e.series.map((series) => {
+        const values = series.points.map((p) => metric.value(p) ?? 0);
+        const first = series.points[0]!;
+        const latest = series.points[series.points.length - 1]!;
+        return (
+          <div key={series.side ?? 'both'} className="curve-row">
+            <div className="curve-head">
+              {series.side && <span className={`side-label ${series.side}`}>{SIDE_NAME[series.side]}</span>}
+              <span className="mono">{metric.format(latest)}</span>
+              {series.points.length > 1 && (
+                <span className="sub" style={{ marginTop: 0 }}>
+                  {' '}
+                  was {metric.format(first)} · {new Date(first.performedAt).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+            <Spark
+              values={values}
+              marks={series.points.map((p) => p.programKind === 'assessment')}
+              lowerIsBetter={metric.lowerIsBetter}
+            />
+            {series.points.length === 1 && (
+              <div className="sub">
+                One point so far
+                {first.programKind === 'assessment' ? ' — the baseline' : ''}. The curve starts
+                with the second.
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <div className="actions">
+        <button
+          className="ghost small"
+          onClick={() => onOpen(e.series[0]!.points[e.series[0]!.points.length - 1]!.programId)}
+        >
+          Open the last workout it was in
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * LEFT AGAINST RIGHT. The server gives the latest pair as an exact number; the
+ * first pair is recomputed here from the same points, display only, so the card
+ * can say "was 50%, now 67%" — the sentence the baseline exists to produce.
+ */
+function SymmetryCard({ e }: { e: ExerciseProgress }) {
+  const sym = e.symmetry!;
+  const left = e.series.find((s) => s.side === 'left')?.points ?? [];
+  const right = e.series.find((s) => s.side === 'right')?.points ?? [];
+  const rightBySession = new Map(right.map((p) => [p.sessionId, p]));
+  const firstPair = left.find((p) => rightBySession.has(p.sessionId));
+  const score = (p: ProgressPoint) =>
+    sym.measure === 'volume' ? Number.parseFloat(p.volume) || 0 : p.totalQuantity;
+  let firstPct: number | null = null;
+  if (firstPair && firstPair.performedAt !== sym.performedAt) {
+    const l = score(firstPair);
+    const r = score(rightBySession.get(firstPair.sessionId)!);
+    firstPct = l === r ? 100 : Math.round((Math.min(l, r) / Math.max(l, r)) * 100);
+  }
+  const pct = Math.round(Number(sym.weakerPct));
+  const lv = Number.parseFloat(sym.left) || 0;
+  const rv = Number.parseFloat(sym.right) || 0;
+  const top = Math.max(lv, rv) || 1;
+  return (
+    <div className={`card${sym.weaker ? ' accent' : ''}`}>
+      <div className="row center">
+        <span className="title">{e.name}</span>
+        <span className="sub mono" style={{ marginTop: 0 }}>
+          {new Date(sym.performedAt).toLocaleDateString()}
+        </span>
+      </div>
+      <div className="bars">
+        <span className="side-label left">L</span>
+        <span className={`bar${sym.weaker === 'left' ? ' weak' : ''}`}>
+          <i style={{ width: `${(lv / top) * 100}%` }} />
+        </span>
+        <span className="mono">{sym.left}</span>
+        <span className="side-label right">R</span>
+        <span className={`bar${sym.weaker === 'right' ? ' weak' : ''}`}>
+          <i style={{ width: `${(rv / top) * 100}%` }} />
+        </span>
+        <span className="mono">{sym.right}</span>
+      </div>
+      <div className="sub">
+        {sym.weaker ? (
+          <>
+            <b>
+              {SIDE_NAME[sym.weaker]} is at {pct}% of {sym.weaker === 'left' ? 'right' : 'left'}
+            </b>
+            {firstPct !== null && (
+              <>
+                {' '}
+                — was {firstPct}% at the first pair.{' '}
+                {pct > firstPct ? 'Closing.' : pct < firstPct ? 'Wider than it was.' : 'Unchanged.'}
+              </>
+            )}
+          </>
+        ) : (
+          <b>Even.</b>
+        )}{' '}
+        {sym.measure === 'volume' ? 'By reps × load.' : 'By count.'}
+        {sym.weaker &&
+          ` Next time, give the ${sym.weaker} its own load and cap the other side to its reps — Edit on the row does that.`}
+      </div>
+    </div>
+  );
+}
+
+/** Body measurements: latest per kind and side, with the change since the first. */
+function BodyCard({
+  traineeId,
+  rows,
+  readable,
+  run,
+  onLogged,
+}: {
+  traineeId: string;
+  rows: Measurement[];
+  /** False when the kernel refused the read — say so rather than show nothing. */
+  readable: boolean;
+  run: Run;
+  onLogged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<MeasurementKind>('weight');
+  const [side, setSide] = useState<Side>('left');
+  const [value, setValue] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const sided = MEASUREMENT_KINDS[kind].sided;
+
+  const groups = new Map<string, Measurement[]>();
+  for (const m of rows) {
+    const key = `${m.kind}|${m.side ?? ''}`;
+    groups.set(key, [...(groups.get(key) ?? []), m]);
+  }
+
+  const save = async () => {
+    setBusy(true);
+    const ok = await run(
+      () =>
+        api.logMeasurement(traineeId, {
+          kind,
+          value: value.trim(),
+          ...(sided ? { side } : {}),
+          ...(note.trim() ? { note: note.trim() } : {}),
+        }),
+      'Measurement logged',
+    );
+    setBusy(false);
+    if (ok) {
+      setValue('');
+      setNote('');
+      setOpen(false);
+      onLogged();
+    }
+  };
+
+  return (
+    <>
+      <h2>Body</h2>
+      {!readable && (
+        <div className="empty">
+          <span className="head">Not shared with you.</span>
+          Body measurements are visible to a coach only when the person shares all of their
+          training. You can still record one for them.
+        </div>
+      )}
+      {readable && groups.size === 0 && (
+        <div className="empty">
+          <span className="head">Nothing measured yet.</span>
+          Weight, a waist, how far each shoulder goes. The first one is the baseline.
+        </div>
+      )}
+      {[...groups.entries()].map(([key, list]) => {
+        const latest = list[list.length - 1]!;
+        const first = list[0]!;
+        const meta = MEASUREMENT_KINDS[latest.kind];
+        const delta = (Number.parseFloat(latest.value) || 0) - (Number.parseFloat(first.value) || 0);
+        // Up is good for range and strength, neutral for a weight.
+        const good = latest.kind === 'weight' || latest.kind === 'waist' || latest.kind === 'hips' || latest.kind === 'body-fat' || latest.kind === 'resting-hr' ? null : delta > 0;
+        return (
+          <div key={key} className="card">
+            <div className="row center">
+              <span className="title">
+                {latest.side && <span className={`side-label ${latest.side}`}>{SIDE_NAME[latest.side]}</span>}
+                {meta?.label ?? latest.kind}
+              </span>
+              <span className="mono">
+                {latest.value} {latest.unit}
+              </span>
+            </div>
+            <div className="sub" style={{ marginTop: 4 }}>
+              {list.length > 1 ? (
+                <>
+                  <span className={`delta${good === null ? '' : good ? ' up' : ' down'}`}>
+                    {delta > 0 ? '+' : ''}
+                    {Number(delta.toFixed(2))} {latest.unit}
+                  </span>{' '}
+                  since {new Date(first.measured_at).toLocaleDateString()} ({first.value} {first.unit})
+                </>
+              ) : (
+                `Measured ${new Date(latest.measured_at).toLocaleDateString()}`
+              )}
+              {latest.note ? ` · ${latest.note}` : ''}
+            </div>
+            <Spark values={list.map((m) => Number.parseFloat(m.value) || 0)} lowerIsBetter={good === null ? true : false} />
+          </div>
+        );
+      })}
+      {!open ? (
+        <div className="actions" style={{ marginBottom: 14 }}>
+          <button className="tinted" onClick={() => setOpen(true)}>
+            + Log a measurement
+          </button>
+        </div>
+      ) : (
+        <div className="card">
+          <label>what</label>
+          <select value={kind} onChange={(e) => setKind(e.target.value as MeasurementKind)}>
+            {(Object.keys(MEASUREMENT_KINDS) as MeasurementKind[]).map((k) => (
+              <option key={k} value={k}>
+                {MEASUREMENT_KINDS[k].label} ({MEASUREMENT_KINDS[k].unit})
+              </option>
+            ))}
+          </select>
+          {sided && (
+            <div className="side-toggle" role="radiogroup" aria-label="which side">
+              {(['left', 'right'] as const).map((x) => (
+                <button
+                  key={x}
+                  type="button"
+                  role="radio"
+                  aria-checked={side === x}
+                  className={`pill toggle ${x}${side === x ? ' on' : ''}`}
+                  onClick={() => setSide(x)}
+                >
+                  {x}
+                </button>
+              ))}
+            </div>
+          )}
+          <label>value — {MEASUREMENT_KINDS[kind].unit}</label>
+          <input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="72.4" />
+          <label>note (optional)</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="morning, before breakfast" />
+          <div className="actions">
+            <button className="primary" disabled={busy || !/^\d+(\.\d+)?$/.test(value.trim())} onClick={save}>
+              Save
+            </button>
+            <button className="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+          <div className="sub">
+            A decimal like 72.4 — use a dot. A correction is a new row; nothing here is ever edited.
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function ProgressScreen({
+  traineeId,
+  me,
+  run,
+  onBack,
+  onOpen,
+}: ScreenProps & { traineeId: string | null; onBack: () => void; onOpen: (id: string) => void }) {
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [measurements, setMeasurements] = useState<Measurement[] | null>(null);
+  const [templates] = useList<Template>(() => api.templates(), [me?.key]);
+  const [trainees] = useList<Trainee>(() => api.trainees(), [me?.key]);
+  const [busy, setBusy] = useState(false);
+
+  const reload = useCallback(() => {
+    if (!traineeId) return;
+    api.progress(traineeId).then(setProgress).catch(() => setProgress(null));
+    // A 403 here is a decision, not a failure: keep null and say "not shared".
+    api.measurements(traineeId).then(setMeasurements).catch(() => setMeasurements(null));
+  }, [traineeId]);
+  useEffect(reload, [reload]);
+
+  if (!traineeId) {
+    return (
+      <>
+        <button className="back" onClick={onBack}>
+          ‹ Back
+        </button>
+        <h1>Progress</h1>
+        <div className="empty">
+          <span className="head">No trainee record yet.</span>
+          Make yourself a workout on the Workouts screen and your curve starts there.
+        </div>
+      </>
+    );
+  }
+
+  const mine = traineeId === me?.traineeId;
+  const who = trainees.find((t) => t.id === traineeId);
+  const baseline = templates.find((t) => t.name.startsWith('Baseline'));
+  const baselines = new Set(
+    (progress?.exercises ?? []).flatMap((e) =>
+      e.series.flatMap((s) => s.points.filter((p) => p.programKind === 'assessment').map((p) => p.programId)),
+    ),
+  );
+  const asymmetric = (progress?.exercises ?? []).filter((e) => e.symmetry);
+  const curves = (progress?.exercises ?? []).filter((e) => e.series.some((s) => s.points.length > 0));
+
+  /** Create a fresh baseline from the template and open it — planned, not started. */
+  const retake = async () => {
+    if (!baseline) return;
+    setBusy(true);
+    let id = '';
+    const ok = await run(async () => {
+      const res = await api.assignProgram({
+        ...(mine ? {} : { traineeId }),
+        title: `Baseline #${baselines.size + 1}`,
+        kind: 'assessment',
+        templateId: baseline.id,
+      });
+      id = res.program.id;
+    }, 'Baseline created — start it when you are warmed up');
+    setBusy(false);
+    if (ok && id) onOpen(id);
+  };
+
+  return (
+    <>
+      <button className="back" onClick={onBack}>
+        ‹ {mine ? 'Me' : 'Trainees'}
+      </button>
+      <h1>{mine ? 'My progress' : who ? `${who.name}` : 'Progress'}</h1>
+      <div className="sub" style={{ margin: '-8px 0 14px', paddingLeft: 4 }}>
+        {progress
+          ? `${progress.sessionsSeen} session${progress.sessionsSeen === 1 ? '' : 's'} ${mine ? 'logged' : 'shared with you'}`
+          : 'Loading…'}
+      </div>
+
+      {/* THE BASELINE. Raised and accented: it is the one action on the screen. */}
+      <div className="card raised accent">
+        <div className="row center">
+          <span className="title big">Baseline</span>
+          <span className="badge mono">{baselines.size} taken</span>
+        </div>
+        <div className="sub">
+          {baselines.size === 0
+            ? 'One session of light, measured sets — each arm and each leg on its own, plus a timed kilometre. It is the first point on every curve here.'
+            : 'Retake it every few weeks. Same loads, same order: the difference is the progress, and the left/right pair on each row is the gap.'}
+        </div>
+        <div className="actions">
+          <button className="primary wide" disabled={busy || !baseline} onClick={retake}>
+            {baselines.size === 0 ? 'Take the baseline' : 'Retake the baseline'}
+          </button>
+        </div>
+        {!baseline && (
+          <div className="sub">No baseline template in this gym yet — an admin can install the default library from Me.</div>
+        )}
+      </div>
+
+      {asymmetric.length > 0 && <h2>Left against right</h2>}
+      {asymmetric.map((e) => (
+        <SymmetryCard key={e.exerciseId} e={e} />
+      ))}
+
+      <h2>Exercises</h2>
+      {curves.length === 0 && (
+        <div className="empty">
+          <span className="head">{mine ? 'Nothing logged yet.' : 'Nothing shared yet.'}</span>
+          {mine
+            ? 'Every set you log becomes a point. Take the baseline and there is a first one on nine curves at once.'
+            : 'This person has not shared any sessions with you yet.'}
+        </div>
+      )}
+      {curves.map((e) => (
+        <ExerciseCurve key={e.exerciseId} e={e} onOpen={onOpen} />
+      ))}
+
+      <BodyCard
+        traineeId={traineeId}
+        rows={measurements ?? []}
+        readable={measurements !== null}
+        run={run}
+        onLogged={reload}
+      />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PLANS — the reusable prescription, tied to nobody.
+//
+// A workout is one person's run of a plan. The plan itself has no state, no
+// sessions and no subject: you may make one alone, with no coach, and put it in
+// front of everyone in the gym — or take it back. What the kernel decides: you
+// edit and share only your own (the narrowed `template:read` through the
+// `template → you` edge); everyone reads what is shared (the node-level
+// `template:read-shared`); an admin reaches all of it.
+// ---------------------------------------------------------------------------
+
+function NewPlan({ run, onCreated }: { run: Run; onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!open) {
+    return (
+      <div className="actions" style={{ marginBottom: 14 }}>
+        <button className="primary wide" onClick={() => setOpen(true)}>
+          + New plan
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="card">
+      <label>name</label>
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Garage strength" />
+      <label>what it is for (optional)</label>
+      <input
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Three days a week, kettlebell only"
+      />
+      <div className="actions">
+        <button
+          className="primary"
+          disabled={busy || !name.trim()}
+          onClick={async () => {
+            setBusy(true);
+            const ok = await run(
+              () =>
+                api.authorTemplate({
+                  name: name.trim(),
+                  ...(description.trim() ? { description: description.trim() } : {}),
+                }),
+              'Plan created — add exercises to it',
+            );
+            setBusy(false);
+            if (ok) {
+              setName('');
+              setDescription('');
+              setOpen(false);
+              onCreated();
+            }
+          }}
+        >
+          Create
+        </button>
+        <button className="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
+      <div className="sub">Only you can see it until you choose to share it.</div>
+    </div>
+  );
+}
+
+/** Add one exercise to a plan — the plan-side twin of AddProgramItem. */
+function AddPlanItem({ templateId, run, onAdded }: { templateId: string; run: Run; onAdded: () => void }) {
+  const [exercises] = useList<Exercise>(() => api.exercises(), []);
+  const [f, setF] = useState({
+    exerciseId: '',
+    sets: '3',
+    reps: '10',
+    load: '',
+    days: [] as number[],
+    perWeek: '',
+  });
+  const [busy, setBusy] = useState(false);
+  const chosen = exercises.find((e) => e.id === f.exerciseId);
+  return (
+    <div className="item-editor">
+      <label>exercise</label>
+      <select value={f.exerciseId} onChange={(e) => setF({ ...f, exerciseId: e.target.value })}>
+        <option value="">choose…</option>
+        {exercises.map((e) => (
+          <option key={e.id} value={e.id}>
+            {e.name}
+            {e.laterality === 'unilateral' ? ' (each side)' : ''}
+          </option>
+        ))}
+      </select>
+      <div className="setgrid">
+        <div>
+          <label>sets{chosen?.laterality === 'unilateral' ? ' / side' : ''}</label>
+          <input inputMode="numeric" value={f.sets} onChange={(e) => setF({ ...f, sets: e.target.value })} />
+        </div>
+        <div>
+          <label>{UNIT_LABEL[chosen?.unit ?? 'reps'] ?? 'reps'}</label>
+          <input inputMode="numeric" value={f.reps} onChange={(e) => setF({ ...f, reps: e.target.value })} />
+        </div>
+        <div>
+          <label>load</label>
+          <input inputMode="decimal" value={f.load} onChange={(e) => setF({ ...f, load: e.target.value })} />
+        </div>
+      </div>
+      <label>repeat on</label>
+      <div className="sets">
+        {[1, 2, 3, 4, 5, 6, 7].map((d) => (
+          <button
+            key={d}
+            className={`pill toggle${f.days.includes(d) ? ' on' : ''}`}
+            onClick={() =>
+              setF({
+                ...f,
+                perWeek: '',
+                days: f.days.includes(d) ? f.days.filter((x) => x !== d) : [...f.days, d].sort(),
+              })
+            }
+          >
+            {DAY_NAMES[d]}
+          </button>
+        ))}
+      </div>
+      <label>…or a count per week</label>
+      <input
+        inputMode="numeric"
+        value={f.perWeek}
+        placeholder="e.g. 5"
+        onChange={(e) => setF({ ...f, days: [], perWeek: e.target.value })}
+      />
+      <div className="actions">
+        <button
+          className="primary"
+          disabled={busy || !f.exerciseId}
+          onClick={async () => {
+            setBusy(true);
+            const ok = await run(
+              () =>
+                api.addTemplateItem(templateId, {
+                  exerciseId: f.exerciseId,
+                  targetSets: Number(f.sets) || 1,
+                  targetReps: Number(f.reps) || 1,
+                  ...(f.load.trim() ? { targetLoad: f.load.trim() } : {}),
+                  ...(f.days.length ? { recurDays: f.days.join(',') } : {}),
+                  ...(f.perWeek.trim() ? { recurPerWeek: Number(f.perWeek) } : {}),
+                }),
+              'Added to the plan',
+            );
+            setBusy(false);
+            if (ok) {
+              setF({ ...f, exerciseId: '' });
+              onAdded();
+            }
+          }}
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PlanCard({
+  plan,
+  me,
+  run,
+  exercisesById,
+  onChanged,
+  onStart,
+}: {
+  plan: Template;
+  me: CastMember | null;
+  run: Run;
+  exercisesById: Map<string, Exercise>;
+  onChanged: () => void;
+  onStart: (plan: Template) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  // Edit is offered to the author and to an admin. Anyone else who somehow
+  // pressed it would meet the kernel's refusal in the banner, which is fine.
+  const canEdit = plan.mine || me?.role === 'admin';
+  const shared = plan.visibility === 'shared';
+  const library = shared && !plan.ownerName;
+  return (
+    <div className="card">
+      <div className="row center">
+        <span className="title">{plan.name}</span>
+        <span className={`badge ${shared ? 'shared' : 'private'}`}>
+          {library ? 'gym library' : shared ? 'shared' : 'private'}
+        </span>
+      </div>
+      <div className="sub" style={{ marginTop: 4 }}>
+        {plan.items.length} exercise{plan.items.length === 1 ? '' : 's'}
+        {plan.mine ? ' · made by you' : plan.ownerName ? ` · by ${plan.ownerName}` : ' · gym library'}
+        {plan.description ? ` · ${plan.description}` : ''}
+      </div>
+      {plan.items.length > 0 && (
+        <div className="list nested">
+          {plan.items.map((i) => {
+            const ex = exercisesById.get(i.exercise_id);
+            return (
+              <div key={i.id} className="rowbtn" style={{ cursor: 'default' }}>
+                <span>
+                  <span className="name">{ex?.name ?? 'Exercise'}</span>
+                  <span className="sub mono">
+                    {i.target_sets} × {formatQuantity(i.target_reps, ex?.unit ?? 'reps')}
+                    {i.target_load ? ` @ ${i.target_load}` : ''}
+                    {ex?.laterality === 'unilateral' ? ' each side' : ''}
+                    {recurrenceLabel(i.recur_days, i.recur_per_week)
+                      ? ` · ${recurrenceLabel(i.recur_days, i.recur_per_week)}`
+                      : ''}
+                  </span>
+                </span>
+                {editing && (
+                  <button
+                    className="ghost small"
+                    aria-label={`remove ${ex?.name ?? 'exercise'}`}
+                    onClick={() =>
+                      run(() => api.removeTemplateItem(i.id), 'Taken out of the plan').then(onChanged)
+                    }
+                  >
+                    −
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {editing && <AddPlanItem templateId={plan.id} run={run} onAdded={onChanged} />}
+      <div className="actions">
+        {plan.items.length > 0 && (
+          <button className="primary" onClick={() => onStart(plan)}>
+            Start a workout from it
+          </button>
+        )}
+        {canEdit && (
+          <button className="ghost" onClick={() => setEditing(!editing)}>
+            {editing ? 'Done' : 'Edit'}
+          </button>
+        )}
+        {canEdit && !library && (
+          <button
+            className="ghost"
+            onClick={() =>
+              run(
+                () => api.shareTemplate(plan.id, shared ? 'nobody' : 'gym'),
+                shared
+                  ? 'Taken back — workouts already made from it are unaffected'
+                  : 'Shared with everyone in this gym',
+              ).then(onChanged)
+            }
+          >
+            {shared ? 'Withdraw' : 'Share with the gym'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function PlansScreen({
+  me,
+  run,
+  onBack,
+  onOpen,
+}: ScreenProps & { onBack: () => void; onOpen: (id: string) => void }) {
+  const [plans, reload] = useList<Template>(() => api.templates(), [me?.key]);
+  const [exercises] = useList<Exercise>(() => api.exercises(), [me?.key]);
+  const exercisesById = new Map(exercises.map((e) => [e.id, e] as const));
+  const mine = plans.filter((p) => p.mine);
+  const others = plans.filter((p) => !p.mine);
+  const canTrainMyself = Boolean(me?.traineeId) || me?.role === 'admin';
+
+  /** One tap: a workout of your own from this plan — planned, and opened. */
+  const start = async (plan: Template) => {
+    let id = '';
+    const ok = await run(async () => {
+      if (!me?.traineeId) await api.trainMyself(me?.name);
+      const p = await api.createRoutine({
+        title: plan.name,
+        kind: plan.name.startsWith('Baseline') ? 'assessment' : 'strength',
+        templateId: plan.id,
+        slots: [],
+      });
+      id = p.id;
+    }, 'Workout created — check it over, then start it');
+    if (ok && id) onOpen(id);
+  };
+
+  return (
+    <>
+      <button className="back" onClick={onBack}>
+        ‹ {me?.role === 'trainee' ? 'Workouts' : 'Programmes'}
+      </button>
+      <h1>Plans</h1>
+      <div className="sub" style={{ margin: '-8px 0 14px', paddingLeft: 4 }}>
+        Reusable workout plans. Follow one from the gym, or build your own and share it.
+      </div>
+      <NewPlan run={run} onCreated={reload} />
+
+      <h2>My plans</h2>
+      {mine.length === 0 && (
+        <div className="empty">
+          <span className="head">None yet.</span>
+          Make one above, add exercises, and it is yours to run and — if you like — to share.
+        </div>
+      )}
+      {mine.map((p) => (
+        <PlanCard
+          key={p.id}
+          plan={p}
+          me={me}
+          run={run}
+          exercisesById={exercisesById}
+          onChanged={reload}
+          onStart={start}
+        />
+      ))}
+
+      <h2>In this gym</h2>
+      {others.length === 0 && <div className="empty">Nothing shared here yet.</div>}
+      {others.map((p) => (
+        <PlanCard
+          key={p.id}
+          plan={p}
+          me={me}
+          run={run}
+          exercisesById={exercisesById}
+          onChanged={reload}
+          onStart={start}
+        />
+      ))}
+      {!canTrainMyself && (
+        <div className="sub">
+          Starting a workout needs a trainee record; a coach gets one by invitation like anyone else.
+        </div>
+      )}
+    </>
+  );
+}

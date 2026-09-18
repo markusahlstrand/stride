@@ -27,7 +27,6 @@ import {
 // the deployed worker, which cannot import this file (it would drag SQLite into
 // a Durable Object bundle). Re-exported so existing callers are unaffected.
 export { MODULES, ROLES, ENTITY_GRANTS } from './modules.js';
-import { EQUIPMENT, EXERCISES } from './catalogue.js';
 import { DEV_PROVIDER, SUB } from './personas.js';
 
 // ============================================================================
@@ -346,83 +345,24 @@ export async function seedStride(host: SqliteScopeHost, dir: string): Promise<St
     }
   }
 
-  // The shared library — admin's job, and the default a new gym starts with.
-  // The equipment vocabulary comes first: an exercise cannot be tagged with a
-  // piece of kit nobody has defined.
-  for (const equipment of EQUIPMENT) {
-    await astrid.invoke('stride/publish-equipment', equipment);
-  }
-  const exerciseIds = new Map<string, string>();
-  for (const exercise of EXERCISES) {
-    const row = await astrid.invoke<{ id: string }>('stride/publish-exercise', exercise);
-    exerciseIds.set(exercise.slug, row.id);
-  }
+  // THE SHARED LIBRARY — one call, the same one a deployed gym makes.
+  //
+  // This used to publish 31 pieces of equipment, 62 exercises and two templates
+  // by hand, right here in the harness — which is exactly why the first deployed
+  // instance came up empty: the only thing that knew what a gym starts with was
+  // a file the worker cannot import. `stride/install-starter-library` is that
+  // knowledge as an operation, so production gets it and the scenario exercises
+  // it on every run.
+  await astrid.invoke('stride/install-starter-library');
+
+  const library = await astrid.invoke<{ id: string; slug: string }[]>('stride/exercises');
+  const exerciseIds = new Map(library.map((e) => [e.slug, e.id] as const));
   world.squatId = exerciseIds.get('back-squat')!;
   world.benchId = exerciseIds.get('bench-press')!;
   world.plankId = exerciseIds.get('plank')!;
 
-  const template = await astrid.invoke<{ id: string }>('stride/publish-template', {
-    name: 'Foundation Strength',
-    description: 'The gym-wide starting program: squat, bench, plank.',
-  });
-  world.templateId = template.id;
-  // Mon / Wed / Fri — a lifting program names its days.
-  await astrid.invoke('stride/add-template-item', {
-    templateId: world.templateId,
-    exerciseId: world.squatId,
-    targetSets: 3,
-    targetReps: 5,
-    targetLoad: '60',
-    recurDays: '1,3,5',
-  });
-  await astrid.invoke('stride/add-template-item', {
-    templateId: world.templateId,
-    exerciseId: world.benchId,
-    targetSets: 3,
-    targetReps: 8,
-    targetLoad: '40',
-    recurDays: '1,3,5',
-  });
-
-  // A second shared template, showing the two shapes the prescription can take:
-  // a SUPERSET (items sharing a group key, done back to back) and a RAMP (sets
-  // that differ from one another, so the item carries an explicit set list).
-  const push = await astrid.invoke<{ id: string }>('stride/publish-template', {
-    name: 'Upper Push — ramp & superset',
-    description: 'A ramping bench, then a shoulder/row superset.',
-  });
-  const ramp = await astrid.invoke<{ id: string }>('stride/add-template-item', {
-    templateId: push.id,
-    exerciseId: world.benchId,
-    targetSets: 3,
-    targetReps: 10,
-    recurDays: '2,5',
-  });
-  // 10 @ 40, 8 @ 45, 6 @ 50, 4 @ 55 — the sets differ, so they are listed.
-  await astrid.invoke('stride/set-item-sets', {
-    itemId: ramp.id,
-    sets: [
-      { reps: 10, load: '40', note: 'warm-up' },
-      { reps: 8, load: '45' },
-      { reps: 6, load: '50' },
-      { reps: 4, load: '55', note: 'top set' },
-    ],
-  });
-  // A1 / A2: press then row, back to back.
-  for (const [slug, reps, load] of [
-    ['dumbbell-shoulder-press', 10, '14'],
-    ['dumbbell-row', 10, '20'],
-  ] as const) {
-    await astrid.invoke('stride/add-template-item', {
-      templateId: push.id,
-      exerciseId: exerciseIds.get(slug)!,
-      targetSets: 3,
-      targetReps: reps,
-      targetLoad: load,
-      groupKey: 'A',
-      recurDays: '2,5',
-    });
-  }
+  const installed = await astrid.invoke<{ id: string; name: string }[]>('stride/templates');
+  world.templateId = installed.find((t) => t.name === 'Foundation Strength')!.id;
 
   // Nina's OWN exercise. Ola must never see it; Vera will earn it by doing it.
   const nina = await host.getScope(world.nina, world.t1, world.s1);
@@ -484,11 +424,86 @@ export async function seedStride(host: SqliteScopeHost, dir: string): Promise<St
     ],
   });
 
+  // Vera's FIRST BASELINE — done, so the app opens on a curve with a point on
+  // it and a left/right gap to close. The left arm is the operated one.
+  const baselineTemplate = installed.find((t) => t.name.startsWith('Baseline'))!;
+  const baseline = await veraScope.invoke<{ program: { id: string } }>('stride/assign-program', {
+    title: 'Baseline #1',
+    kind: 'assessment',
+    templateId: baselineTemplate.id,
+  });
+  await veraScope.invoke('workorder/start', { orderId: baseline.program.id });
+  const baselineDetail = await veraScope.invoke<{
+    items: { id: string; exercise: { slug: string; laterality: string } | null }[];
+  }>('stride/get-program', { programId: baseline.program.id });
+  const baselineSession = await veraScope.invoke<{ id: string }>('stride/log-session', {
+    programId: baseline.program.id,
+    performedAt: '2026-09-04T09:00:00.000Z',
+    note: 'First baseline — three weeks after the shoulder operation.',
+  });
+  const baselineResults: Record<string, { left?: [number, string?]; right?: [number, string?]; both?: [number, string?] }> = {
+    'assisted-arm-raise': { left: [8], right: [10] },
+    'band-external-rotation': { left: [10], right: [15] },
+    'single-arm-lateral-raise': { left: [6, '2'], right: [12, '2'] },
+    'dumbbell-squat': { both: [14, '10'] },
+    'dumbbell-romanian-deadlift': { both: [12, '10'] },
+    'single-leg-glute-bridge': { left: [12], right: [14] },
+    'single-leg-calf-raise': { left: [16], right: [18] },
+    'push-up': { both: [7] },
+    'single-arm-dumbbell-press': { left: [6, '4'], right: [12, '4'] },
+    'dumbbell-row': { left: [9, '8'], right: [13, '8'] },
+    'band-pull-apart': { both: [18] },
+    'single-arm-biceps-curl': { left: [9, '4'], right: [14, '4'] },
+    plank: { both: [42] },
+    'side-plank': { left: [18], right: [30] },
+    'single-leg-balance': { left: [30], right: [30] },
+    'run-outdoor': { both: [1000] },
+  };
+  for (const item of baselineDetail.items) {
+    const result = baselineResults[item.exercise?.slug ?? ''];
+    if (!result) continue;
+    for (const side of ['left', 'right', 'both'] as const) {
+      const got = result[side];
+      if (!got) continue;
+      await veraScope.invoke('stride/log-set', {
+        sessionId: baselineSession.id,
+        programItemId: item.id,
+        reps: got[0],
+        ...(got[1] ? { load: got[1] } : {}),
+        ...(side !== 'both' ? { side } : {}),
+        ...(item.exercise?.slug === 'run-outdoor' ? { durationSeconds: 420, avgHr: 158 } : {}),
+      });
+    }
+  }
+  await veraScope.invoke('stride/complete-program', { programId: baseline.program.id });
+
+  // And the body: weight, and how far each shoulder goes. The left is the story.
+  for (const [kind, side, value, on] of [
+    ['weight', null, '72.4', '2026-08-14'],
+    ['weight', null, '71.8', '2026-09-04'],
+    ['shoulder-flexion', 'left', '95', '2026-08-14'],
+    ['shoulder-flexion', 'right', '170', '2026-08-14'],
+    ['shoulder-flexion', 'left', '110', '2026-09-04'],
+    ['shoulder-flexion', 'right', '172', '2026-09-04'],
+  ] as const) {
+    await veraScope.invoke('stride/log-measurement', {
+      traineeId: world.veraId,
+      kind,
+      ...(side ? { side } : {}),
+      value,
+      measuredAt: `${on}T07:00:00.000Z`,
+    });
+  }
+
   // Onboarding answers. Björn deliberately has none — so the app has to handle
   // someone who has not answered yet, which is most people on day one.
   await veraScope.invoke('stride/onboard', { goal: 'rehab', daysPerWeek: 5 });
 
-  const fullGym = EQUIPMENT.map((e) => e.slug);
+  // Everything the gym owns — read back from the installed vocabulary rather
+  // than from the array, so a coach's kit is whatever this gym actually has.
+  const fullGym = (
+    await astrid.invoke<{ slug: string }[]>('stride/equipment')
+  ).map((e) => e.slug);
   const kit: [PrincipalId, string[]][] = [
     [world.nina, fullGym],
     [world.ola, fullGym],

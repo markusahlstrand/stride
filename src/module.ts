@@ -1,5 +1,6 @@
 import {
   addDecimal,
+  compareDecimal,
   dataSubjectId,
   LIST_PAGE_MAX,
   mulDecimal,
@@ -34,6 +35,7 @@ import {
   INVITES_PERM,
   type Invitation,
 } from '@substrat-run/engine-invites';
+import { EQUIPMENT, EXERCISES, TEMPLATES } from './catalogue.js';
 import { PROGRAM_IN_REACH, TRAIN_PERM, strideManifest } from './manifest.js';
 import { strideMigrations } from './migrations.js';
 
@@ -95,6 +97,11 @@ export interface ExerciseRow {
   active: number;
   created_by: string;
   created_at: string;
+  /**
+   * 'bilateral' | 'unilateral'. One side at a time means every set — prescribed
+   * or performed — names its side, and `target_sets` counts sets PER SIDE.
+   */
+  laterality: string;
 }
 
 export interface TemplateRow {
@@ -134,6 +141,8 @@ export interface ItemSetRow {
   target_reps: number;
   target_load: string | null;
   note: string | null;
+  /** 'left' | 'right' on a unilateral exercise; NULL on a bilateral one. */
+  side: string | null;
 }
 
 export interface EquipmentRow {
@@ -170,6 +179,8 @@ export interface SetResultRow {
   /** How long it took. The second number a 5 km row needs and a set does not. */
   duration_seconds: number | null;
   avg_hr: number | null;
+  /** Which arm, which leg. Required on a unilateral exercise, refused otherwise. */
+  side: string | null;
   logged_by: string;
   logged_at: string;
 }
@@ -188,7 +199,59 @@ export interface ProgramSummaryRow {
 
 const MODALITIES = ['strength', 'mobility', 'cardio', 'rehab'] as const;
 const UNITS = ['reps', 'seconds', 'metres'] as const;
+export const LATERALITIES = ['bilateral', 'unilateral'] as const;
+export const SIDES = ['left', 'right'] as const;
+export type Side = (typeof SIDES)[number];
 const decimalString = z.string().regex(/^-?\d+(\.\d+)?$/, 'must be a decimal string, never a float');
+
+/**
+ * WHICH SIDE, checked against what the exercise is. A single-arm press logged
+ * without a side is two numbers collapsed into one — exactly the information a
+ * baseline exists to keep apart — and a side on a barbell squat is a claim
+ * nothing can be done with. Both are refused at the boundary rather than stored.
+ */
+function sideFor(exercise: Pick<ExerciseRow, 'name' | 'laterality'>, side: Side | undefined): Side | null {
+  const unilateral = exercise.laterality === 'unilateral';
+  if (unilateral && !side) {
+    throw new Error(`${exercise.name} is done one side at a time — say which: left or right`);
+  }
+  if (!unilateral && side) {
+    throw new Error(`${exercise.name} is not one-sided — log it without a side`);
+  }
+  return side ?? null;
+}
+
+/**
+ * How many sets a prescription row asks for IN TOTAL. Explicit rows count
+ * themselves (each names its side on a unilateral exercise); the uniform shape
+ * is per side, so "3 × 10 each arm" is six. Adherence and "is the session over"
+ * both read this, so both agree with the pills.
+ */
+function prescribedSetsOf(ctx: OperationContext, item: ItemRow, laterality: string): number {
+  const explicit =
+    ctx.sql.query<{ n: number }>('SELECT COUNT(*) AS n FROM train_item_sets WHERE item_id = ?', [
+      item.id,
+    ])[0]?.n ?? 0;
+  if (explicit > 0) return explicit;
+  return item.target_sets * (laterality === 'unilateral' ? 2 : 1);
+}
+
+/** "12.5" → 12500n. Integer arithmetic on decimal strings, so a ratio of two
+ *  volumes never passes through a float. Three places is more than a load has. */
+function toMilli(decimal: string): bigint {
+  const [whole, frac = ''] = decimal.split('.');
+  const sign = whole!.startsWith('-') ? -1n : 1n;
+  const digits = whole!.replace('-', '') + (frac + '000').slice(0, 3);
+  return sign * BigInt(digits);
+}
+
+/** `part` as a percentage of `whole`, both decimal strings, to two places. */
+function percentOfDecimal(part: string, whole: string): string {
+  const w = toMilli(whole);
+  if (w <= 0n) return '0.00';
+  const hundredths = (toMilli(part) * 10000n) / w;
+  return `${hundredths / 100n}.${String(hundredths % 100n).padStart(2, '0')}`;
+}
 
 /**
  * How often an exercise recurs. A lifting program names the days ("Mon/Wed/Fri");
@@ -654,6 +717,8 @@ export const exerciseInput = z.object({
   description: z.string().optional(),
   /** What it needs. Omitted or empty means bodyweight — everyone can do it. */
   equipment: z.array(z.string().min(1)).optional(),
+  /** One side at a time? Omitted means bilateral, which every exercise was. */
+  laterality: z.enum(LATERALITIES).optional(),
 });
 
 function insertExercise(
@@ -678,8 +743,8 @@ function insertExercise(
   ctx.sql.exec(
     `INSERT INTO train_exercises
        (id, slug, name, modality, unit, description, visibility, owner_coach_id, owner_trainee_id,
-        active, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        active, created_by, created_at, laterality)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
     [
       id,
       input.slug,
@@ -692,6 +757,7 @@ function insertExercise(
       owner?.entityType === 'trainee' ? owner.entityId : null,
       ctx.principal,
       ctx.now(),
+      input.laterality ?? 'bilateral',
     ],
   );
   ctx.emit({
@@ -705,6 +771,7 @@ function insertExercise(
       name: input.name,
       modality: input.modality,
       unit: input.unit,
+      laterality: input.laterality ?? 'bilateral',
       visibility,
       owner,
     },
@@ -991,26 +1058,294 @@ const addTemplateItemOp: OperationHandler<z.infer<typeof templateItemInput>, Ite
   return ctx.sql.query<ItemRow>('SELECT * FROM train_template_items WHERE id = ?', [id])[0]!;
 };
 
-const templatesOp: OperationHandler<undefined, (TemplateRow & { items: ItemRow[] })[]> = async (
-  ctx,
-) => {
+export type TemplateView = TemplateRow & {
+  items: ItemRow[];
+  /** Who made it, when a MEMBER did. NULL on the gym's own library rows. */
+  ownerName: string | null;
+  /** Yours: you may edit it, share it, withdraw it. */
+  mine: boolean;
+};
+
+const templatesOp: OperationHandler<undefined, TemplateView[]> = async (ctx) => {
   const shared = (await ctx.check(TRAIN_PERM.templateReadShared)).allowed;
-  const out: (TemplateRow & { items: ItemRow[] })[] = [];
+  const me = accountOf(ctx);
+  const out: TemplateView[] = [];
   for (const tpl of ctx.sql.query<TemplateRow>('SELECT * FROM train_templates ORDER BY name')) {
     const visible =
       (shared && tpl.visibility === 'shared') ||
       (await ctx.check(TRAIN_PERM.templateRead, { entityType: 'template', entityId: tpl.id }))
         .allowed;
     if (!visible) continue;
+    const ownerName = tpl.owner_coach_id
+      ? (ctx.sql.query<CoachRow>('SELECT name FROM train_coaches WHERE id = ?', [tpl.owner_coach_id])[0]
+          ?.name ?? null)
+      : tpl.owner_trainee_id
+        ? (ctx.sql.query<TraineeRow>('SELECT name FROM train_trainees WHERE id = ?', [
+            tpl.owner_trainee_id,
+          ])[0]?.name ?? null)
+        : null;
+    const mine =
+      me !== null &&
+      ((me.entityType === 'coach' && tpl.owner_coach_id === me.entityId) ||
+        (me.entityType === 'trainee' && tpl.owner_trainee_id === me.entityId));
     out.push({
       ...tpl,
       items: ctx.sql.query<ItemRow>(
         'SELECT * FROM train_template_items WHERE template_id = ? ORDER BY position',
         [tpl.id],
       ),
+      ownerName,
+      mine,
     });
   }
   return out;
+};
+
+export const shareTemplateInput = z.object({
+  templateId: z.string().min(1),
+  /** 'gym' puts it in front of everyone here; 'nobody' takes it back. */
+  with: z.enum(['gym', 'nobody']),
+});
+
+/**
+ * SHARE A PLAN YOU MADE with everyone in the gym — or take it back.
+ *
+ * A plan is not tied to a person: it is the reusable prescription, and a
+ * workout is one person's run of it, snapshot at creation. So sharing is a flip
+ * of `visibility`: 'shared' rows are reached by the node-level
+ * `template:read-shared` that every member holds, 'private' rows only by the
+ * walk to their author. The owner columns are untouched either way, which is
+ * what keeps it YOURS while it is shared: the author still edits it through
+ * the narrowed `template:read` (the `template → owner` edge), and nobody else
+ * does — browsing a shared plan has never been permission to edit it.
+ *
+ * Withdrawing is not un-doing. A workout somebody already made from it is a
+ * snapshot and keeps every row; only the plan leaves the shelf.
+ *
+ * Gated like editing: `library:author`, plus the narrowed `template:read` — so
+ * an admin may also share or withdraw a member's plan, and a member cannot
+ * touch anyone else's. The gym's own library rows (no owner) are not shareable
+ * here: they are published and retired by an admin, on the publish key.
+ */
+const shareTemplateOp: OperationHandler<z.infer<typeof shareTemplateInput>, TemplateRow> = async (
+  ctx,
+  rawInput,
+) => {
+  assertAllowed(await ctx.check(TRAIN_PERM.libraryAuthor));
+  const input = shareTemplateInput.parse(rawInput);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.templateRead, { entityType: 'template', entityId: input.templateId }),
+  );
+  const template = ctx.sql.query<TemplateRow>('SELECT * FROM train_templates WHERE id = ?', [
+    input.templateId,
+  ])[0];
+  if (!template) throw new Error(`template not found: ${input.templateId}`);
+  if (!template.owner_coach_id && !template.owner_trainee_id) {
+    throw new Error(`${template.name} is the gym's own library plan — an admin publishes and retires those`);
+  }
+  const visibility = input.with === 'gym' ? 'shared' : 'private';
+  ctx.sql.exec('UPDATE train_templates SET visibility = ? WHERE id = ?', [visibility, template.id]);
+  ctx.emit({
+    type: 'stride.template-shared',
+    schemaVersion: 1,
+    entity: { entityType: 'template', entityId: template.id },
+    piiClass: 'none',
+    payload: {
+      templateId: template.id,
+      name: template.name,
+      with: input.with,
+      visibility,
+      ownerCoachId: template.owner_coach_id,
+      ownerTraineeId: template.owner_trainee_id,
+    },
+  });
+  return ctx.sql.query<TemplateRow>('SELECT * FROM train_templates WHERE id = ?', [template.id])[0]!;
+};
+
+const removeTemplateItemInput = z.object({ itemId: z.string().min(1) });
+
+/**
+ * Drop an exercise from a plan. The same two gates as adding one. Workouts
+ * already made from the plan are snapshots and keep the row.
+ */
+const removeTemplateItemOp: OperationHandler<
+  z.infer<typeof removeTemplateItemInput>,
+  { removed: string }
+> = async (ctx, rawInput) => {
+  assertAllowed(await ctx.check(TRAIN_PERM.libraryAuthor));
+  const input = removeTemplateItemInput.parse(rawInput);
+  const item = ctx.sql.query<ItemRow>('SELECT * FROM train_template_items WHERE id = ?', [
+    input.itemId,
+  ])[0];
+  if (!item) throw new Error(`template item not found: ${input.itemId}`);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.templateRead, { entityType: 'template', entityId: item.template_id! }),
+  );
+  ctx.sql.exec('DELETE FROM train_item_sets WHERE item_id = ?', [item.id]);
+  ctx.sql.exec('DELETE FROM train_template_items WHERE id = ?', [item.id]);
+  ctx.emit({
+    type: 'stride.template-item-removed',
+    schemaVersion: 1,
+    entity: { entityType: 'template', entityId: item.template_id! },
+    piiClass: 'none',
+    payload: { templateId: item.template_id, itemId: item.id, exerciseId: item.exercise_id },
+  });
+  return { removed: item.id };
+};
+
+// ---------------------------------------------------------------------------
+// THE STARTER LIBRARY — what a brand-new gym opens with.
+//
+// A gym provisioned by the platform starts EMPTY: no equipment vocabulary, no
+// exercises, no templates. The local harness never showed this, because
+// `seed.ts` publishes the catalogue on the way in, so the first deployed
+// instance came up with an exercise picker that had nothing in it and a "start
+// from a template?" list with no templates.
+//
+// This is that seed, reachable in production — and deliberately NOT automatic.
+// A read that silently writes 90 rows is not a read, and provisioning has no
+// principal to attribute them to. So it is an operation an admin invokes, it
+// publishes through the ORDINARY publish operations (each one re-checking its
+// own permission and emitting its own event), and the audit spine reads exactly
+// as though the admin had typed all of it.
+//
+// IDEMPOTENT by slug and by name, so running it twice adds nothing and running
+// it against a gym that already has a library of its own adds only what is
+// missing. That matters because the honest way to offer this in the UI is a
+// button, and a button gets pressed twice.
+// ---------------------------------------------------------------------------
+
+export interface StarterReport {
+  equipment: number;
+  exercises: number;
+  templates: number;
+  /** Rows added to library templates that were already here — a later revision
+   *  of the catalogue grew a plan, and an installed gym should grow with it. */
+  templateItems: number;
+  /** True when the call added nothing at all — the library was already here. */
+  alreadyInstalled: boolean;
+}
+
+const installStarterLibraryOp: OperationHandler<undefined, StarterReport> = async (ctx) => {
+  // The same key `publish-exercise` checks. Nothing here is reachable by a coach
+  // or a trainee, and nothing here needs to be: the shared library belongs to
+  // the organisation.
+  assertAllowed(await ctx.check(TRAIN_PERM.libraryPublish));
+
+  const report: StarterReport = {
+    equipment: 0,
+    exercises: 0,
+    templates: 0,
+    templateItems: 0,
+    alreadyInstalled: true,
+  };
+
+  const haveEquipment = new Set(
+    ctx.sql.query<{ slug: string }>('SELECT slug FROM train_equipment').map((r) => r.slug),
+  );
+  for (const equipment of EQUIPMENT) {
+    if (haveEquipment.has(equipment.slug)) continue;
+    await publishEquipmentOp(ctx, equipment);
+    report.equipment += 1;
+  }
+
+  // Slugs are unique per gym, shared and private alike — so a gym where a coach
+  // already authored a private `back-squat` keeps theirs and simply does not get
+  // the shared one. Skipping is the only answer that does not destroy something.
+  const bySlug = new Map(
+    ctx.sql
+      .query<ExerciseRow>('SELECT * FROM train_exercises')
+      .map((e) => [e.slug, e] as const),
+  );
+  for (const exercise of EXERCISES) {
+    if (bySlug.has(exercise.slug)) continue;
+    bySlug.set(exercise.slug, await publishExerciseOp(ctx, exercise));
+    report.exercises += 1;
+  }
+
+  const haveTemplates = new Map(
+    ctx.sql
+      .query<TemplateRow>('SELECT * FROM train_templates')
+      .map((t) => [t.name, t] as const),
+  );
+  for (const seed of TEMPLATES) {
+    // Every item's exercise has to be resolvable, or the template would install
+    // half-shaped. Skip the whole template rather than publish a broken one.
+    if (seed.items.some((item) => !bySlug.has(item.exercise))) continue;
+    const existing = haveTemplates.get(seed.name);
+    // ALREADY HERE. If it is the gym's own library copy (no owner), top it up
+    // with any seed rows it lacks — matched by exercise, counted, so a plan that
+    // names the same run twice gets both. A member's plan of the same name is
+    // theirs and is never touched. Rows already present are left exactly as the
+    // gym has them, edits included.
+    if (existing) {
+      if (existing.owner_coach_id || existing.owner_trainee_id) continue;
+      const have = new Map<string, number>();
+      for (const row of ctx.sql.query<ItemRow>(
+        'SELECT * FROM train_template_items WHERE template_id = ?',
+        [existing.id],
+      )) {
+        const slug = bySlug.get([...bySlug.values()].find((e) => e.id === row.exercise_id)?.slug ?? '')?.slug;
+        if (slug) have.set(slug, (have.get(slug) ?? 0) + 1);
+      }
+      const seen = new Map<string, number>();
+      for (const item of seed.items) {
+        const n = (seen.get(item.exercise) ?? 0) + 1;
+        seen.set(item.exercise, n);
+        if (n <= (have.get(item.exercise) ?? 0)) continue;
+        const added = await addTemplateItemOp(ctx, {
+          templateId: existing.id,
+          exerciseId: bySlug.get(item.exercise)!.id,
+          targetSets: item.targetSets,
+          targetReps: item.targetReps,
+          ...(item.targetLoad !== undefined ? { targetLoad: item.targetLoad } : {}),
+          ...(item.recurDays !== undefined ? { recurDays: item.recurDays } : {}),
+          ...(item.recurPerWeek !== undefined ? { recurPerWeek: item.recurPerWeek } : {}),
+          ...(item.groupKey !== undefined ? { groupKey: item.groupKey } : {}),
+          ...(item.notes !== undefined ? { notes: item.notes } : {}),
+        });
+        if (item.sets) await setItemSetsOp(ctx, { itemId: added.id, sets: item.sets });
+        report.templateItems += 1;
+      }
+      continue;
+    }
+    const template = await publishTemplateOp(ctx, {
+      name: seed.name,
+      description: seed.description,
+    });
+    for (const item of seed.items) {
+      const added = await addTemplateItemOp(ctx, {
+        templateId: template.id,
+        exerciseId: bySlug.get(item.exercise)!.id,
+        targetSets: item.targetSets,
+        targetReps: item.targetReps,
+        ...(item.targetLoad !== undefined ? { targetLoad: item.targetLoad } : {}),
+        ...(item.recurDays !== undefined ? { recurDays: item.recurDays } : {}),
+        ...(item.recurPerWeek !== undefined ? { recurPerWeek: item.recurPerWeek } : {}),
+        ...(item.groupKey !== undefined ? { groupKey: item.groupKey } : {}),
+        ...(item.notes !== undefined ? { notes: item.notes } : {}),
+      });
+      // A ramp: the sets differ, so they are listed. `set-item-sets` brings
+      // `target_sets` back into step, which is why the uniform columns above are
+      // not a lie once this runs.
+      if (item.sets) await setItemSetsOp(ctx, { itemId: added.id, sets: item.sets });
+    }
+    report.templates += 1;
+  }
+
+  report.alreadyInstalled =
+    report.equipment === 0 &&
+    report.exercises === 0 &&
+    report.templates === 0 &&
+    report.templateItems === 0;
+  ctx.emit({
+    type: 'stride.starter-library-installed',
+    schemaVersion: 1,
+    entity: { entityType: 'org', entityId: ctx.scopeId },
+    piiClass: 'none',
+    payload: { ...report },
+  });
+  return report;
 };
 
 // ---------------------------------------------------------------------------
@@ -1083,7 +1418,9 @@ export const assignProgramInput = z.object({
    *  decides whether they may. */
   traineeId: z.string().min(1).optional(),
   title: z.string().min(1),
-  kind: z.enum(['strength', 'rehab', 'conditioning']),
+  /** 'assessment' is the BASELINE: a programme whose sessions are measurements
+   *  rather than training, retaken to see the curve move. */
+  kind: z.enum(['strength', 'rehab', 'conditioning', 'assessment']),
   templateId: z.string().optional(),
   notes: z.string().optional(),
   /**
@@ -1194,9 +1531,9 @@ const assignProgramOp: OperationHandler<
       [item.id],
     )) {
       ctx.sql.exec(
-        `INSERT INTO train_item_sets (id, item_id, item_kind, set_no, target_reps, target_load, note)
-         VALUES (?, ?, 'program', ?, ?, ?, ?)`,
-        [ulid(), copiedId, set.set_no, set.target_reps, set.target_load, set.note],
+        `INSERT INTO train_item_sets (id, item_id, item_kind, set_no, target_reps, target_load, note, side)
+         VALUES (?, ?, 'program', ?, ?, ?, ?, ?)`,
+        [ulid(), copiedId, set.set_no, set.target_reps, set.target_load, set.note, set.side],
       );
     }
   }
@@ -1355,6 +1692,57 @@ const logSessionInput = z.object({
   note: z.string().optional(),
 });
 
+export const removeProgramItemInput = z.object({ itemId: z.string().min(1) });
+
+/**
+ * Drop an exercise from a prescription. Gated exactly like adding one — the
+ * narrowed `result:log` on the programme it belongs to — so who may reshape a
+ * programme is one answer, not two.
+ *
+ * A PRESCRIPTION is not append-only; a SESSION is. What was performed is never
+ * touched here: `train_set_results` rows carry their own `program_item_id`, and
+ * a removed item leaves them exactly where they are, along with the
+ * `exercise → trainee` edge that earned the exercise. Removing an exercise from
+ * a plan has never meant un-doing it.
+ */
+const removeProgramItemOp: OperationHandler<
+  z.infer<typeof removeProgramItemInput>,
+  { removed: string }
+> = async (ctx, rawInput) => {
+  const input = removeProgramItemInput.parse(rawInput);
+  const item = ctx.sql.query<ItemRow>('SELECT * FROM train_program_items WHERE id = ?', [
+    input.itemId,
+  ])[0];
+  if (!item) throw new Error(`program item not found: ${input.itemId}`);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultLog, { entityType: 'workorder', entityId: item.program_id! }),
+  );
+  const program = programOf(ctx, item.program_id!);
+  if (program.status !== 'planned' && program.status !== 'in_progress') {
+    throw new Error(`invalid transition: a ${program.status} programme cannot be reshaped`);
+  }
+  const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
+    item.exercise_id,
+  ])[0];
+  ctx.sql.exec('DELETE FROM train_item_sets WHERE item_id = ?', [item.id]);
+  ctx.sql.exec('DELETE FROM train_program_items WHERE id = ?', [item.id]);
+  ctx.emit({
+    type: 'stride.program-item-removed',
+    schemaVersion: 1,
+    entity: { entityType: 'workorder', entityId: item.program_id! },
+    piiClass: 'pseudonymous',
+    subjectId: dataSubjectId.parse(program.customer.entityId),
+    payload: {
+      programId: item.program_id,
+      itemId: item.id,
+      traineeId: program.customer.entityId,
+      exerciseId: item.exercise_id,
+      exerciseSlug: exercise?.slug ?? null,
+    },
+  });
+  return { removed: item.id };
+};
+
 const logSessionOp: OperationHandler<z.infer<typeof logSessionInput>, SessionRow> = async (
   ctx,
   rawInput,
@@ -1417,6 +1805,8 @@ const logSetInput = z.object({
   /** Optional second number: how long the set took. */
   durationSeconds: z.number().int().positive().max(86_400).optional(),
   avgHr: z.number().int().min(20).max(240).optional(),
+  /** Which side. Required on a unilateral exercise, refused on a bilateral one. */
+  side: z.enum(SIDES).optional(),
 });
 
 /**
@@ -1453,11 +1843,20 @@ const logSetOp: OperationHandler<
     [input.programItemId, session.program_id],
   )[0];
   if (!item) throw new Error(`program item not found on this program: ${input.programItemId}`);
+  const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
+    item.exercise_id,
+  ])[0];
+  if (!exercise) throw new Error(`exercise not found: ${item.exercise_id}`);
+  const side = sideFor(exercise, input.side);
 
+  // Sets are numbered PER SIDE: "set 2, left" — so the left arm's second set
+  // and the right arm's second set are both set 2, and the pills line up.
+  // `IS ?` rather than `= ?` because a bilateral side is NULL.
   const setNo =
     (ctx.sql.query<{ n: number }>(
-      'SELECT COALESCE(MAX(set_no), 0) AS n FROM train_set_results WHERE session_id = ? AND program_item_id = ?',
-      [session.id, item.id],
+      `SELECT COALESCE(MAX(set_no), 0) AS n FROM train_set_results
+        WHERE session_id = ? AND program_item_id = ? AND side IS ?`,
+      [session.id, item.id, side],
     )[0]?.n ?? 0) + 1;
 
   // Was this exercise already in the trainee's library before this set?
@@ -1474,8 +1873,8 @@ const logSetOp: OperationHandler<
   ctx.sql.exec(
     `INSERT INTO train_set_results
        (id, session_id, program_item_id, exercise_id, set_no, reps, load, rpe,
-        duration_seconds, avg_hr, logged_by, logged_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        duration_seconds, avg_hr, logged_by, logged_at, side)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       session.id,
@@ -1489,6 +1888,7 @@ const logSetOp: OperationHandler<
       input.avgHr ?? null,
       ctx.principal,
       now,
+      side,
     ],
   );
 
@@ -1511,6 +1911,7 @@ const logSetOp: OperationHandler<
       traineeId: session.trainee_id,
       exerciseId: item.exercise_id,
       setNo,
+      side,
       reps: input.reps,
       load: input.load ?? null,
       rpe: input.rpe ?? null,
@@ -1572,7 +1973,14 @@ const completeProgramOp: OperationHandler<
     [input.programId],
   );
 
-  const prescribedSets = items.reduce((n, i) => n + i.target_sets, 0);
+  // Per side on a unilateral exercise: "1 × 10 each arm" is two sets asked for,
+  // and one logged arm is half of it — which is what adherence should say.
+  const prescribedSets = items.reduce((n, i) => {
+    const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
+      i.exercise_id,
+    ])[0];
+    return n + prescribedSetsOf(ctx, i, exercise?.laterality ?? 'bilateral');
+  }, 0);
   const performedSets = results.length;
   const totalReps = results.reduce((n, r) => n + r.reps, 0);
   // Volume = Σ reps × load, in decimal strings. Never a float.
@@ -1662,8 +2070,10 @@ const getProgramOp: OperationHandler<z.infer<typeof programDetailInput>, Program
         ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
           item.exercise_id,
         ])[0] ?? null,
+      // Grouped by side, then numbered: left 1, 2 then right 1, 2. NULL sorts
+      // first, so a bilateral list is unchanged.
       sets: ctx.sql.query<ItemSetRow>(
-        'SELECT * FROM train_item_sets WHERE item_id = ? ORDER BY set_no',
+        'SELECT * FROM train_item_sets WHERE item_id = ? ORDER BY side, set_no',
         [item.id],
       ),
     }));
@@ -1741,6 +2151,8 @@ export interface ScheduledItem {
   exerciseId: string;
   exerciseName: string;
   unit: string;
+  /** 'unilateral' means the sets are per side — the row should say "each arm". */
+  laterality: string;
   targetSets: number;
   targetReps: number;
   targetLoad: string | null;
@@ -1821,6 +2233,7 @@ const scheduleOp: OperationHandler<z.infer<typeof scheduleInput>, ScheduledItem[
         exerciseId: item.exercise_id,
         exerciseName: exercise?.name ?? 'Unknown exercise',
         unit: exercise?.unit ?? 'reps',
+        laterality: exercise?.laterality ?? 'bilateral',
         targetSets: item.target_sets,
         targetReps: item.target_reps,
         targetLoad: item.target_load,
@@ -2232,10 +2645,13 @@ const itemSetsInput = z.object({
         reps: z.number().int().positive(),
         load: decimalString.optional(),
         note: z.string().optional(),
+        /** Required on a unilateral exercise — this is how a prescription says
+         *  "left: 10 @ 2 kg, right: 10 @ 4 kg" once the baseline showed the gap. */
+        side: z.enum(SIDES).optional(),
       }),
     )
     .min(1)
-    .max(20),
+    .max(40),
 });
 
 /**
@@ -2283,25 +2699,40 @@ const setItemSetsOp: OperationHandler<
   }
 
   const kind = programItem ? 'program' : 'template';
+  const item = (programItem ?? templateItem)!;
+  const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
+    item.exercise_id,
+  ])[0];
+  if (!exercise) throw new Error(`exercise not found: ${item.exercise_id}`);
+  // Every row is checked against the exercise before anything is written, so a
+  // half-sided list is refused whole rather than stored half.
+  const rows = input.sets.map((set) => ({ ...set, side: sideFor(exercise, set.side) }));
+
   ctx.sql.exec('DELETE FROM train_item_sets WHERE item_id = ?', [input.itemId]);
-  input.sets.forEach((set, i) => {
+  // Numbered PER SIDE, like the results they will be compared with: left 1, 2, 3
+  // and right 1, 2, 3 — not 1 to 6.
+  const counter = new Map<string | null, number>();
+  for (const set of rows) {
+    const no = (counter.get(set.side) ?? 0) + 1;
+    counter.set(set.side, no);
     ctx.sql.exec(
-      `INSERT INTO train_item_sets (id, item_id, item_kind, set_no, target_reps, target_load, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [ulid(), input.itemId, kind, i + 1, set.reps, set.load ?? null, set.note ?? null],
+      `INSERT INTO train_item_sets (id, item_id, item_kind, set_no, target_reps, target_load, note, side)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [ulid(), input.itemId, kind, no, set.reps, set.load ?? null, set.note ?? null, set.side],
     );
-  });
+  }
   // Keep the uniform columns honest: everything that reads them — adherence, the
-  // schedule, the card — should agree with what is actually prescribed.
+  // schedule, the card — should agree with what is actually prescribed. On a
+  // unilateral exercise `target_sets` is PER SIDE, so it is the longer side.
   const table = programItem ? 'train_program_items' : 'train_template_items';
   ctx.sql.exec(`UPDATE ${table} SET target_sets = ?, target_reps = ? WHERE id = ?`, [
-    input.sets.length,
-    input.sets[0]!.reps,
+    Math.max(...counter.values()),
+    rows[0]!.reps,
     input.itemId,
   ]);
 
   const sets = ctx.sql.query<ItemSetRow>(
-    'SELECT * FROM train_item_sets WHERE item_id = ? ORDER BY set_no',
+    'SELECT * FROM train_item_sets WHERE item_id = ? ORDER BY side, set_no',
     [input.itemId],
   );
   ctx.emit({
@@ -2314,7 +2745,7 @@ const setItemSetsOp: OperationHandler<
     payload: {
       itemId: input.itemId,
       kind,
-      sets: sets.map((r) => ({ setNo: r.set_no, reps: r.target_reps, load: r.target_load })),
+      sets: sets.map((r) => ({ setNo: r.set_no, side: r.side, reps: r.target_reps, load: r.target_load })),
     },
   });
   return { itemId: input.itemId, sets };
@@ -2368,14 +2799,75 @@ const meOp: OperationHandler<undefined, TraineeRow | null> = async (ctx) => {
   return traineeOf(ctx) ?? null;
 };
 
+export const trainMyselfInput = z.object({ name: z.string().min(1).max(80).optional() });
+
+/**
+ * ENROL YOURSELF. An admin who runs a gym is very often also someone who trains
+ * in it, and until this existed they could not be: role is not a column — you
+ * are a trainee because a trainee record carries your principal — so an admin
+ * had no record to hang a programme from and `assign-program` had nobody to
+ * assign to. A gym of one person could publish a library and never use it.
+ *
+ * Like the other self-serve operations it takes NO id saying whose, so it is
+ * incapable of naming anyone else. What it does take is a display name, because
+ * an admin has no record anywhere to read one from.
+ *
+ * Idempotent: if you already have a trainee record this returns it and writes
+ * nothing. `train_trainees_principal` is UNIQUE, so a second row was never an
+ * option — better a returned record than a constraint violation.
+ *
+ * NO GRANTS ARE MINTED HERE, and none are needed: `trainee:manage` is an admin
+ * key, and an admin already holds `result:log`, `result:read` and the engine's
+ * lifecycle keys at NODE level. A coach does not hold `trainee:manage` and so
+ * cannot reach this — a coach who wants to train is an invitation, the same as
+ * anybody else, and that path already mints their grants.
+ */
+const trainMyselfOp: OperationHandler<z.infer<typeof trainMyselfInput>, TraineeRow> = async (
+  ctx,
+  rawInput,
+) => {
+  assertAllowed(await ctx.check(TRAIN_PERM.traineeManage));
+  const input = trainMyselfInput.parse(rawInput ?? {});
+  const existing = traineeOf(ctx);
+  if (existing) return existing;
+
+  const id = ulid();
+  const name = input.name ?? coachOf(ctx)?.name ?? 'Me';
+  const number = String(
+    1000 + (ctx.sql.query<{ n: number }>('SELECT COUNT(*) AS n FROM train_trainees')[0]?.n ?? 0) + 1,
+  );
+  ctx.sql.exec(
+    `INSERT INTO train_trainees (id, number, name, contact, coach_id, principal_id, created_at)
+     VALUES (?, ?, ?, NULL, NULL, ?, ?)`,
+    [id, number, name, ctx.principal, ctx.now()],
+  );
+  ctx.emit({
+    type: 'stride.trainee-registered',
+    schemaVersion: 1,
+    entity: { entityType: 'trainee', entityId: id },
+    piiClass: 'direct',
+    subjectId: dataSubjectId.parse(id),
+    payload: { traineeId: id, number, name, coachId: null, self: true },
+  });
+  return ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [id])[0]!;
+};
+
 /** Who the signed-in person is, in this gym's vocabulary. */
 export interface WhoAmI {
   principal: string;
   role: 'admin' | 'coach' | 'trainee';
-  /** The name on their coach or trainee record; an admin has neither. */
+  /** The name on their coach or trainee record; an admin who has not enrolled
+   *  themselves has neither. */
   name: string | null;
   /** Their coach or trainee record id — the entity everything of theirs hangs from. */
   recordId: string | null;
+  /**
+   * Their own TRAINEE record, if they have one — reported separately from
+   * `role` because staff can have both. It is what says whether this person can
+   * train here at all, so the app can offer "a workout for me" to exactly the
+   * people it will work for and offer to enrol the ones it won't.
+   */
+  traineeId: string | null;
 }
 
 /**
@@ -2392,11 +2884,42 @@ export interface WhoAmI {
 const whoamiOp: OperationHandler<undefined, WhoAmI> = async (ctx) => {
   assertAllowed(await ctx.check(TRAIN_PERM.exerciseReadShared));
   const coach = coachOf(ctx);
-  if (coach) return { principal: ctx.principal, role: 'coach', name: coach.name, recordId: coach.id };
   const trainee = traineeOf(ctx);
+  const traineeId = trainee?.id ?? null;
+
+  // ADMIN IS ASKED FIRST, and by KEY rather than by the absence of a record.
+  // It used to be the fall-through — you were an admin because you were nothing
+  // else — which was true only while an admin could not enrol themselves. The
+  // moment they can, the old order demoted the person who runs the gym to a
+  // trainee the instant they made themselves a workout, and took the Trainees
+  // screen away with it. `trainee:manage` is the key no coach and no trainee
+  // holds, so it is the one that actually answers the question.
+  if ((await ctx.check(TRAIN_PERM.traineeManage)).allowed) {
+    return {
+      principal: ctx.principal,
+      role: 'admin',
+      name: coach?.name ?? trainee?.name ?? null,
+      recordId: coach?.id ?? traineeId,
+      traineeId,
+    };
+  }
+  if (coach)
+    return {
+      principal: ctx.principal,
+      role: 'coach',
+      name: coach.name,
+      recordId: coach.id,
+      traineeId,
+    };
   if (trainee)
-    return { principal: ctx.principal, role: 'trainee', name: trainee.name, recordId: trainee.id };
-  return { principal: ctx.principal, role: 'admin', name: null, recordId: null };
+    return {
+      principal: ctx.principal,
+      role: 'trainee',
+      name: trainee.name,
+      recordId: trainee.id,
+      traineeId,
+    };
+  return { principal: ctx.principal, role: 'admin', name: null, recordId: null, traineeId: null };
 };
 
 // ---------------------------------------------------------------------------
@@ -2812,6 +3335,359 @@ const timelineOp: OperationHandler<
 };
 
 // ---------------------------------------------------------------------------
+// MEASUREMENTS — the body over time, as opposed to what it did.
+//
+// Weight, a waist, an arm's girth, how far a shoulder goes, how hard a hand can
+// grip. Nothing was performed, so these are not sets; but they are the same
+// shape of question — a number, a date, and for a limb which side — and they
+// answer the same "is it improving?" as a set does. Append-only, like results:
+// a correction is a new row, and the history is the point.
+//
+// The keys are the RESULT keys, deliberately. `result:log` on the trainee record
+// is what lets you record something about a body (yours, or one you coach);
+// `result:read` is what lets you read it back. A coach on the 'assigned' floor
+// can therefore measure a shoulder and not read the history — the same
+// asymmetry a programme already has, and the trainee's decision, not ours.
+// ---------------------------------------------------------------------------
+
+/**
+ * The controlled vocabulary. Each kind fixes its unit, so "72.4" can never be
+ * ambiguous, and says whether it belongs to a side — a waist does not, an arm
+ * does, and a shoulder's range of motion very much does.
+ */
+export const MEASUREMENT_KINDS = {
+  weight: { unit: 'kg', sided: false, label: 'Body weight' },
+  'body-fat': { unit: '%', sided: false, label: 'Body fat' },
+  'resting-hr': { unit: 'bpm', sided: false, label: 'Resting heart rate' },
+  waist: { unit: 'cm', sided: false, label: 'Waist' },
+  chest: { unit: 'cm', sided: false, label: 'Chest' },
+  hips: { unit: 'cm', sided: false, label: 'Hips' },
+  'upper-arm': { unit: 'cm', sided: true, label: 'Upper arm' },
+  forearm: { unit: 'cm', sided: true, label: 'Forearm' },
+  thigh: { unit: 'cm', sided: true, label: 'Thigh' },
+  calf: { unit: 'cm', sided: true, label: 'Calf' },
+  grip: { unit: 'kg', sided: true, label: 'Grip strength' },
+  'shoulder-flexion': { unit: 'deg', sided: true, label: 'Shoulder flexion — arm forward and up' },
+  'shoulder-abduction': { unit: 'deg', sided: true, label: 'Shoulder abduction — arm out to the side' },
+  'shoulder-external-rotation': { unit: 'deg', sided: true, label: 'Shoulder external rotation' },
+} as const;
+
+export type MeasurementKind = keyof typeof MEASUREMENT_KINDS;
+const MEASUREMENT_KIND_KEYS = Object.keys(MEASUREMENT_KINDS) as [MeasurementKind, ...MeasurementKind[]];
+
+export interface MeasurementRow {
+  id: string;
+  trainee_id: string;
+  kind: string;
+  side: string | null;
+  /** A decimal string. 72.4 kg is exactly 72.4, never 72.400000000000006. */
+  value: string;
+  unit: string;
+  measured_at: string;
+  note: string | null;
+  logged_by: string;
+  created_at: string;
+}
+
+export const logMeasurementInput = z.object({
+  traineeId: z.string().min(1),
+  kind: z.enum(MEASUREMENT_KIND_KEYS),
+  side: z.enum(SIDES).optional(),
+  value: decimalString,
+  /** When it was taken; defaults to now. A weight from this morning is still this morning's. */
+  measuredAt: z.string().optional(),
+  note: z.string().max(400).optional(),
+});
+
+/**
+ * Record one measurement. Gated by the NARROWED `result:log` on the trainee, so
+ * the walk decides: yourself, a trainee who engaged you, or — for an admin —
+ * anyone in the gym. A trainee holds it only against their own record, which is
+ * why the operation can take a `traineeId` at all.
+ */
+const logMeasurementOp: OperationHandler<z.infer<typeof logMeasurementInput>, MeasurementRow> = async (
+  ctx,
+  rawInput,
+) => {
+  const input = logMeasurementInput.parse(rawInput);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: input.traineeId }),
+  );
+  const trainee = ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [
+    input.traineeId,
+  ])[0];
+  if (!trainee) throw new Error(`trainee not found: ${input.traineeId}`);
+  const kind = MEASUREMENT_KINDS[input.kind];
+  const side = sideFor(
+    { name: kind.label, laterality: kind.sided ? 'unilateral' : 'bilateral' },
+    input.side,
+  );
+  if (compareDecimal(input.value, '0') <= 0) {
+    throw new Error(`a ${kind.label.toLowerCase()} must be more than 0 ${kind.unit}`);
+  }
+  if (input.measuredAt !== undefined && Number.isNaN(new Date(input.measuredAt).getTime())) {
+    throw new Error(`not a date: ${input.measuredAt}`);
+  }
+  const id = ulid();
+  const now = ctx.now();
+  const measuredAt = input.measuredAt ?? now;
+  ctx.sql.exec(
+    `INSERT INTO train_measurements
+       (id, trainee_id, kind, side, value, unit, measured_at, note, logged_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, trainee.id, input.kind, side, input.value, kind.unit, measuredAt, input.note ?? null, ctx.principal, now],
+  );
+  ctx.emit({
+    type: 'stride.measurement-logged',
+    schemaVersion: 1,
+    entity: { entityType: 'trainee', entityId: trainee.id },
+    // A body's weight and a shoulder's range are health data about a person.
+    piiClass: 'pseudonymous',
+    subjectId: dataSubjectId.parse(trainee.id),
+    payload: {
+      measurementId: id,
+      traineeId: trainee.id,
+      kind: input.kind,
+      side,
+      value: input.value,
+      unit: kind.unit,
+      measuredAt,
+    },
+  });
+  return ctx.sql.query<MeasurementRow>('SELECT * FROM train_measurements WHERE id = ?', [id])[0]!;
+};
+
+const traineeIdInput = z.object({ traineeId: z.string().min(1) });
+
+/** Every measurement about one person, oldest first. Narrowed `result:read`. */
+const measurementsOp: OperationHandler<z.infer<typeof traineeIdInput>, MeasurementRow[]> = async (
+  ctx,
+  rawInput,
+) => {
+  const input = traineeIdInput.parse(rawInput);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultRead, { entityType: 'trainee', entityId: input.traineeId }),
+  );
+  return ctx.sql.query<MeasurementRow>(
+    'SELECT * FROM train_measurements WHERE trainee_id = ? ORDER BY measured_at, id',
+    [input.traineeId],
+  );
+};
+
+// ---------------------------------------------------------------------------
+// PROGRESS — the evolution, read off the append-only results.
+//
+// Nothing here is stored. Every point is a fold over `train_set_results`, one
+// per (exercise, side, session), so it can never disagree with the log: the
+// baseline is simply the first point on each curve, and "is the left arm
+// catching up" is two curves on one exercise.
+//
+// A WALK, like every listing. One `ctx.check(result:read)` per session, so a
+// trainee sees their own history, a coach on 'from-now' sees the curve from the
+// day they were let in, a coach on 'all' sees the whole of it, and someone with
+// no relationship sees an empty structure — an open door onto an empty room.
+// ---------------------------------------------------------------------------
+
+export interface ProgressPoint {
+  sessionId: string;
+  programId: string;
+  /** 'assessment' marks a baseline point; the UI can draw it apart. */
+  programKind: string;
+  performedAt: string;
+  sets: number;
+  /** In the exercise's own unit — the most reps, the longest hold, the longest single run. */
+  bestReps: number;
+  bestLoad: string | null;
+  /** Σ quantity — total reps, total seconds held, total metres. */
+  totalQuantity: number;
+  /** Σ reps × load, a decimal string. '0' where nothing had a load. */
+  volume: string;
+  totalSeconds: number;
+  /** Metres with a duration: seconds per kilometre, an integer. Running's number. */
+  paceSecondsPerKm: number | null;
+  avgHr: number | null;
+}
+
+export interface ProgressSeries {
+  side: Side | null;
+  points: ProgressPoint[];
+}
+
+/**
+ * Left against right, from the most recent session in which BOTH were logged.
+ * The measure is volume when the exercise carries load and quantity when it
+ * does not; `weakerPct` is the weaker side as a percentage of the stronger,
+ * so "left is at 66.66% of right" is one number a physio can watch climb.
+ */
+export interface Symmetry {
+  performedAt: string;
+  measure: 'volume' | 'quantity';
+  left: string;
+  right: string;
+  weaker: Side | null;
+  weakerPct: string;
+}
+
+export interface ExerciseProgress {
+  exerciseId: string;
+  slug: string;
+  name: string;
+  unit: string;
+  modality: string;
+  laterality: string;
+  series: ProgressSeries[];
+  symmetry: Symmetry | null;
+}
+
+export interface ProgressView {
+  traineeId: string;
+  /** Sessions the walk let this caller see — 0 is "nothing shared", not "nothing done". */
+  sessionsSeen: number;
+  exercises: ExerciseProgress[];
+}
+
+function foldPoint(
+  session: SessionRow,
+  programKind: string,
+  unit: string,
+  sets: SetResultRow[],
+): ProgressPoint {
+  let bestReps = 0;
+  let bestLoad: string | null = null;
+  let totalQuantity = 0;
+  let volume = '0';
+  let totalSeconds = 0;
+  let hrSum = 0;
+  let hrCount = 0;
+  for (const set of sets) {
+    bestReps = Math.max(bestReps, set.reps);
+    if (set.load && (bestLoad === null || compareDecimal(set.load, bestLoad) > 0)) bestLoad = set.load;
+    totalQuantity += set.reps;
+    if (set.load) volume = addDecimal(volume, mulDecimal(String(set.reps), set.load));
+    totalSeconds += set.duration_seconds ?? 0;
+    if (set.avg_hr) {
+      hrSum += set.avg_hr;
+      hrCount += 1;
+    }
+  }
+  return {
+    sessionId: session.id,
+    programId: session.program_id,
+    programKind,
+    performedAt: session.performed_at,
+    sets: sets.length,
+    bestReps,
+    bestLoad,
+    totalQuantity,
+    volume,
+    totalSeconds,
+    paceSecondsPerKm:
+      unit === 'metres' && totalQuantity > 0 && totalSeconds > 0
+        ? Math.round((totalSeconds * 1000) / totalQuantity)
+        : null,
+    avgHr: hrCount > 0 ? Math.round(hrSum / hrCount) : null,
+  };
+}
+
+function symmetryOf(series: ProgressSeries[]): Symmetry | null {
+  const left = series.find((s) => s.side === 'left')?.points ?? [];
+  const right = series.find((s) => s.side === 'right')?.points ?? [];
+  // The latest session both sides were logged in — comparing Tuesday's left arm
+  // with last month's right arm would say nothing.
+  const rightBySession = new Map(right.map((p) => [p.sessionId, p] as const));
+  const pair = [...left].reverse().find((p) => rightBySession.has(p.sessionId));
+  if (!pair) return null;
+  const l = pair;
+  const r = rightBySession.get(pair.sessionId)!;
+  const loaded = compareDecimal(l.volume, '0') > 0 || compareDecimal(r.volume, '0') > 0;
+  const lv = loaded ? l.volume : String(l.totalQuantity);
+  const rv = loaded ? r.volume : String(r.totalQuantity);
+  const cmp = compareDecimal(lv, rv);
+  const weaker: Side | null = cmp < 0 ? 'left' : cmp > 0 ? 'right' : null;
+  return {
+    performedAt: l.performedAt,
+    measure: loaded ? 'volume' : 'quantity',
+    left: lv,
+    right: rv,
+    weaker,
+    weakerPct: weaker === 'left' ? percentOfDecimal(lv, rv) : weaker === 'right' ? percentOfDecimal(rv, lv) : '100.00',
+  };
+}
+
+const progressOp: OperationHandler<z.infer<typeof traineeIdInput>, ProgressView> = async (
+  ctx,
+  rawInput,
+) => {
+  const input = traineeIdInput.parse(rawInput);
+  const visible: SessionRow[] = [];
+  for (const session of ctx.sql.query<SessionRow>(
+    'SELECT * FROM train_sessions WHERE trainee_id = ? ORDER BY performed_at, id',
+    [input.traineeId],
+  )) {
+    const decision = await ctx.check(TRAIN_PERM.resultRead, {
+      entityType: 'session',
+      entityId: session.id,
+    });
+    if (decision.allowed) visible.push(session);
+  }
+
+  const kinds = new Map<string, string>();
+  const byExercise = new Map<string, Map<Side | null, ProgressPoint[]>>();
+  for (const session of visible) {
+    if (!kinds.has(session.program_id)) {
+      kinds.set(session.program_id, programOf(ctx, session.program_id).kind);
+    }
+    const sets = ctx.sql.query<SetResultRow>(
+      'SELECT * FROM train_set_results WHERE session_id = ? ORDER BY exercise_id, side, set_no',
+      [session.id],
+    );
+    const grouped = new Map<string, SetResultRow[]>();
+    for (const set of sets) {
+      const key = `${set.exercise_id}|${set.side ?? ''}`;
+      grouped.set(key, [...(grouped.get(key) ?? []), set]);
+    }
+    for (const [key, group] of grouped) {
+      const exerciseId = group[0]!.exercise_id;
+      const side = (group[0]!.side as Side | null) ?? null;
+      const exercise = ctx.sql.query<ExerciseRow>('SELECT unit FROM train_exercises WHERE id = ?', [
+        exerciseId,
+      ])[0];
+      const sides = byExercise.get(exerciseId) ?? new Map<Side | null, ProgressPoint[]>();
+      sides.set(side, [
+        ...(sides.get(side) ?? []),
+        foldPoint(session, kinds.get(session.program_id) ?? '', exercise?.unit ?? 'reps', group),
+      ]);
+      byExercise.set(exerciseId, sides);
+      void key;
+    }
+  }
+
+  const exercises: ExerciseProgress[] = [];
+  for (const [exerciseId, sides] of byExercise) {
+    const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
+      exerciseId,
+    ])[0];
+    if (!exercise) continue;
+    const order: (Side | null)[] = ['left', 'right', null];
+    const series = order
+      .filter((side) => sides.has(side))
+      .map((side) => ({ side, points: sides.get(side)! }));
+    exercises.push({
+      exerciseId,
+      slug: exercise.slug,
+      name: exercise.name,
+      unit: exercise.unit,
+      modality: exercise.modality,
+      laterality: exercise.laterality,
+      series,
+      symmetry: exercise.laterality === 'unilateral' ? symmetryOf(series) : null,
+    });
+  }
+  exercises.sort((a, b) => a.name.localeCompare(b.name));
+  return { traineeId: input.traineeId, sessionsSeen: visible.length, exercises };
+};
+
+// ---------------------------------------------------------------------------
 // THE GUARD (manifest.ts declares where it runs).
 //
 // engine-workorder checks `workorder:report` / `:assign` at NODE level — right
@@ -2855,11 +3731,15 @@ export const strideModule: ModuleRegistration = {
     'stride/exercises': exercisesOp as never,
     'stride/my-exercises': myExercisesOp as never,
     'stride/publish-template': publishTemplateOp as never,
+    'stride/install-starter-library': installStarterLibraryOp as never,
     'stride/author-template': authorTemplateOp as never,
     'stride/add-template-item': addTemplateItemOp as never,
+    'stride/remove-template-item': removeTemplateItemOp as never,
+    'stride/share-template': shareTemplateOp as never,
     'stride/templates': templatesOp as never,
     'stride/assign-program': assignProgramOp as never,
     'stride/add-program-item': addProgramItemOp as never,
+    'stride/remove-program-item': removeProgramItemOp as never,
     'stride/log-session': logSessionOp as never,
     'stride/log-set': logSetOp as never,
     'stride/complete-program': completeProgramOp as never,
@@ -2876,6 +3756,7 @@ export const strideModule: ModuleRegistration = {
     'stride/set-item-sets': setItemSetsOp as never,
     'stride/onboard': onboardOp as never,
     'stride/me': meOp as never,
+    'stride/train-myself': trainMyselfOp as never,
     'stride/whoami': whoamiOp as never,
     'stride/threads': threadsOp as never,
     'stride/messages': messagesOp as never,
@@ -2883,5 +3764,8 @@ export const strideModule: ModuleRegistration = {
     'stride/set-sharing': setSharingOp as never,
     'stride/my-sharing': mySharingOp as never,
     'stride/timeline': timelineOp as never,
+    'stride/log-measurement': logMeasurementOp as never,
+    'stride/measurements': measurementsOp as never,
+    'stride/progress': progressOp as never,
   },
 };
