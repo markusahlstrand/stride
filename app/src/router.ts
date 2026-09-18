@@ -21,10 +21,14 @@ export type Route =
   | { name: 'today' }
   | { name: 'workouts' }
   | { name: 'workout'; id: string }
+  /** Plans: the reusable, ownerless prescriptions — yours and the gym's. */
+  | { name: 'plans' }
   | { name: 'chat' }
   | { name: 'trainees' }
   | { name: 'thread'; traineeId: string; coachId: string }
   | { name: 'me' }
+  /** The curve and the body — yours, or (staff) one trainee's. */
+  | { name: 'progress'; traineeId: string | null }
   | {
       name: 'exercises';
       q: string;
@@ -55,6 +59,8 @@ export function parseRoute(hash: string): Route {
   switch (parts[0]) {
     case 'workouts':
       return parts[1] ? { name: 'workout', id: parts[1] } : { name: 'workouts' };
+    case 'plans':
+      return { name: 'plans' };
     case 'chat':
       return parts[1] && parts[2]
         ? { name: 'thread', traineeId: parts[1], coachId: parts[2] }
@@ -63,6 +69,8 @@ export function parseRoute(hash: string): Route {
       return { name: 'trainees' };
     case 'me':
       return { name: 'me' };
+    case 'progress':
+      return { name: 'progress', traineeId: parts[1] ?? null };
     case 'exercises':
       return {
         name: 'exercises',
@@ -83,6 +91,8 @@ export function formatRoute(route: Route): string {
       return '#/workouts';
     case 'workout':
       return `#/workouts/${route.id}`;
+    case 'plans':
+      return '#/plans';
     case 'chat':
       return '#/chat';
     case 'thread':
@@ -91,6 +101,8 @@ export function formatRoute(route: Route): string {
       return '#/trainees';
     case 'me':
       return '#/me';
+    case 'progress':
+      return route.traineeId ? `#/progress/${route.traineeId}` : '#/progress';
     case 'exercises': {
       const q = new URLSearchParams();
       if (route.q) q.set('q', route.q);
@@ -114,12 +126,14 @@ export function formatRoute(route: Route): string {
  */
 export function tabOf(route: Route, role: string | undefined): string {
   const staff = role === 'admin' || role === 'coach';
-  if (route.name === 'workout') return 'workouts';
+  if (route.name === 'workout' || route.name === 'plans') return 'workouts';
   // A conversation belongs to the person it is with: their roster for staff,
   // your own coaches for a trainee.
   if (route.name === 'thread' || route.name === 'chat') return staff ? 'trainees' : 'me';
   // The library is reached from a workout or from Me; it is not a destination.
   if (route.name === 'exercises') return staff ? 'workouts' : 'me';
+  // Progress is about a PERSON: someone on the roster for staff, you on Me.
+  if (route.name === 'progress') return staff && route.traineeId ? 'trainees' : 'me';
   return route.name;
 }
 

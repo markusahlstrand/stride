@@ -8,9 +8,11 @@ import {
   inviteInput,
   myEquipmentInput,
   onboardInput,
+  removeProgramItemInput,
   setSharingInput,
   strideModule,
   templateInput,
+  trainMyselfInput,
 } from './module.js';
 
 // ============================================================================
@@ -52,6 +54,16 @@ export const operations = {
     http: { method: 'POST', path: '/trainees/{traineeId}/coach' },
   },
   'stride/me': { http: { method: 'GET', path: '/me/trainee' } },
+  /**
+   * Enrol yourself as a trainee. The same path as the GET above and deliberately
+   * so — one URL for "my trainee record", read with GET and brought into being
+   * with POST. Different methods dispatch differently, so this is not the
+   * collision `mountOperations` refuses.
+   */
+  'stride/train-myself': {
+    http: { method: 'POST', path: '/me/trainee' },
+    input: trainMyselfInput,
+  },
   /** Who the caller is, in gym vocabulary — the deployed app's first call. */
   'stride/whoami': { http: { method: 'GET', path: '/whoami' } },
   'stride/onboard': { http: { method: 'POST', path: '/me/onboard' }, input: onboardInput },
@@ -99,15 +111,30 @@ export const operations = {
   // --- templates -----------------------------------------------------------
   'stride/templates': { http: { method: 'GET', path: '/templates' } },
   'stride/publish-template': { http: { method: 'POST', path: '/templates/publish' }, input: templateInput },
+  /** The default library a new gym opens with — equipment, exercises, templates. */
+  'stride/install-starter-library': { http: { method: 'POST', path: '/library/install' } },
   'stride/author-template': { http: { method: 'POST', path: '/templates/author' }, input: templateInput },
   'stride/add-template-item': {
     http: { method: 'POST', path: '/templates/{templateId}/items' },
+  },
+  /** Put a plan you made in front of the whole gym, or take it back. */
+  'stride/share-template': {
+    http: { method: 'POST', path: '/templates/{templateId}/share' },
+  },
+  // Its own prefix rather than `/items/{itemId}/remove`: that path is a PROGRAMME
+  // item, and two operations that dispatch identically are refused at mount.
+  'stride/remove-template-item': {
+    http: { method: 'POST', path: '/template-items/{itemId}/remove' },
   },
 
   // --- programmes ----------------------------------------------------------
   'stride/my-programs': { http: { method: 'GET', path: '/programs' } },
   'stride/assign-program': { http: { method: 'POST', path: '/programs' }, input: assignProgramInput },
   'stride/get-program': { http: { method: 'GET', path: '/programs/{programId}' } },
+  'stride/remove-program-item': {
+    http: { method: 'POST', path: '/items/{itemId}/remove' },
+    input: removeProgramItemInput,
+  },
   'stride/add-program-item': {
     http: { method: 'POST', path: '/programs/{programId}/items' },
   },
@@ -123,6 +150,16 @@ export const operations = {
   },
   'stride/log-set': { http: { method: 'POST', path: '/sessions/{sessionId}/sets' } },
   'stride/set-item-sets': { http: { method: 'POST', path: '/items/{itemId}/sets' } },
+
+  // --- the body, and the curve ---------------------------------------------
+  // Both by TRAINEE, because that is whose they are. `{traineeId}` is the
+  // operation's own input field; the app passes `me.traineeId` for "mine".
+  'stride/measurements': { http: { method: 'GET', path: '/trainees/{traineeId}/measurements' } },
+  'stride/log-measurement': {
+    http: { method: 'POST', path: '/trainees/{traineeId}/measurements' },
+  },
+  /** Every exercise this person has performed, folded per session and per side. */
+  'stride/progress': { http: { method: 'GET', path: '/trainees/{traineeId}/progress' } },
 
   // --- reads that carry a query --------------------------------------------
   'stride/agenda': { http: { method: 'GET', path: '/agenda' }, input: onDate },

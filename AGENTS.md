@@ -162,15 +162,38 @@ reasoning behind every choice: [`spec/concept.md`](spec/concept.md).
 | **conversation** | `train_messages`, one thread per **(trainee, coach) pair** — no thread id, because two people have exactly one conversation. `message:read`/`message:post` are narrowed on the TRAINEE record and ride the sharing relationship |
 | **sharing** | `train_sharing` — `none` / `assigned` / `from-now` / `all`. The table is the DECISION; kernel grants are the enforcement. If they disagree, the tuples win |
 | **invitation** | `engine-invites`, composed. Hashed identifier, accept-required, non-enumerable. One org per scope, id = `ctx.scopeId` |
+| **plan** | the UI word for a **template**: the reusable prescription, tied to nobody. A workout is one person's run of one. A member's plan is `private` until `share-template` flips it to `shared` (gym-wide); the owner columns stay, so it is still theirs to edit and withdraw. Rev 12 |
+| **side** | `laterality` on the exercise (`bilateral` / `unilateral`) and `side` (`left` / `right` / NULL) on every prescribed and performed set. A unilateral set **must** name a side and a bilateral one must not; `sideFor` refuses both mistakes. `target_sets` is **per side** on a unilateral item, so adherence and "is the session over" double it (`prescribedSetsOf`). Sets are numbered per side |
+| **baseline** | a programme of kind `assessment`, normally from the "Baseline — strength & symmetry" template: sixteen light sets covering the whole body, ten of them per side, all doable with dumbbells, a band and a mat. Offered as the **skippable third step of onboarding** (`BaselineStep`, dismissal remembered per device) and for ever from Progress. Not a table — it is the first point on every curve in `stride/progress` |
+| **progress** | `stride/progress` — nothing stored. A **walk over sessions** (`result:read` per session) folded into one point per (exercise, side, session): best set, volume, pace. `symmetry` compares left and right from the latest session both were logged in, as a percentage in integer arithmetic |
+| **measurement** | `train_measurements` — weight, girths, grip, shoulder range of motion. Append-only, decimal strings, sided where a body is. Gated by `result:log` / `result:read` on the **trainee record**: no new keys |
 
-The default library a gym starts with is [`src/catalogue.ts`](src/catalogue.ts) — 25
-equipment types, 62 exercises. It is **harness**: the seed feeds it through the normal
-operations, exactly as an admin would by hand.
+The default library a gym starts with is [`src/catalogue.ts`](src/catalogue.ts) — 31
+equipment types, 71 exercises and five starter templates (two lifting blocks, the whole-body
+baseline, a shoulder-rehab week and a running base week). The installer is idempotent by
+slug and by name, and **tops up** a library template that already exists with any rows a
+later revision added — so an installed gym grows with the catalogue, and a member's plan
+of the same name is never touched. It is pure data, and it is
+**module code**: `stride/install-starter-library` reads it, so a DEPLOYED gym can be
+stocked too. It used to be harness only, read by `seed.ts` alone — which is exactly why
+the first deployed instance came up with an empty catalogue and no templates: the only
+thing that knew what a gym starts with was a file the worker cannot import.
+
+The installer feeds it through the ordinary publish operations, exactly as an admin would
+by hand, so every row is attributed to whoever pressed the button and every event is
+emitted normally. It is `library:publish` (admin only), and **idempotent** by slug and by
+name — a second press adds only what is missing. Deliberately NOT run at provisioning:
+writing ~90 rows needs a principal to attribute them to, and provisioning has none.
+`seed.ts` calls the same operation, so the scenario exercises it on every run.
 
 ## The cast
 
 - **`admin`** — publishes the shared library; manages coaches and trainees; reads
   everything, *including every coach's private exercises* (node-level `exercise:read`).
+  May also **enrol themselves** (`stride/train-myself`, gated on `trainee:manage`), because
+  the person who runs a one-person gym is also the person who trains in it. Doing so gives
+  them a trainee record and nothing else — no new grants, because an admin already holds
+  `result:log`, `result:read` and the engine's lifecycle keys at node level.
 - **`coach`** — authors their own exercises and templates; works only with the trainees
   assigned to them. Holds almost nothing gym-wide: their reach is one entity-narrowed
   grant on their **own coach record**.
@@ -246,6 +269,19 @@ resolves, a coach can read an exercise their own trainee earned from **another**
 That is deliberate — inheriting a trainee means inheriting the exercises in their running
 program, which would otherwise render as unresolvable ids.
 
+## Role is a derived answer, and `admin` is asked first
+
+There is no `role` column. You are a **coach** because a coach record carries your
+principal and a **trainee** because a trainee record does — but you are an **admin**
+because you hold `trainee:manage`, a key no coach and no trainee has.
+
+That last one used to be the fall-through — you were an admin because you were nothing
+else — which was true only while an admin could not enrol themselves. The moment they can,
+the old order demoted the person who runs the gym to a trainee the instant they made
+themselves a workout, and took the Trainees screen with it. So `whoamiOp` asks the key
+first, and reports **`traineeId` beside `role`** rather than instead of it: staff can have
+both, and `traineeId` is what says whose training is "mine". Guarded by tests 27 and 29.
+
 ## Two doors, and when each applies
 
 Shared library rows are reached by a **node-level key** (`exercise:read-shared`,
@@ -270,6 +306,12 @@ Two things are deliberately NOT tabs:
   the tab that leads there — not a tab of its own.
 
 `tabOf(route, role)` in `router.ts` is what maps a route to the tab it lights.
+
+**On the desktop rail the signed-in person IS the Me item.** The rail already ends with
+your avatar and name, so a Me tab above it is two doors to one screen in one strip of
+chrome. `.tab-me` hides the tab at the 900px breakpoint only — it is still in the markup,
+because the mobile bar needs it — and `.rail-user` is a `<button>` that navigates, lights
+with `.on`, and carries the unread count that used to ride the tab.
 
 **"My trainees" means the people who ENGAGED me**, not the people I happen to have written
 something for. `traineesOp` therefore has three branches, and the one that is easy to miss
@@ -322,21 +364,48 @@ are is no longer something a URL can assert.
 **Adding a workout lives on the workouts screen**, for both roles — one obvious place. It
 used to be reachable only from the Me screen, which meant the answer to "how do I add a
 workout?" was somewhere nobody had reason to look. `NewWorkout` adapts to the reader
-(a trainee makes their own and starts it; staff pick whose it is and leave it `planned`)
 rather than existing twice.
+
+**Creating never starts.** Every path leaves the programme `planned` and opens it, because
+a workout built from a template or from nothing is almost never right first time, and the
+moment between creating it and training is exactly when you swap an exercise or take the
+reps down. `ItemEditor` on the detail screen is what that moment is for: it rewrites a row
+through `set-item-sets` (always an explicit list, which keeps `target_sets` honest) and
+drops one through `remove-program-item`. Both are gated on the narrowed `result:log` for
+that programme — the same key that guards adding an item — and neither is offered once the
+block is `completed` or `closed`, because then the prescription is what adherence is
+measured against. Guarded by test 30.
+
+**WHO IT IS FOR is a question only when there is more than one answer.** A gym of one
+person — which every gym is on its first day — has exactly one: you. So the "for whom"
+picker appears only when somebody else is actually in the roster, and `me.traineeId` (from
+`whoami`) is what says whether "me" is even reachable. Showing it unconditionally to staff
+is how the first deployed admin met an empty dropdown with their own name missing from it.
 
 A coach is optional and the UI must not read as though one is missing. **A standing workout
 is a programme that is never completed** — that is the normal case, not an unfinished one,
 and `Finish this block` is an optional act that computes adherence. **Rotation is just
-slots**: A on Mon/Fri, B on Wed. `assign-program` takes `slots` so setup is one call, and
-`api.createRoutine` chains create → start on the CLIENT because `workorder/start` carries
-the guard. Trainees read "workout", staff read "programme". Guarded by test 25.
+slots**: A on Mon/Fri, B on Wed. `assign-program` takes `slots` so setup is one call.
+`workorder/start` stays a separate, deliberate call on the CLIENT — never folded into an
+in-scope shortcut — because it is what carries the manifest guard. Trainees read "workout",
+staff read "programme". Guarded by test 25.
 
 ## Two limits worth knowing before you "fix" them
 
 - **Exercise slugs are unique per gym**, shared and private alike — you cannot author a
   private `back-squat` alongside the shared one. `insertExercise` turns the clash into a
   sentence rather than a raw SQLite error. Changing it means rethinking what a slug *is*.
+- **Sharing a plan is a `visibility` flip, not a grant.** `share-template` moves a member's
+  template between `private` and `shared`; the node-level `template:read-shared` everyone
+  holds does the rest. The owner columns are never cleared, which is what keeps the author
+  able to edit and withdraw it, and what lets `templatesOp` say *by Björn*. Library rows
+  (no owner) are refused here — an admin publishes and retires those. Guarded by test 35.
+- **Progress is read off the sessions, never off the trainee record.** A coach on
+  `from-now` sees the curve from the day they were let in and nothing before, because
+  `progressOp` walks sessions with `result:read`. Gating it on the trainee record instead
+  would hand them the whole history. Measurements DO ride the trainee record — a decimal
+  about a body has no session to hang from — so they arrive at sharing `all` and not before,
+  and the UI says so rather than showing an empty chart. Guarded by tests 32 and 33.
 - **`stride/begin` must never start a programme itself.** It opens or resumes today's
   session and nothing more. `workorder/start` carries the manifest guard, and an in-scope
   shortcut around it would be the hole the guard exists to close — a `planned` programme is

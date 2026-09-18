@@ -1,4 +1,4 @@
-# Stride — design (rev 11, as built)
+# Stride — design (rev 12, as built)
 
 A multi-tenant training app for a gym or physio clinic. An **admin** curates a shared
 library of exercises and program templates for the whole organisation. A **coach** authors
@@ -45,6 +45,19 @@ trainee · **no money** · **no sign-off step**.
 > **trainee-controlled sharing** — see §3c. This one is a REVERSAL: the permanent
 > `trainee → coach` edge from rev 3 is gone, and what a coach may see is now the trainee's
 > revocable decision. Needs migration `0004-sharing` and one new permission key.
+
+> rev 11 → rev 12: **the baseline, sides, measurements, running, and plans.** An exercise
+> may be **unilateral**, and then every set — prescribed or performed — names a side, so a
+> post-operative left arm is a number beside the right one instead of a feeling. A
+> **baseline** is a programme of kind `assessment` from a new starter template: one light
+> set of each, per side, retaken monthly. **`stride/progress`** folds the append-only results
+> into one point per exercise, side and session — a walk, so it shows exactly what was
+> shared — and reports **symmetry** as an exact percentage. **Measurements** (weight,
+> girths, grip, shoulder range) are a new append-only table on the result keys. Running
+> needed no schema at all: metres plus a duration is pace. And a **plan** (the template,
+> tied to nobody) can now be authored by anyone and **shared with the gym** or withdrawn —
+> which surfaced that a trainee never held `template:read` on their own record. See §3i.
+
 
 ---
 
@@ -535,6 +548,128 @@ Three consequences worth stating, each asserted:
 - **`message-posted` is `piiClass: 'direct'`** and carries a subject id. A person writing
   about their knee is writing about their body; an erasure has to be able to key on it.
 
+## 3i. The baseline, sides, measurements, running, and plans
+
+Written for one reader: someone getting back in shape after a shoulder operation, whose
+left arm does less than the right, who wants to know where they started and whether it is
+closing — and who does not have, and should not need, a coach.
+
+### Sides
+
+A single-arm press is two exercises wearing one name. So an exercise now carries
+`laterality` — `bilateral`, which is what every row always was, or `unilateral` — and a set,
+whether prescribed (`train_item_sets.side`) or performed (`train_set_results.side`), names
+`left` or `right`. `sideFor` refuses both mistakes at the boundary: a unilateral set with no
+side would collapse two numbers into one, and a side on a barbell squat is a claim nothing
+can be done with.
+
+Two consequences worth reading twice:
+
+- **`target_sets` is per side** on a unilateral item — "3 × 10 each arm" — and
+  `prescribedSetsOf` doubles it for adherence and for "is the session over". An explicit
+  list in `train_item_sets` counts its own rows, each of which names a side. That list is
+  how a prescription says *left: 8 @ 2 kg, right: 8 @ 4 kg* — the "adjust the next session"
+  the baseline exists for. `set-item-sets` numbers rows per side and keeps `target_sets` as
+  the longer side.
+- **Sets are numbered per side**: left 1, 2 and right 1, 2, never 1 to 4. Results and
+  prescription agree, so the pills line up in two rows.
+
+Nine catalogue rows that were always one-sided (the single-arm row, side plank, the band
+rotations…) are retagged by migration 0009 — **shared rows only**, because those were
+published from this very catalogue; a private row with the same slug is somebody's and is
+left as they made it. Five new one-sided exercises join them, including an **assisted arm
+raise** for exactly the shoulder case.
+
+### The baseline
+
+Not a table. A **programme of kind `assessment`**, normally made from the new starter
+template *Baseline — strength & symmetry*: **sixteen** light sets covering the whole body —
+shoulder range and rotation first, then squat, hinge, one-leg bridge and calves, push-up,
+single-arm press, single-arm row and band pull-apart, a single-arm curl, plank, side plank,
+single-leg balance, and a timed kilometre. Ten of the sixteen are per side. Every row can be
+done with dumbbells, a band and a mat, so it is takeable at home; test 32 checks that against
+Vera's kit. You write down how many you managed and at what weight, one set each.
+Completed like any block. What it produces is the **first point on every curve**, and
+retaking it produces the second — the evolution the app was asked for.
+
+It is offered as the **skippable third step of onboarding** — after the two questions, before
+the first workout — and for ever from the Progress screen. Skipping is remembered on the
+device only: a dismissal is a per-viewer convenience, not a fact about the person.
+
+The installer **tops up** a library plan that already exists with rows a later revision
+added, matched by exercise and counted, so a gym that installed the nine-row baseline gets
+the whole-body one on its next press. A member's plan of the same name is never touched.
+
+The loads are light on purpose. After an operation a max test is the last thing anyone
+should do; a baseline is a number that can be compared with itself in a month.
+
+### Progress — the curve, and the gap
+
+`stride/progress` stores nothing. It is a fold over `train_set_results`: one **point** per
+(exercise, side, session) — best set, best load, total quantity, volume as a decimal string,
+total seconds, and for metres with a duration **pace in seconds per kilometre** as an
+integer. Points know whether they came from an assessment, so the UI rings the baselines.
+
+**Symmetry** compares left against right from the *latest session both were logged in* —
+comparing Tuesday's left arm with last month's right would say nothing — by volume where
+the exercise carries load and by count where it does not, and reports the weaker side as a
+percentage of the stronger to two places. Integer arithmetic on scaled decimals
+(`percentOfDecimal`): a ratio of two volumes never passes through a float.
+
+**It is a walk.** One `ctx.check(result:read)` per session, exactly like `get-program`. A
+trainee sees their own history; a coach on `from-now` sees the curve from the day they were
+let in; a coach on `all` sees the whole of it; anyone else sees `sessionsSeen: 0` and an
+empty list — an open door onto an empty room, not a denial. Gating on the trainee record
+instead would have handed a `from-now` coach the whole history.
+
+### Measurements
+
+The body over time: weight, body fat, resting heart rate, a waist, an arm's girth, grip
+strength, and how far each shoulder goes. Not a set — nothing was performed — but the same
+shape of question, so `train_measurements` is append-only, holds a decimal string, and is
+**sided where a body is**: `MEASUREMENT_KINDS` fixes each kind's unit and whether a side is
+required, and `sideFor` enforces it with the same two sentences a set gets.
+
+**No new permission keys.** `log-measurement` is the narrowed `result:log` on the trainee
+record; `measurements` is the narrowed `result:read`. So a coach on the `assigned` floor can
+measure a shoulder in the room and *not* read the history back — the asymmetry a programme
+already has, and the trainee's decision. Measurements arrive for a coach at sharing `all`
+and not before; the UI says *not shared* rather than showing an empty chart.
+
+### Running
+
+Needed no schema. The quantity column was already metres, a set already carried
+`duration_seconds` and `avg_hr`, and pace is the one divided by the other. What was added:
+the logger accepts `mm:ss` for the time and shows the pace live, the curve draws pace with
+lower-is-better, and a *Running — base week* starter plan (two easy runs a week, a longer one
+on Sunday, calves) makes it a standing programme like any other.
+
+### Plans — a programme that belongs to nobody
+
+The question that surfaced mid-build: *what is the difference between a programme and a
+workout?* None — they are one person's live run of something, with a state, sessions and
+sets; "workout" is the trainee's word and "programme" the staff's. The reusable, ownerless
+thing is the **template**, which the UI now calls a **plan**. A workout is an instance of a
+plan, snapshot at creation.
+
+Anyone could already author one (`library:author`) and nobody could do anything with it:
+there was no screen, and — found by test 35 — a trainee held no `template:read` against
+their own record, so the walk `template → trainee` reached nothing and they could never add
+an exercise to it. That grant joins `traineeEntityPerms`.
+
+**`stride/share-template`** puts a member's plan in front of the whole gym or takes it back.
+It is a flip of `visibility` between `private` and `shared`, not a grant: the node-level
+`template:read-shared` everyone holds does the rest. The owner columns are never cleared,
+which is what keeps the author able to edit and withdraw it (the narrowed `template:read`
+through the edge) while nobody else can — browsing a shared plan has never been permission
+to edit it. Withdrawing is not un-doing: workouts already made from it are snapshots.
+Library rows (no owner) are refused here; an admin publishes and retires those on the
+publish key. `stride/remove-template-item` completes the authoring surface.
+
+Sharing is gym-wide because that is what "other users" means inside a tenant — there is no
+cross-tenant API to share across. Per-person sharing (a grant to one named principal) would
+need the platform to mint it, as invitations do, and is a follow-up if wanted.
+
 ## 4. The cast
 
 | Persona | Role | What they hold |
@@ -587,6 +722,12 @@ train_trainees        + goal, days_per_week, onboarded_at   ← onboarding
 train_sharing         trainee_id, coach_id, mode, since  ← the DECISION.
                       Kernel grants are the enforcement; if the two ever
                       disagree, the tuples win — they are what the evaluator reads.
+
+train_exercises       + laterality ('bilateral'|'unilateral')          ← rev 12
+train_item_sets       + side ('left'|'right'|NULL)                     ← a per-arm prescription
+train_set_results     + side                                           ← numbered PER SIDE
+train_measurements    id, trainee_id, kind, side, value, unit, measured_at,
+                      note, logged_by, created_at                      ← append-only, decimal
 ```
 
 ULIDs (TEXT), ISO-8601 TEXT timestamps, and every number that must be exact — load, volume,
@@ -631,6 +772,9 @@ patient.
 | `stride/my-programs`, `stride/my-exercises` | trainee — the portal walk |
 | `stride/get-program`, `stride/timeline` | per-entity check |
 | `workorder/start` `/assign` `/report-time` `/report-material` | the engine's own — **behind the guard** |
+| `stride/progress` | everyone — a **walk over sessions**; the curve, per side, and symmetry |
+| `stride/log-measurement` / `stride/measurements` | narrowed `result:log` / `result:read` on the trainee — no new keys |
+| `stride/share-template` / `stride/remove-template-item` | the author (narrowed `template:read`) or an admin; library rows refused |
 
 **`stride/exercises` is one operation that gives three different correct answers**, and
 none of them is a hand-written filter. It returns the shared catalogue if you hold the
@@ -652,7 +796,7 @@ The kernel produces the difference. The operation never asks who is calling.
 | `exercise:read-shared` | Browse the shared exercise catalogue | ● | ● | ● |
 | `exercise:read` | Read one exercise — own, or **earned** | ● node | ◐ own coach record | ◐ own trainee record |
 | `template:read-shared` | Browse shared program templates | ● | ● | **●** |
-| `template:read` | Read one template — own | ● node | ◐ own coach record | |
+| `template:read` | Read one plan — own. **Rev 12: a trainee now holds it too**, so they can shape the plans they author | ● node | ◐ own coach record | ◐ own trainee record |
 | `equipment:manage` | Record which equipment you have. **Safe gym-wide because the operation cannot name another account** | ● | ● | ● |
 | `share:manage` | Decide what a coach may see of your training. Same shape: no id for whose | ● | | ● |
 | `message:read` | Read the conversation about a trainee | ● | ◐ their own trainees | ◐ own record |
@@ -668,7 +812,12 @@ The kernel produces the difference. The operation never asks who is calling.
 ● held by the role · ◐ **entity-narrowed** — held only against that person's own record
 
 There is no money, so nobody can see it. Nobody can see another tenant's data, because
-there is no API that crosses a tenant. The two lines to look hardest at:
+there is no API that crosses a tenant. Rev 12 adds **no key**: measurements ride
+`result:log` / `result:read` on the trainee record, progress walks sessions with
+`result:read`, and sharing a plan is a visibility flip read by the `template:read-shared`
+everyone already holds. The one grant that changes is the trainee's own `template:read`
+(entity-narrowed to their record) — it widens nothing beyond what they authored. The two
+lines to look hardest at:
 
 1. **`exercise:read` for admin is node-level** — an admin reads every coach's private
    exercises. You chose this; it's what makes moderating and promoting possible.
@@ -917,6 +1066,26 @@ The push was accepted regardless, because every version is its own script
 (`deploymentRef` carries the version id), so tags start fresh per script. Worth confirming
 that holds for the stable serving script a promote points at.
 
+## 8b. What tests 31–35 prove (rev 12)
+
+31. **Sides** — a unilateral set without a side is refused, a bilateral set with one is
+    refused; sets are numbered per side; adherence counts both arms (`2 × each arm + 1` is
+    five, and four done is `80.00`).
+32. **The baseline** — sixteen rows, ten per side, every one doable with Vera's home kit; the template snapshots its instructions; left 8 × 4 against right
+    12 × 4 reads as `weakerPct '66.66'`, exact; an asymmetric per-arm prescription round-trips
+    with `target_sets` per side; a half-sided list is refused whole. **Who sees the curve**:
+    another trainee gets `sessionsSeen: 0`, a coach on `assigned` sees nothing, the admin
+    everything; sharing `all` opens it to the coach and `assigned` closes it again.
+33. **Measurements** — a shoulder needs a side, a weight refuses one, a float is refused, a
+    zero is refused; another trainee is denied on `result:log` and `result:read` by name; the
+    `assigned` coach can measure and cannot read back; the admin reads all.
+34. **Running** — 3 km in 18:00 then 17:00 is pace `[360, 340]`; the base week recurs twice a
+    week and the schedule counts one done of two.
+35. **Plans** — a trainee with no coach authors one and adds exercises; another trainee can
+    neither see nor edit nor share it; shared with the gym it appears with its author's name,
+    a workout made from it is a snapshot that survives the plan being reshaped and withdrawn;
+    the gym's own library plans are refused by `share-template`.
+
 ## 11. Deltas discovered while building
 
 Recorded here because a design document that quietly diverges from the code is worse than
@@ -942,3 +1111,11 @@ none.
    `API_PORT` (8871), Vite reads `WEB_PORT`/`PORT` (5173).
 6. **`get-program` returns the trainee's name**, so the detail screen does not have to
    cross-reference the roster it may not be allowed to read.
+7. **A trainee could author a template and never touch it again** (rev 12). `library:author`
+   let them create one, but `template:read` was missing from `traineeEntityPerms`, so the
+   walk `template → trainee` reached nothing and `add-template-item` refused them. Found by
+   test 35 the moment a plan was authored by someone without a coach. Existing deployed
+   trainees need that grant back-filled by the platform; new joiners get it from the intent.
+8. **Symmetry is read off the latest pair, so tests must date their sessions.** The seed's
+   baseline and test 31 both log the same press; test 32's session has to be the most recent
+   or the number it asserts belongs to a different day. `performedAt` is the honest lever.
