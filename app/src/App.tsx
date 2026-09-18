@@ -120,15 +120,47 @@ function splitDenial(text: string): { perm: string | null; rest: string } {
   return { perm: m[1]!, rest: m[2]!.trim() };
 }
 
+/** How long a notice stays. A confirmation is read at a glance; a refusal names
+ *  a permission and says why, so it gets long enough to actually be read. */
+const NOTICE_MS = { good: 4000, error: 9000, deny: 9000 } as const;
+
 /**
  * The banner is the point of the app, not decoration — so a refusal gets a
  * headline, the permission that was checked, and one plain sentence saying that
- * nothing changed. Sticky under the header, dismissed by tapping it.
+ * nothing changed.
+ *
+ * A TOAST, in the lower right: it used to sit sticky at the top of the column,
+ * where it pushed the screen down and stayed until tapped. Now it floats clear
+ * of the content and leaves by itself. Three things keep that honest:
+ *
+ *  - the clock STOPS while the pointer or the keyboard is on it, so nobody loses
+ *    a refusal halfway through reading the permission key;
+ *  - it is still dismissed by tapping, for the impatient;
+ *  - a refusal is announced as an `alert` and a confirmation as a `status`, so a
+ *    screen reader hears it even though it no longer sits in the reading order.
+ *
+ * The timer is keyed on the notice OBJECT — `run` mints a new one every time —
+ * so a second identical refusal restarts the clock rather than inheriting
+ * whatever was left of the first.
  */
 function NoticeBanner({ notice, onDismiss }: { notice: NonNullable<Notice>; onDismiss: () => void }) {
   const { perm, rest } = notice.kind === 'deny' ? splitDenial(notice.text) : { perm: null, rest: notice.text };
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (held) return;
+    const id = window.setTimeout(onDismiss, NOTICE_MS[notice.kind]);
+    return () => window.clearTimeout(id);
+  }, [notice, held, onDismiss]);
   return (
-    <div className={`banner ${notice.kind}`} onClick={onDismiss}>
+    <div
+      className={`banner ${notice.kind}`}
+      role={notice.kind === 'good' ? 'status' : 'alert'}
+      onClick={onDismiss}
+      onMouseEnter={() => setHeld(true)}
+      onMouseLeave={() => setHeld(false)}
+      onFocus={() => setHeld(true)}
+      onBlur={() => setHeld(false)}
+    >
       <div className="head">
         <b>
           {notice.kind === 'deny'
@@ -167,6 +199,9 @@ export function App() {
   const countingDown = useCountingDown();
   const finished = useFinishSummary();
   const { notice, setNotice, run } = useNotice();
+  // Stable, because the toast's timer depends on it: an inline arrow would be a
+  // new function every render and restart the clock each time anything moved.
+  const dismissNotice = useCallback(() => setNotice(null), [setNotice]);
 
   useEffect(() => {
     // Answered while signed out, so a failure here is a broken instance, not a
@@ -266,8 +301,6 @@ export function App() {
   return (
     <div className="app">
       <main>
-        {notice && <NoticeBanner notice={notice} onDismiss={() => setNotice(null)} />}
-
         {route.name === 'workout' ? (
           <ProgramDetailScreen
             programId={route.id}
@@ -343,6 +376,10 @@ export function App() {
       </main>
 
       {workout && <SessionBar onOpen={(id) => navigate({ name: 'workout', id })} />}
+
+      {/* Outside <main>: a toast is not part of the column, and on desktop
+          `main > *` would cap and centre it. */}
+      {notice && <NoticeBanner notice={notice} onDismiss={dismissNotice} />}
 
       <nav className="tabs">
         {/* Desktop only (hidden under the breakpoint): the rail's wordmark, and

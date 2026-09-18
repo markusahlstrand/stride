@@ -644,11 +644,22 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
    in mono, and states plainly that nothing changed — never a crash, never a
    stack trace. */
 .banner {
-  position: sticky; top: calc(env(safe-area-inset-top) + 8px); z-index: 15;
+  /* A toast in the lower right. On a phone "lower right" is the bottom of the
+     screen, so it spans the column and sits ABOVE the tab bar (about 78px, plus
+     the home indicator) rather than over it. Above the two full-screen session
+     moments too (z 40): "Session started" fires under the countdown, and a
+     toast nobody can see would simply time out unseen. */
+  position: fixed;
+  right: 16px;
+  left: 16px;
+  bottom: calc(env(safe-area-inset-bottom) + 102px);
+  z-index: 45;
+  max-width: 400px;
+  margin-left: auto;
   border-radius: var(--radius);
   padding: 12px 14px;
-  margin-bottom: 14px;
   font-size: 14px;
+  animation: toastIn 0.28s cubic-bezier(0.2, 1.2, 0.4, 1) both;
   line-height: 1.5;
   cursor: pointer;
   border: var(--bw) solid var(--ink);
@@ -669,6 +680,10 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
 .banner.good b { color: var(--good); }
 .banner .perm { font: 500 11px var(--mono); white-space: nowrap; }
 .banner .body { margin-top: 4px; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* The earned moment. Performing an exercise once links it to you permanently —
    a kernel walk, not a WHERE clause — so it is worth one celebration. */
@@ -1039,6 +1054,9 @@ nav.tabs button.rail-user { display: none; }
     margin-right: auto;
   }
 
+  /* No tab bar to clear down here, so the toast drops into the corner proper. */
+  .banner { left: auto; right: 24px; bottom: 24px; width: 400px; }
+
   /* Pointer affordances the touch layout has no use for. */
   .list .rowbtn:hover { background: var(--surface-low); }
   .card.tappable:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--shadow-ink); }
@@ -1285,6 +1303,7 @@ nav.tabs button.rail-user { display: none; }
   /* The pulse is the one thing that survives as a state, so it holds still
      rather than disappearing — the dot still says "open", it just stops moving. */
   .session-dot { animation: none; }
+  .banner,
   .countdown-digits span,
   .confetti .bit,
   .finish-hero .fig.pop { animation: none; }

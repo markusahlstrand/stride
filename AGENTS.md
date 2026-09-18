@@ -515,6 +515,13 @@ npx @substrat-run/boundary-lint
 The web app is `app/` — Vite + React, mobile-first. A denial surfaces as the **"Denied by
 the kernel"** banner; that banner is a feature, not an error state.
 
+The banner is a **toast in the lower right** (above the tab bar on a phone) and it leaves by
+itself — 4s for a confirmation, 9s for a refusal or an error, because a refusal names a
+permission and has to be READ. The clock stops while the pointer or focus is on it, tapping
+still dismisses it, and it is announced (`alert` / `status`) since it no longer sits in the
+reading order. Its timer depends on a **stable** `onDismiss`: hand it an inline arrow and
+every re-render of the shell — the unread poll, a route change — quietly restarts the clock.
+
 ## One auth path, two issuers
 
 There is **no dev-only auth branch**, and re-introducing one would undo the point.
