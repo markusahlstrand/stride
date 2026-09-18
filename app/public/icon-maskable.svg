@@ -6,8 +6,8 @@
   scale — sitting in a mint field, which is a FigureTile and nothing new. The
   colours are frozen on purpose: a home-screen icon cannot follow the OS the way
   the app does, so the body is ink in both themes exactly as the rule for a mint
-  surface says, and the headband goes paper-white rather than vanishing into the
-  fill. Edit the paths here and in figures.tsx together or the two will drift.
+  surface says, and the head — and, in the weights that draw one, the headband —
+  goes paper-white rather than vanishing into the fill. Edit the paths here and in figures.tsx together or the two will drift.
 
   The PNGs beside this file are derived. To rebuild them:
     rsvg-convert -w 180 -h 180 icon.svg          -o apple-touch-icon.png

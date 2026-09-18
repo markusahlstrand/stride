@@ -16,11 +16,13 @@ the OS the way the app does, so it takes the mint-surface branch for ever — in
 themes, head and headband paper-white. And the favicon is the `mini` weight, with a heavier
 stroke and no eyes, hair or band, for exactly the reason the tab bar drops them at 28px.
 
-`app/public/` now holds the two SVG sources — the full-bleed mark and a maskable cut whose
-figure pulls into the safe circle Android crops to — plus the derived PNGs for
-`apple-touch-icon`, 192, 512, the maskable 512 and a 32px favicon fallback. `icon.svg`
-carries the `rsvg-convert` lines that rebuild them in a comment, because the PNGs are
-generated and nothing else in the repo would say so.
+`app/public/` holds three SVG masters, and every PNG beside them is generated from one of
+the three. `icon.svg` is the full-bleed mark, and `apple-touch-icon.png`, `icon-192.png` and
+`icon-512.png` come off it. `icon-maskable.svg` is the same runner pulled into the safe
+circle Android crops to, and gives `icon-maskable-512.png`. `favicon.svg` is the `mini`
+weight, and gives `favicon-32.png` for browsers that will not take an SVG tab icon. All
+three carry the same five `rsvg-convert` lines in a comment at the top, because the PNGs are
+derived and nothing else in the repo would say so.
 
 The manifest names the app, starts it at `#/today` and paints the splash in paper. It
 declares `display: "standalone"`, which is what makes a pinned icon open without browser
