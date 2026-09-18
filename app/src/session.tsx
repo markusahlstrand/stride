@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Figure } from './figures';
 
 // ============================================================================
 // THE ACTIVE SESSION — a device-local fact, deliberately.
@@ -253,19 +254,19 @@ export interface SessionSummary {
   earned: string | null;
 }
 
-/** Ten pieces, the canvas's own colours and timings. Rendered only once, and
- *  never at all under reduced motion. */
+/** Ten pieces, in the only two colours the notebook has: mint and ink (plus the
+ *  paper itself). Rendered only once, and never at all under reduced motion. */
 const CONFETTI = [
   { left: '8%', delay: '0s', dur: '3.4s', color: 'var(--accent)', dot: false },
-  { left: '18%', delay: '0.4s', dur: '4.1s', color: 'var(--warn)', dot: true },
-  { left: '27%', delay: '0.15s', dur: '3.8s', color: 'var(--share)', dot: false },
-  { left: '38%', delay: '0.7s', dur: '4.6s', color: 'var(--deny)', dot: false },
+  { left: '18%', delay: '0.4s', dur: '4.1s', color: 'var(--ink)', dot: true },
+  { left: '27%', delay: '0.15s', dur: '3.8s', color: 'var(--surface)', dot: false },
+  { left: '38%', delay: '0.7s', dur: '4.6s', color: 'var(--accent)', dot: false },
   { left: '47%', delay: '0.25s', dur: '3.2s', color: 'var(--accent)', dot: true },
-  { left: '58%', delay: '0.55s', dur: '4.3s', color: 'var(--share)', dot: false },
-  { left: '67%', delay: '0.1s', dur: '3.6s', color: 'var(--warn)', dot: false },
-  { left: '76%', delay: '0.8s', dur: '4.0s', color: 'var(--accent)', dot: true },
-  { left: '85%', delay: '0.35s', dur: '3.9s', color: 'var(--deny)', dot: false },
-  { left: '93%', delay: '0.6s', dur: '4.4s', color: 'var(--share)', dot: false },
+  { left: '58%', delay: '0.55s', dur: '4.3s', color: 'var(--ink)', dot: false },
+  { left: '67%', delay: '0.1s', dur: '3.6s', color: 'var(--accent)', dot: false },
+  { left: '76%', delay: '0.8s', dur: '4.0s', color: 'var(--surface)', dot: true },
+  { left: '85%', delay: '0.35s', dur: '3.9s', color: 'var(--accent)', dot: false },
+  { left: '93%', delay: '0.6s', dur: '4.4s', color: 'var(--ink)', dot: false },
 ];
 
 /**
@@ -295,12 +296,15 @@ export function SessionFinish({
           ))}
         </div>
       )}
+      {/* The tick became a person. Same pop, same once-only rule. */}
+      <div className="finish-hero" aria-hidden="true">
+        <span className="finish-disc" />
+        <Figure pose="cheer" size={210} className={quiet ? undefined : 'pop'} />
+      </div>
+      <span className="hand finish-hand" aria-hidden="true">
+        nice work!
+      </span>
       <div className="card raised finish-card">
-        <span className={`disc${quiet ? '' : ' pop'}`}>
-          <svg width="26" height="26" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <path d="M4 10.5 8.5 15 16 5.5" />
-          </svg>
-        </span>
         <div className="finish-head">Session done</div>
         <div className="finish-sub mono">
           {summary.name} · {formatClock(summary.ms)}

@@ -1,132 +1,136 @@
 /* ==========================================================================
-   Stride — the visual system.
+   Stride — the visual system. "Ink & mint".
+
+   A gym notebook: warm dotted paper, thick ink outlines, hard sticker shadows,
+   and one accent — the mint — used as a FILL, never as body text. A cast of
+   stick figures (figures.tsx) trains around the pages; ink does their bodies
+   and mint does their kit, so they follow the theme like everything else.
 
    Mobile-first. One column, 44px minimum tap targets, 16px inputs (anything
    smaller makes iOS Safari zoom on focus), and safe-area insets so the bottom
    nav clears the home indicator. It scales up to a phone-width column on a
    desktop rather than sprawling.
 
-   Two typefaces, and the split is a rule rather than a taste: Archivo says
-   words, IBM Plex Mono says NUMBERS. If a string contains a quantity the reader
-   cares about — a set target, a counter, a time, a percentage, a permission key
-   — it is mono, so a column of them lines up and a number never reflows as you
-   type into it.
+   Three typefaces, and the split is a rule rather than a taste: Bricolage
+   Grotesque says words, DM Mono says NUMBERS — a set target, a counter, a time,
+   a percentage, a permission key — so a column of them lines up and a number
+   never reflows as you type into it. Caveat Brush is the pencil in the margin:
+   an aside beside a figure, never a label, never anything you need to read.
 
-   Dark is the default and light resolves automatically from the OS. There is no
-   toggle: an `data-theme="dark|light"` attribute on the root overrides it if a
-   host ever needs to pin one.
+   Paper is the default and the chalkboard resolves automatically from the OS.
+   There is no toggle: a `data-theme="dark|light"` attribute on the root
+   overrides it if a host ever needs to pin one.
+
+   THE MINT IS A FILL. #7fd08a on paper is about 1.7:1 — unreadable as text. So
+   there are two accent tokens: `--accent` fills things and carries `--on-accent`
+   text; `--accent-ink` is the deep green that may be SET as text (a ghost
+   button, a back link). On the chalkboard the mint is readable, and they meet.
    ========================================================================== */
 
 :root {
-  --bg: #0d0f12;
-  --bg-deep: #0b0d10;
-  --surface: #14171c;
-  --surface-hi: #15191f;
-  --surface-2: #1b1f26;
-  --surface-low: #101318;
-  --tabbar: #111419;
-  --tint: #132018;
-  --line: #22262d;
-  --line-2: #232830;
-  --line-strong: #2a2f3a;
-  --line-accent: #2b4634;
-  --text: #e9ecef;
-  --muted: #8b93a1;
-  --faint: #4a5160;
+  --bg: #f4f1e8;
+  --bg-deep: #f4f1e8;
+  --dot: rgba(23, 24, 26, 0.13);
+  --surface: #fffdf8;
+  --surface-hi: #fffdf8;
+  --surface-2: #ece8dc;
+  --surface-low: #efebdf;
+  --tabbar: #fffdf8;
+  --ink: #17181a;
+  --shadow-ink: #17181a;
+  --tint: #cdeed2;
+  --line: #d3cfc2;
+  --line-2: #d3cfc2;
+  --text: #17181a;
+  --muted: #565a52;
+  --faint: #a5a296;
   --accent: #7fd08a;
-  --on-accent: #0b1a10;
-  --good: #7fd08a;
-  --warn: #d9b36a;
-  --deny: #e07a7a;
-  --on-deny: #2a0f0f;
-  --share: #8cabf0;
-  --tint-good: #12211a;
-  --tint-warn: #241d13;
-  --tint-deny: #2a1618;
-  --tint-share: #141b2b;
-  --line-good: #2b4634;
-  --line-warn: #5a4a24;
-  --line-deny: #5c2f2f;
-  --line-share: #2f4165;
-  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.4);
+  --on-accent: #17181a;
+  --accent-ink: #25703b;
+  --good: #25703b;
+  --warn: #8a6210;
+  --warn-fill: #f2c14e;
+  --deny: #b33f3f;
+  --deny-fill: #ee8a80;
+  --share: #2f55ad;
+  --share-fill: #a9c1f7;
+  --tint-good: #cdeed2;
+  --tint-warn: #f7e9c4;
+  --tint-deny: #f8dcd8;
+  --tint-share: #dbe5fa;
+  /* What sits ON a mint surface is the same in both themes: the mint does not
+     change, so neither does what is readable on it. */
+  --paper-white: #fffdf8;
 
-  --radius: 14px;
-  --radius-card: 18px;
-  --font: 'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bw: 2.5px;
+  --radius: 16px;
+  --radius-card: 20px;
+  --shadow-card: 3px 3px 0 var(--shadow-ink);
+  --shadow-raised: 5px 5px 0 var(--shadow-ink);
+  --font: 'Bricolage Grotesque', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --hand: 'Caveat Brush', 'Bradley Hand', cursive;
 }
 
-/* The light set is not a tint of the dark one: the accent is deliberately
-   DARKER (#35854A) so accent-on-tint text keeps its contrast, and --on-accent
-   flips with it. */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme='dark']) {
-    --bg: #f6f7f4;
-    --bg-deep: #f1f2ee;
-    --surface: #ffffff;
-    --surface-hi: #ffffff;
-    --surface-2: #edefe9;
-    --surface-low: #f4f6f1;
-    --tabbar: #fbfcfa;
-    --tint: #e3f1e5;
-    --line: #dde1d8;
-    --line-2: #e2e5dd;
-    --line-strong: #cbd0c5;
-    --line-accent: #afd4b6;
-    --text: #1c211c;
-    --muted: #67706a;
-    --faint: #a9afa6;
-    --accent: #35854a;
-    --on-accent: #f4faf5;
-    --good: #35854a;
-    --warn: #8f6a1c;
-    --deny: #bc4a4a;
-    --on-deny: #fff1f1;
-    --share: #3d62b8;
-    --tint-good: #e3f1e5;
-    --tint-warn: #f6eeda;
-    --tint-deny: #f9e5e5;
-    --tint-share: #e7edfa;
-    --line-good: #afd4b6;
-    --line-warn: #dfcb97;
-    --line-deny: #e8bdbd;
-    --line-share: #bfceec;
-    --shadow-card: 0 10px 28px rgba(45, 60, 48, 0.1);
+/* The chalkboard. Not an inversion: the outlines turn to chalk, the shadows go
+   to black (a chalk-coloured hard shadow shouts), and the mint stays exactly
+   where it was. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #131518;
+    --bg-deep: #131518;
+    --dot: rgba(239, 236, 226, 0.07);
+    --surface: #1b1e23;
+    --surface-hi: #1f2328;
+    --surface-2: #2a2e35;
+    --surface-low: #171a1e;
+    --tabbar: #1b1e23;
+    --ink: #efece2;
+    --shadow-ink: #000000;
+    --tint: #1f3526;
+    --line: #363b43;
+    --line-2: #363b43;
+    --text: #efece2;
+    --muted: #a0a59c;
+    --faint: #5b6068;
+    --accent-ink: #7fd08a;
+    --good: #7fd08a;
+    --warn: #e0bb6c;
+    --deny: #ee8a80;
+    --share: #94b2f5;
+    --tint-good: #1f3526;
+    --tint-warn: #33290f;
+    --tint-deny: #3a1c1b;
+    --tint-share: #1a2440;
   }
 }
 
-:root[data-theme='light'] {
-  --bg: #f6f7f4;
-  --bg-deep: #f1f2ee;
-  --surface: #ffffff;
-  --surface-hi: #ffffff;
-  --surface-2: #edefe9;
-  --surface-low: #f4f6f1;
-  --tabbar: #fbfcfa;
-  --tint: #e3f1e5;
-  --line: #dde1d8;
-  --line-2: #e2e5dd;
-  --line-strong: #cbd0c5;
-  --line-accent: #afd4b6;
-  --text: #1c211c;
-  --muted: #67706a;
-  --faint: #a9afa6;
-  --accent: #35854a;
-  --on-accent: #f4faf5;
-  --good: #35854a;
-  --warn: #8f6a1c;
-  --deny: #bc4a4a;
-  --on-deny: #fff1f1;
-  --share: #3d62b8;
-  --tint-good: #e3f1e5;
-  --tint-warn: #f6eeda;
-  --tint-deny: #f9e5e5;
-  --tint-share: #e7edfa;
-  --line-good: #afd4b6;
-  --line-warn: #dfcb97;
-  --line-deny: #e8bdbd;
-  --line-share: #bfceec;
-  --shadow-card: 0 10px 28px rgba(45, 60, 48, 0.1);
+:root[data-theme='dark'] {
+  --bg: #131518;
+  --bg-deep: #131518;
+  --dot: rgba(239, 236, 226, 0.07);
+  --surface: #1b1e23;
+  --surface-hi: #1f2328;
+  --surface-2: #2a2e35;
+  --surface-low: #171a1e;
+  --tabbar: #1b1e23;
+  --ink: #efece2;
+  --shadow-ink: #000000;
+  --tint: #1f3526;
+  --line: #363b43;
+  --line-2: #363b43;
+  --text: #efece2;
+  --muted: #a0a59c;
+  --faint: #5b6068;
+  --accent-ink: #7fd08a;
+  --good: #7fd08a;
+  --warn: #e0bb6c;
+  --deny: #ee8a80;
+  --share: #94b2f5;
+  --tint-good: #1f3526;
+  --tint-warn: #33290f;
+  --tint-deny: #3a1c1b;
+  --tint-share: #1a2440;
 }
 
 * { box-sizing: border-box; }
@@ -135,7 +139,11 @@ html, body, #root { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--bg-deep);
+  /* The notebook's dot grid. On the body, not on `.app`, so the rail and the
+     gutters of a wide window are the same sheet of paper as the column. */
+  background-color: var(--bg-deep);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1.2px);
+  background-size: 18px 18px;
   color: var(--text);
   font: 400 15px/1.5 var(--font);
   -webkit-font-smoothing: antialiased;
@@ -148,45 +156,99 @@ body {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--bg-deep);
 }
 
-/* Every control is reachable by keyboard and says so. On an accent-filled
-   surface the ring flips to --text, because accent-on-accent is invisible. */
+/* Every control is reachable by keyboard and says so. The ring is the deep
+   green, not the mint: a focus ring nobody can see is not a focus ring. */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 3px solid var(--accent-ink);
   outline-offset: 2px;
 }
-.primary:focus-visible,
-.send:focus-visible {
-  outline-color: var(--text);
+
+/* No identity bar. NOTHING sits above a screen's own title, and identity lives
+   in the profile card on Me. The safe-area inset is here because `main` is what
+   meets the notch. */
+main { flex: 1; padding: calc(env(safe-area-inset-top) + 16px) 16px 120px; }
+
+/* --- the cast -------------------------------------------------------------
+   See figures.tsx. Three custom properties so a figure can be re-inked by
+   whatever it stands on: on a mint surface the body must be dark in BOTH
+   themes (chalk on mint is unreadable), and the head and kit go paper-white so
+   they do not vanish into the fill. */
+.fig {
+  display: block;
+  flex: none;
+  overflow: visible;
+  fill: none;
+  stroke: var(--fig-ink, var(--ink));
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fig .fig-head { fill: var(--fig-head, var(--surface)); }
+.fig .fig-kit { fill: var(--fig-kit, var(--accent)); stroke-width: 3.5; }
+.fig .fig-band { stroke: var(--fig-kit, var(--accent)); stroke-width: 5.5; }
+.fig .fig-thin { stroke-width: 3; }
+.fig .fig-eye { fill: var(--fig-ink, var(--ink)); stroke: none; }
+.fig.mini { stroke-width: 9; }
+.fig.mini .fig-kit { stroke-width: 6; }
+.fig.mini .fig-eye, .fig.mini .fig-thin, .fig.mini .fig-band { display: none; }
+
+/* Anything mint re-inks the figures inside it. */
+.on-mint,
+.fig-tile,
+.card.hero,
+.earned-card,
+.finish-earned {
+  --fig-ink: var(--on-accent);
+  --fig-head: var(--paper-white);
+  --fig-kit: var(--paper-white);
 }
 
-/* No identity bar. The design puts NOTHING above a screen's own title — every
-   artboard is status bar → "Today"/"Me" → content — and identity lives in the
-   profile card on Me. The bar that used to sit here was the dev persona picker;
-   "SIGNED IN · Sign out" was only the other half of its ternary, so removing the
-   picker left a strip the canvas never asked for, duplicating what Me already says.
+/* The thumbnail beside an exercise's name. */
+.fig-tile {
+  display: flex; align-items: center; justify-content: center;
+  flex: none;
+  border-radius: 14px;
+  background: var(--accent);
+  border: var(--bw) solid var(--ink);
+}
 
-   Its safe-area inset moves here, because `main` is now what meets the notch. */
-main { flex: 1; padding: calc(env(safe-area-inset-top) + 12px) 16px 110px; }
+/* A figure STANDING ON the top edge of its card. `--s` is its size; the feet
+   are at 90% of it, so the box hangs 10% below the edge, less the border. */
+.has-topfig { position: relative; margin-top: 84px; }
+.topfig {
+  position: absolute;
+  right: 18px;
+  bottom: 100%;
+  margin-bottom: calc(var(--s) * -0.1 + 3px);
+  pointer-events: none;
+}
+
+/* The pencil in the margin. Decoration — `aria-hidden` wherever it is used. */
+.hand {
+  font: 400 22px/1 var(--hand);
+  color: var(--text);
+  transform: rotate(-4deg);
+  display: inline-block;
+}
 
 /* --- type ----------------------------------------------------------------- */
 h1 {
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  margin: 4px 0 12px;
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  margin: 4px 0 14px;
 }
-/* A section label, not a heading in a document: it is what keeps a screen from
-   reading as a settings dump. */
+/* A section heading. It used to be a small caps label; on paper the borders do
+   the separating, so the heading can simply be a heading. */
 h2 {
-  font: 600 11px var(--font);
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 20px 0 10px;
-  padding: 0 4px;
+  font: 800 19px/1.2 var(--font);
+  letter-spacing: -0.015em;
+  color: var(--text);
+  margin: 26px 0 12px;
+  padding: 0 2px;
 }
 
 .muted { color: var(--muted); }
@@ -195,19 +257,60 @@ h2 {
 /* --- cards ---------------------------------------------------------------- */
 .card {
   background: var(--surface);
-  border: 1px solid var(--line-2);
+  border: var(--bw) solid var(--ink);
   border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
   padding: 14px 16px;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
-/* Raised = what you came here to do. One step up in surface, one shadow, and at
-   most one per screen — the moment it is on everything it means nothing. */
+/* Raised = what you came here to do. A deeper shadow, and at most one per
+   screen — the moment it is on everything it means nothing. */
 .card.raised {
   background: var(--surface-hi);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-raised);
   padding: 18px 16px;
 }
-.card.accent { border-color: var(--line-accent); }
+/* Accent = worth a second look, without shouting: the shadow turns mint. */
+.card.accent { box-shadow: 4px 4px 0 var(--accent); }
+
+/* HERO = the one mint card. What's next on Today, the baseline offer. The
+   tokens are re-pointed inside it rather than every child being restyled: text,
+   muted text and outlines all become what is readable on mint, in both themes. */
+.card.hero {
+  position: relative;
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-raised);
+  border-radius: 24px;
+  padding: 18px;
+  --text: var(--on-accent);
+  --muted: #1d3a24;
+  --ink: var(--on-accent);
+  --accent-ink: var(--on-accent);
+}
+.card.hero button.primary {
+  background: var(--on-accent);
+  border-color: var(--on-accent);
+  color: var(--paper-white);
+  box-shadow: none;
+}
+.card.hero .badge.time { background: var(--on-accent); color: var(--paper-white); }
+.hero-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.hero-label {
+  font: 500 12px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* The figure stands ON the button: the button is 54px tall and the card pads
+   18px under it, so its top edge is 72px up; the feet are 10% into the figure. */
+.card.hero.has-fig { margin-top: 28px; }
+.card.hero.has-fig .hero-text { padding-right: 140px; min-height: 104px; }
+.hero-fig {
+  position: absolute;
+  right: 6px;
+  bottom: calc(72px - var(--s) * 0.1 + 2px);
+  pointer-events: none;
+}
 
 /* A tappable card is a real <button>: reachable by keyboard and by a screen
    reader, not a div that happens to have an onClick. */
@@ -215,131 +318,124 @@ h2 {
   display: block; width: 100%; text-align: left; cursor: pointer;
   font: inherit; color: inherit; min-height: 0;
 }
-.card.tappable:active { background: var(--surface-2); }
-.card.tappable.chosen { border-color: var(--line-accent); background: var(--tint); }
+.card.tappable:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--shadow-ink); background: var(--surface); }
+.card.tappable.chosen { background: var(--tint); }
+/* A card with a figure tile down its left edge. */
+.with-fig { display: flex; align-items: center; gap: 14px; }
+.card.tappable.with-fig { display: flex; padding: 11px 14px 11px 11px; }
+.with-fig > .grow { flex: 1; min-width: 0; }
 
 .row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .row.center { align-items: center; }
-.title { font-size: 16px; font-weight: 600; }
-.title.big { font-size: 20px; }
+.title { font-size: 17px; font-weight: 700; }
+.title.big { font-size: 27px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.04; display: block; }
 .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
 /* The quantity line — "4 × 12 @ 60 kg". Mono because it is numbers. */
-.sub.mono { font: 500 14px var(--mono); margin-top: 4px; }
-.quantity { font: 500 15px var(--mono); color: var(--text); margin-top: 6px; }
+.sub.mono { font: 400 14px var(--mono); margin-top: 4px; }
+.quantity { font: 400 15px var(--mono); color: var(--text); margin-top: 4px; }
 
-/* "2/4" — done count in accent, the total in muted. Two colours, one glance. */
-.counter { font: 600 16px var(--mono); color: var(--muted); }
-.counter b { color: var(--accent); font-weight: 600; }
+/* "2/4" — done count strong, the total muted. */
+.counter { font: 500 16px var(--mono); color: var(--muted); }
+.counter b { color: var(--text); font-weight: 500; }
 
 /* --- grouped list card ----------------------------------------------------
-   Several rows that belong to one thing: one card, hairlines between rows, no
-   gaps. Used for "booked this week", the coach roster, a trainee's programmes. */
+   Several rows that belong to one thing: one card, dashed rules between rows,
+   no gaps. */
 .list {
   background: var(--surface);
-  border: 1px solid var(--line-2);
+  border: var(--bw) solid var(--ink);
   border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
-.list.nested { border-radius: 12px; margin: 10px 0 0; }
+.list.nested { border-radius: 14px; border-width: 2px; box-shadow: none; margin: 10px 0 0; }
 .list .rowbtn {
   display: flex; width: 100%; align-items: center; justify-content: space-between;
-  gap: 10px; padding: 13px 16px; min-height: 48px;
-  background: transparent; border: 0; border-bottom: 1px solid var(--line-2);
-  border-radius: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  gap: 10px; padding: 13px 16px; min-height: 52px;
+  background: transparent; border: 0; border-bottom: 2px dashed var(--line-2);
+  border-radius: 0; box-shadow: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .list.nested .rowbtn { padding: 11px 13px; min-height: 44px; }
 .list .rowbtn:last-child { border-bottom: 0; }
 .list .rowbtn:active { background: var(--surface-2); }
-.list .rowbtn:focus-visible { outline-offset: -2px; }
-.list .rowbtn .name { font-size: 15px; font-weight: 500; }
+.list .rowbtn:focus-visible { outline-offset: -3px; }
+.list .rowbtn .name { font-size: 16px; font-weight: 700; }
 .list.nested .rowbtn .name { font-size: 14px; }
-.list .rowbtn .sub { display: block; color: var(--muted); font-size: 13px; }
+.list .rowbtn .sub { display: block; color: var(--muted); font-size: 13px; font-weight: 400; }
 .list .rowbtn .right { display: flex; align-items: center; gap: 10px; }
-.list .rowbtn .when { font: 500 14px var(--mono); color: var(--muted); }
-.chev { color: var(--faint); }
+.list .rowbtn .when { font: 400 14px var(--mono); color: var(--text); }
+.chev { color: var(--text); font-weight: 700; }
 
 /* --- avatars -------------------------------------------------------------- */
 .avatar {
-  width: 36px; height: 36px; flex: none;
+  width: 38px; height: 38px; flex: none;
   border-radius: 999px;
   background: var(--surface-2);
-  color: var(--muted);
+  border: 2px solid var(--ink);
+  color: var(--text);
   display: flex; align-items: center; justify-content: center;
-  font: 600 13px var(--font);
+  font: 500 13px var(--mono);
 }
-.avatar.lg { width: 52px; height: 52px; font-size: 18px; }
-.avatar.me {
-  background: var(--tint);
-  border: 1px solid var(--line-accent);
-  color: var(--accent);
-}
+.avatar.lg { width: 54px; height: 54px; font-size: 17px; border-width: var(--bw); }
+.avatar.me { background: var(--accent); color: var(--on-accent); }
 .person { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.person .name { font-size: 16px; font-weight: 600; }
+.person .name { font-size: 17px; font-weight: 700; }
 .person .sub { display: block; color: var(--muted); font-size: 13px; margin: 0; }
 
 /* --- badges ---------------------------------------------------------------
-   Two families. A LABEL badge (shared / private / earned / retired) is mono,
-   because it names a row's provenance and sits in a column of them. A STATUS
-   badge (planned / in progress / completed) is uppercase Archivo, because it is
-   a word about a state machine, not a quantity. */
+   Stickers. Every badge is mono with an ink outline; the FILL says which one it
+   is, and the word inside always says it too — colour is never the only signal. */
 .badge {
   display: inline-block;
-  font: 500 12px var(--mono);
-  padding: 4px 9px;
+  font: 400 12px var(--mono);
+  padding: 3px 9px;
   border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  color: var(--muted);
+  border: 2px solid var(--ink);
+  color: var(--text);
   white-space: nowrap;
 }
 .badge.mono { font-variant-numeric: tabular-nums; }
-.badge.shared { color: var(--share); background: var(--tint-share); border-color: var(--line-share); }
-.badge.private { color: var(--warn); background: var(--tint-warn); border-color: var(--line-warn); }
-.badge.earned { color: var(--good); background: var(--tint-good); border-color: var(--line-good); }
-.badge.retired { color: var(--deny); background: var(--tint-deny); border-color: var(--line-deny); }
+.badge.shared { background: var(--tint-share); }
+.badge.private { background: var(--tint-warn); }
+.badge.earned { background: var(--accent); color: var(--on-accent); }
+.badge.retired { background: var(--tint-deny); }
 
-.badge.planned,
-.badge.in_progress,
+.badge.planned { background: transparent; border-style: dashed; }
+.badge.in_progress { background: var(--accent); color: var(--on-accent); }
 .badge.completed,
-.badge.closed {
-  font: 600 11px var(--font);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.badge.planned { color: var(--muted); background: transparent; border-color: var(--line-strong); }
-.badge.in_progress { color: var(--accent); background: var(--tint); border-color: var(--line-accent); }
-.badge.completed,
-.badge.closed { color: var(--share); background: var(--tint-share); border-color: var(--line-share); }
+.badge.closed { background: var(--tint-share); }
 
-/* The booked time on the raised card — the one badge that is read from across
-   the room, so it is a size up. */
+/* The booked time on the hero card — read from across the room, so it is the
+   one inverted badge. */
 .badge.time {
-  font: 600 14px var(--mono);
-  color: var(--accent);
-  background: var(--tint);
-  border-color: var(--line-accent);
-  padding: 5px 12px;
+  font: 500 14px var(--mono);
+  color: var(--bg);
+  background: var(--ink);
+  padding: 3px 11px;
 }
 
 /* The superset position — A1, A2. A tag, not a badge: it is an index. */
 .tag {
-  font: 600 11px var(--mono);
-  color: var(--on-accent);
-  background: var(--accent);
-  border-radius: 5px;
+  font: 500 11px var(--mono);
+  color: var(--bg);
+  background: var(--ink);
+  border-radius: 6px;
   padding: 2px 6px;
 }
 
 /* --- buttons --------------------------------------------------------------
    Four levels and they are not interchangeable. "Finish this block" is a
    DEFAULT button on purpose: closing a block is optional, and a standing
-   workout that never ends is the normal case, not an unfinished one. */
+   workout that never ends is the normal case, not an unfinished one.
+
+   Only the PRIMARY casts a shadow, and pressing it pushes it into the page. */
 button {
-  font: 500 15px var(--font);
+  font: 700 15px var(--font);
   min-height: 48px;
-  border-radius: 12px;
-  border: 1px solid var(--line-strong);
-  background: transparent;
+  border-radius: 14px;
+  border: var(--bw) solid var(--ink);
+  background: var(--surface);
   color: var(--text);
   padding: 0 16px;
   cursor: pointer;
@@ -348,40 +444,43 @@ button:active { background: var(--surface-2); }
 button:disabled { opacity: 0.45; cursor: default; }
 button.primary {
   background: var(--accent);
-  border-color: var(--accent);
   color: var(--on-accent);
-  font: 600 16px var(--font);
-  min-height: 52px;
+  font: 700 17px var(--font);
+  min-height: 54px;
   border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
 }
-button.primary:active { background: var(--accent); filter: brightness(0.94); }
+button.primary:active { background: var(--accent); transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--shadow-ink); }
+button.primary:disabled { transform: none; box-shadow: var(--shadow-card); }
 button.wide { width: 100%; }
-/* A default button whose LABEL is the accent — used where the action is an
-   invitation to talk rather than the screen's main move. */
-button.accent-text { color: var(--accent); min-height: 44px; }
-button.ghost { background: transparent; border-color: transparent; color: var(--accent); }
+/* A default button whose LABEL is the accent — an invitation to talk rather
+   than the screen's main move. */
+button.accent-text { color: var(--accent-ink); min-height: 44px; }
+button.ghost { background: transparent; border-color: transparent; color: var(--accent-ink); }
 /* Beside a title rather than under it, so it does not read as the card's action. */
-button.small { min-height: 32px; padding: 0 10px; font: 600 13px var(--font); }
-button.danger { color: var(--deny); border-color: var(--line-deny); }
+button.small { min-height: 32px; padding: 0 10px; font: 700 13px var(--font); border-width: 2px; }
+button.ghost.small { border-color: transparent; }
+button.danger { color: var(--deny); border-color: var(--deny); }
 button.ghost.danger { border-color: transparent; }
-/* A quiet call to action in an empty state: tinted, never a full accent fill. */
+/* A quiet call to action in an empty state. */
 button.tinted {
-  background: var(--tint);
-  border-color: var(--line-accent);
-  color: var(--accent);
-  font: 600 15px var(--font);
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-card);
 }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+button.tinted:active { background: var(--accent); transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--shadow-ink); }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
 
 .back {
-  background: transparent; border: 0; color: var(--accent);
-  padding: 0; min-height: 36px; font-size: 15px;
+  background: transparent; border: 0; color: var(--accent-ink);
+  padding: 0; min-height: 36px; font-size: 15px; font-weight: 700;
 }
+.back:active { background: transparent; }
 
 /* --- forms ---------------------------------------------------------------- */
 label {
   display: block;
-  font: 600 11px var(--font);
+  font: 400 12px var(--mono);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -389,27 +488,26 @@ label {
 }
 input, select, textarea {
   width: 100%;
-  min-height: 48px;
+  min-height: 50px;
   font: 400 16px var(--font); /* below 16 and iOS zooms on focus */
   color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
+  background: var(--surface);
+  border: var(--bw) solid var(--ink);
+  border-radius: 14px;
   padding: 10px 14px;
 }
+input::placeholder, textarea::placeholder { color: var(--faint); }
 input:focus-visible, select:focus-visible, textarea:focus-visible {
-  border-color: var(--accent);
-  outline: 1px solid var(--accent);
+  outline: 3px solid var(--accent);
   outline-offset: 0;
+  box-shadow: 3px 3px 0 var(--shadow-ink);
 }
 textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
 
-
 /* --- reshaping one prescription row ----------------------------------------
    A grid rather than a stack: set number, quantity, load, and the − that drops
-   the row, all on one line, because a ramp is read down a column. The inputs
-   keep the 16px floor that stops iOS zooming on focus. */
-.item-editor { margin-top: 10px; border-top: 1px solid var(--line-2); }
+   the row, all on one line, because a ramp is read down a column. */
+.item-editor { margin-top: 10px; border-top: 2px dashed var(--line-2); }
 .item-editor .editor-row {
   display: grid;
   grid-template-columns: 20px 1fr 1fr 44px;
@@ -417,25 +515,24 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
   gap: 8px;
   margin-top: 8px;
 }
-.item-editor .editor-no { color: var(--muted); font-size: 13px; text-align: center; }
-.item-editor input { min-height: 44px; }
+.item-editor .editor-no { color: var(--muted); font: 400 13px var(--mono); text-align: center; }
+.item-editor input { min-height: 44px; font-family: var(--mono); }
 .item-editor .editor-row button.ghost {
   min-height: 44px;
   padding: 0;
-  font: 600 20px var(--font);
+  font: 700 20px var(--font);
 }
 
 .search { margin-top: 10px; }
-.search::-webkit-search-cancel-button { filter: invert(0.6); }
 
 /* The set logger: three numeric fields side by side, thumb-sized, mono, and
    centred — the number is the whole content of the field. */
 .setgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .setgrid input {
   text-align: center;
-  font: 500 20px var(--mono);
+  font: 500 21px var(--mono);
   font-variant-numeric: tabular-nums;
-  min-height: 52px;
+  min-height: 54px;
   padding: 0 6px;
 }
 .setgrid label { text-align: center; margin: 0 0 5px; }
@@ -445,84 +542,85 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
    a filter you can press. */
 .sets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .pill {
-  font: 500 13px var(--mono);
+  font: 400 13px var(--mono);
   font-variant-numeric: tabular-nums;
-  background: var(--surface-2);
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 5px 10px;
-  color: var(--muted);
-}
-/* A performed set is filled, not outlined: it is done, and the card should read
-   at arm's length. */
-.pill.done { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-
-.chip {
-  font: 500 12px var(--font);
-  background: var(--surface-2);
-  border: 1px solid transparent;
+  background: transparent;
+  border: 2px dashed var(--faint);
   border-radius: 999px;
   padding: 4px 10px;
   color: var(--muted);
 }
+/* A performed set is filled and inked, a target is a pencilled outline: done
+   and not-done read at arm's length. */
+.pill.done { background: var(--accent); color: var(--on-accent); border: 2px solid var(--ink); }
+
+.chip {
+  font: 600 12.5px var(--font);
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 3px 10px;
+  color: var(--text);
+}
 /* A missing piece of kit is DIMMED, never hidden — you may still read the
    exercise, you just cannot do it today. Equipment is advice, not a permission,
    and hiding the row would be a second, weaker access rule beside the real one. */
-.chip.missing { opacity: 0.45; }
+.chip.missing { opacity: 0.5; border-style: dashed; }
 
 .pill.toggle {
-  min-height: 36px;
-  padding: 0 13px;
-  font: 500 13px var(--font);
-  background: transparent;
-  border: 1px solid var(--line-strong);
+  min-height: 38px;
+  padding: 0 14px;
+  font: 600 13.5px var(--font);
+  background: var(--surface);
+  border: 2px solid var(--ink);
   border-radius: 999px;
-  color: var(--muted);
+  color: var(--text);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
 }
 .pill.toggle.on {
-  background: var(--tint);
-  border-color: var(--line-accent);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 var(--shadow-ink);
 }
 .pill.toggle:disabled { opacity: 0.45; }
 
-/* The filter row above the results: square-ish buttons, same selected treatment
-   as the pills so "on" reads identically wherever it appears. */
-.filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+/* The filter row above the results: same selected treatment as the pills so
+   "on" reads identically wherever it appears. */
+.filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
 .filters button {
   min-height: 40px;
   padding: 0 14px;
-  font: 500 14px var(--font);
-  border-radius: 10px;
+  font: 600 14px var(--font);
+  border-width: 2px;
+  border-radius: 12px;
 }
 .filters button.on {
-  background: var(--tint);
-  border-color: var(--line-accent);
-  color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 2px 2px 0 var(--shadow-ink);
 }
-.filters .count { margin-left: auto; font: 500 13px var(--mono); color: var(--muted); }
+.filters .count { margin-left: auto; font: 400 13px var(--mono); color: var(--muted); }
 
 /* --- the superset ---------------------------------------------------------
    Drawn as one bracketed block so "back to back" is visible rather than stated:
-   the container is the grouping, and the A1/A2 tags say the order. */
+   the dashed container is the grouping, and the A1/A2 tags say the order. */
 .superset {
   background: var(--surface-low);
-  border: 1px solid var(--line-accent);
-  border-radius: var(--radius-card);
+  border: var(--bw) dashed var(--ink);
+  border-radius: 24px;
   padding: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 .superset-label {
-  font: 600 11px var(--font);
-  color: var(--accent);
+  font: 400 12px var(--mono);
+  color: var(--text);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  padding: 2px 4px 8px;
+  padding: 2px 4px 10px;
 }
-.superset .card { border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+.superset .card { border-radius: 16px; padding: 12px 14px; margin-bottom: 10px; }
 .superset .card:last-child { margin-bottom: 0; }
 
 /* --- the adherence ring ---------------------------------------------------- */
@@ -531,12 +629,12 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
 .ring .value {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
-  font: 600 32px var(--mono);
+  font: 500 32px var(--mono);
   letter-spacing: -0.02em;
 }
 .ring .value small { font-size: 18px; color: var(--muted); }
 .stats { display: flex; flex-direction: column; gap: 12px; }
-.stat { font: 600 20px var(--mono); }
+.stat { font: 500 20px var(--mono); }
 .stat span { color: var(--muted); }
 .stat small { font-size: 14px; color: var(--muted); }
 .stat .label { display: block; font: 400 13px var(--font); color: var(--muted); }
@@ -546,24 +644,34 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
    in mono, and states plainly that nothing changed — never a crash, never a
    stack trace. */
 .banner {
-  /* 64px was the height of the identity bar that used to sit above. With no
-     header left, the banner stops below the notch instead. */
-  position: sticky; top: env(safe-area-inset-top); z-index: 15;
+  /* A toast in the lower right. On a phone "lower right" is the bottom of the
+     screen, so it spans the column and sits ABOVE the tab bar (about 78px, plus
+     the home indicator) rather than over it. Above the two full-screen session
+     moments too (z 40): "Session started" fires under the countdown, and a
+     toast nobody can see would simply time out unseen. */
+  position: fixed;
+  right: 16px;
+  left: 16px;
+  bottom: calc(env(safe-area-inset-bottom) + 102px);
+  z-index: 45;
+  max-width: 400px;
+  margin-left: auto;
   border-radius: var(--radius);
   padding: 12px 14px;
-  margin-bottom: 12px;
   font-size: 14px;
+  animation: toastIn 0.28s cubic-bezier(0.2, 1.2, 0.4, 1) both;
   line-height: 1.5;
   cursor: pointer;
-  border: 1px solid var(--line-2);
+  border: var(--bw) solid var(--ink);
+  box-shadow: var(--shadow-card);
   background: var(--surface);
 }
-.banner.deny { background: var(--tint-deny); border-color: var(--line-deny); }
-.banner.error { background: var(--tint-warn); border-color: var(--line-warn); }
-.banner.good { background: var(--tint-good); border-color: var(--line-good); }
+.banner.deny { background: var(--tint-deny); }
+.banner.error { background: var(--tint-warn); }
+.banner.good { background: var(--tint-good); }
 .banner .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .banner b {
-  font: 600 11px var(--font);
+  font: 500 12px var(--mono);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -572,45 +680,53 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
 .banner.good b { color: var(--good); }
 .banner .perm { font: 500 11px var(--mono); white-space: nowrap; }
 .banner .body { margin-top: 4px; }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* The earned moment. Performing an exercise once links it to you permanently —
-   a kernel walk, not a WHERE clause — so it is worth one quiet celebration. */
+   a kernel walk, not a WHERE clause — so it is worth one celebration. */
 .earned-card {
-  background: var(--tint-good);
-  border: 1px solid var(--line-good);
+  background: var(--accent);
+  color: var(--on-accent);
+  border: var(--bw) solid var(--ink);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
-  padding: 20px 16px;
-  margin-bottom: 10px;
+  box-shadow: var(--shadow-raised);
+  padding: 8px 16px 20px;
+  margin-bottom: 14px;
   text-align: center;
   cursor: pointer;
 }
-.earned-card .disc {
-  display: inline-flex; width: 44px; height: 44px;
-  border-radius: 999px;
-  background: var(--good); color: var(--on-accent);
-  align-items: center; justify-content: center;
-}
-.earned-card .head { font-size: 19px; font-weight: 700; margin-top: 10px; }
-.earned-card .what { font: 500 14px var(--mono); color: var(--good); margin-top: 4px; }
-.earned-card .why { color: var(--muted); font-size: 14px; line-height: 1.5; margin-top: 8px; }
+.earned-card .fig { margin: 0 auto; }
+.earned-card .head { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; margin-top: 2px; }
+.earned-card .what { font: 500 14px var(--mono); margin-top: 4px; }
+.earned-card .why { font-size: 14px; line-height: 1.5; margin-top: 8px; }
 
 /* --- empty states ---------------------------------------------------------
-   An empty list is an open door onto an empty room, not an error: it gets a card
-   and a sentence about what would fill it. */
+   An empty list is an open door onto an empty room, not an error: it gets a
+   pencilled card, someone lying down in it, and a sentence about what would
+   fill it. */
 .empty {
   background: var(--surface);
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-card);
-  padding: 28px 24px;
-  margin-bottom: 10px;
+  border: var(--bw) dashed var(--ink);
+  border-radius: 24px;
+  padding: 10px 24px 26px;
+  margin-bottom: 14px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 14.5px;
   line-height: 1.5;
   text-align: center;
+  text-wrap: pretty;
 }
-.empty b { color: var(--text); font-weight: 600; }
-.empty .head { display: block; color: var(--text); font-size: 17px; font-weight: 600; margin-bottom: 6px; }
+.empty .fig { margin: 0 auto -2px; }
+.empty b { color: var(--text); font-weight: 700; }
+.empty .head {
+  display: block; color: var(--text);
+  font-size: 22px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15;
+  margin-bottom: 6px;
+}
+.empty .actions { justify-content: center; }
 
 /* --- the conversation ------------------------------------------------------ */
 .thread { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
@@ -619,64 +735,82 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
   padding: 10px 13px;
   font-size: 15px;
   line-height: 1.45;
-  border: 1px solid var(--line-2);
+  border: 2px solid var(--ink);
   background: var(--surface);
 }
-.bubble.theirs { align-self: flex-start; border-radius: 16px 16px 16px 6px; }
+.bubble.theirs { align-self: flex-start; border-radius: 18px 18px 18px 6px; }
 .bubble.mine {
   align-self: flex-end;
-  background: var(--tint);
-  border-color: var(--line-accent);
-  border-radius: 16px 16px 6px 16px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border-radius: 18px 18px 6px 18px;
 }
-.bubble .stamp { font: 500 11px var(--mono); color: var(--muted); margin-top: 5px; }
-.bubble.mine .stamp { text-align: right; }
+.bubble .stamp { font: 400 11px var(--mono); color: var(--muted); margin-top: 5px; }
+.bubble.mine .stamp { text-align: right; color: var(--on-accent); opacity: 0.75; }
 
 .composer { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 10px; }
-.composer textarea { min-height: 48px; border-radius: var(--radius); }
+.composer textarea { min-height: 50px; border-radius: var(--radius); }
 .composer .send {
-  min-height: 48px; min-width: 48px; padding: 0;
+  min-height: 50px; min-width: 50px; padding: 0;
   flex: none;
-  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+  background: var(--accent); color: var(--on-accent);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
   display: flex; align-items: center; justify-content: center;
 }
 .composer .send:disabled { opacity: 0.45; }
 
-/* --- bottom nav ------------------------------------------------------------ */
+/* --- bottom nav ------------------------------------------------------------
+   The tab icons are the cast: a runner for Today, a lifter for Workouts,
+   someone waving for Me. The lit tab is a mint pill behind its figure. */
 nav.tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   max-width: 520px; margin: 0 auto;
   display: flex;
   background: var(--tabbar);
-  border-top: 1px solid var(--line-2);
-  padding-bottom: env(safe-area-inset-bottom);
+  border-top: var(--bw) solid var(--ink);
+  padding: 8px 8px calc(env(safe-area-inset-bottom) + 6px);
 }
 nav.tabs button {
-  flex: 1; min-width: 0; min-height: 56px;
+  flex: 1; min-width: 0; min-height: 60px;
   border: 0; background: transparent; border-radius: 0;
-  color: var(--muted);
-  font: 500 11px var(--font);
+  color: var(--text);
+  font: 600 12px var(--font);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 4px;
+  gap: 3px;
   padding: 0 2px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  overflow: visible; white-space: nowrap;
 }
 nav.tabs button:active { background: transparent; }
-nav.tabs button.on { color: var(--accent); font-weight: 600; }
-nav.tabs .glyph { display: flex; position: relative; }
+nav.tabs button.on { font-weight: 800; }
+nav.tabs .glyph {
+  display: flex; align-items: center; justify-content: center;
+  position: relative;
+  width: 62px; height: 36px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+}
+nav.tabs button.on .glyph {
+  background: var(--accent);
+  border-color: var(--ink);
+  box-shadow: 2px 2px 0 var(--shadow-ink);
+  --fig-ink: var(--on-accent);
+  --fig-head: var(--paper-white);
+  --fig-kit: var(--paper-white);
+}
 /* Unread rides the tab that LEADS to the conversation — a notification, not a
    destination of its own. */
 nav.tabs .dot {
-  position: absolute; top: -6px; left: 13px;
-  min-width: 16px; height: 16px; padding: 0 4px;
-  border-radius: 999px; background: var(--deny); color: var(--on-deny);
-  font: 700 10px/16px var(--font); text-align: center;
+  position: absolute; top: -7px; right: 2px;
+  min-width: 19px; height: 19px; padding: 0 4px;
+  border-radius: 999px; background: var(--deny-fill); color: #17181a;
+  border: 2px solid var(--ink);
+  font: 500 10px/15px var(--mono); text-align: center;
 }
 
 /* --- the signed-out gates --------------------------------------------------
    Not error states: an unclaimed gym and a valid login with no seat are both
-   normal, so they get the app's own type and a calm card — no red, no tabs. */
+   normal, so they get the app's own type, a calm card, and someone waving. */
 .gate {
   flex: 1;
   display: flex;
@@ -686,54 +820,51 @@ nav.tabs .dot {
   padding: 0 24px;
 }
 .gate .wordmark {
-  font: 600 13px var(--mono);
-  color: var(--accent);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font: 800 34px/1 var(--font);
+  letter-spacing: -0.04em;
+  text-transform: lowercase;
 }
 .gate .card { padding: 24px 20px; margin: 0; }
-.gate h1 { margin: 0; font-size: 21px; font-weight: 700; }
+.gate h1 { margin: 0; font-size: 26px; font-weight: 800; }
 .gate p {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   max-width: 34ch;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.55;
 }
 /* These are <a>, not <button>, so nothing centres the label for free. Centre it
    with flex rather than a line-height matching the height: the `font:` shorthand
-   RESETS line-height, so any such pair is silently undone by the very next line —
-   which is what pinned the label to the top of the button. Flex also survives a
-   label that wraps, where a 52px line-height would double the box. */
+   RESETS line-height, so any such pair is silently undone by the very next line.
+   Flex also survives a label that wraps. */
 .gate .primary,
 .gate .default {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 16px;
-  min-height: 52px;
+  margin-top: 18px;
+  min-height: 54px;
   padding: 8px 20px;
   border-radius: var(--radius);
+  border: var(--bw) solid var(--ink);
   background: var(--accent);
   color: var(--on-accent);
+  box-shadow: var(--shadow-card);
   text-align: center;
   text-decoration: none;
-  font: 600 16px var(--font);
+  font: 700 17px var(--font);
 }
 .gate .default {
   display: inline-flex;
   min-height: 48px;
-  background: transparent;
-  border: 1px solid var(--line-strong);
+  background: var(--surface);
   color: var(--text);
-  font: 500 15px var(--font);
-  border-radius: 12px;
+  box-shadow: none;
+  font: 700 15px var(--font);
+  border-radius: 14px;
 }
-/* The way out, at the foot of Me. The canvas draws no sign-out on any signed-in
-   screen — a gap in the handoff, not a decision, since an app needs one — so this
-   follows the ONE precedent it does set: the "Not a member here" gate signs you
-   out with the OUTLINE treatment, never the accent fill. Leaving is a way back,
-   not the thing to do. Same metrics as a default `button`. */
+/* The way out, at the foot of Me. The OUTLINE treatment, never the accent fill:
+   leaving is a way back, not the thing to do. Same metrics as a default button. */
 .signout {
   display: flex;
   align-items: center;
@@ -741,31 +872,59 @@ nav.tabs .dot {
   width: 100%;
   min-height: 48px;
   margin-top: 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
+  border: var(--bw) solid var(--ink);
+  border-radius: 14px;
+  background: var(--surface);
   color: var(--text);
   text-decoration: none;
-  font: 500 15px var(--font);
+  font: 700 15px var(--font);
 }
 
 /* The rail's two extras. Present in the markup always, shown only once there is
    a rail to put them in — the mobile bar carries neither. `.rail-user` needs the
-   full `nav.tabs button` selector to be hidden at all: it IS a button now, and
-   the rule above would otherwise out-specify a bare class. */
+   full `nav.tabs button` selector to be hidden at all: it IS a button, and the
+   rule above would otherwise out-specify a bare class. */
 .rail-mark { display: none; }
 nav.tabs button.rail-user { display: none; }
+
+/* --- the week ----------------------------------------------------------------
+   Seven days; the ones you train on are inked in, and a runner stands on today.
+   Read off the booked slots — it shows the PLAN for the week, not a record of
+   it, which is why a past day is never ticked. */
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  border-bottom: var(--bw) solid var(--ink);
+  padding-bottom: 10px;
+  margin-bottom: 18px;
+}
+.week-day {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 4px; height: 82px;
+}
+.week-letter { font: 400 12px var(--mono); color: var(--muted); }
+.week-dot {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: 999px;
+  border: var(--bw) solid transparent;
+  font: 400 13px var(--mono);
+}
+.week-dot::after { content: ''; width: 7px; height: 7px; border-radius: 999px; background: var(--faint); }
+.week-dot.booked { background: var(--accent); border-color: var(--ink); }
+.week-dot.booked::after { display: none; }
+.week-dot.today { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.week-dot.today::after { display: none; }
+.week-dot.today.booked { box-shadow: 0 0 0 3px var(--accent); }
 
 /* --- desktop: the same app in a different frame ----------------------------
    "Desktop is the same app, not a new layout" — so this is ONE breakpoint, not a
    second set of components. The tab bar becomes a left rail, the content keeps
    its 520px column, and everything inside that column is untouched.
 
-   A VIEWPORT query, never user-agent detection. What decides the layout is how
-   much room there is: a half-width desktop window genuinely has a phone's worth
-   of space and should get the phone's layout, while a tablet, a desktop-mode
-   browser or someone dragging a window edge would each defeat a UA guess. 900px
-   is the first width that fits the rail (216) + the column (520) + its gutters
-   (64) with room to spare. */
+   A VIEWPORT query, never user-agent detection. 900px is the first width that
+   fits the rail + the column + its gutters with room to spare. */
 @media (min-width: 900px) {
   .app {
     max-width: none;
@@ -776,11 +935,9 @@ nav.tabs button.rail-user { display: none; }
      not just overlaid, or the rail keeps the bar's anchoring. */
   nav.tabs {
     /* The rail is on the LEFT, but the nav is last in the DOM — correct for the
-       mobile bar, which is fixed to the bottom and so does not care about source
-       order. Turning the shell into a row made that order visible and put the
-       rail on the right. `order` fixes the picture without moving the nav in the
-       markup, which is worth keeping: the document still reads content-then-nav,
-       so a screen reader and the tab key reach the screen before the chrome. */
+       mobile bar. `order` fixes the picture without moving the nav in the
+       markup: the document still reads content-then-nav, so a screen reader and
+       the tab key reach the screen before the chrome. */
     order: -1;
     position: sticky;
     top: 0;
@@ -788,51 +945,63 @@ nav.tabs button.rail-user { display: none; }
     right: auto;
     bottom: auto;
     align-self: flex-start;
-    width: 216px;
+    width: 236px;
     max-width: none;
     height: 100vh;
     flex: none;
     margin: 0;
     flex-direction: column;
-    gap: 4px;
-    padding: 20px 12px;
+    gap: 8px;
+    padding: 24px 16px 16px;
     border-top: 0;
-    border-right: 1px solid var(--line-2);
+    border-right: var(--bw) solid var(--ink);
   }
   nav.tabs button {
     flex: none;
-    min-height: 44px;
+    min-height: 50px;
     flex-direction: row;
     justify-content: flex-start;
     gap: 10px;
-    padding: 0 12px;
-    border-radius: 10px;
-    font: 500 14px var(--font);
+    padding: 0 12px 0 6px;
+    border: var(--bw) solid transparent;
+    border-radius: 16px;
+    font: 600 16px var(--font);
   }
-  nav.tabs button:hover { background: var(--surface-2); color: var(--text); }
-  nav.tabs button.on { background: var(--tint); color: var(--accent); font-weight: 600; }
-  nav.tabs button:focus-visible { outline-offset: -2px; }
-  /* Laid out in a row, the count belongs at the END of the item rather than
-     pinned to a stacked icon. */
-  nav.tabs .glyph { position: static; }
+  nav.tabs button:hover { background: var(--surface-2); }
+  nav.tabs button.on {
+    background: var(--accent);
+    color: var(--on-accent);
+    border-color: var(--ink);
+    box-shadow: var(--shadow-card);
+    font-weight: 800;
+    --fig-ink: var(--on-accent);
+    --fig-head: var(--paper-white);
+    --fig-kit: var(--paper-white);
+  }
+  nav.tabs button:focus-visible { outline-offset: -3px; }
+  /* In a row the whole item is the pill, so the glyph gives its own back. */
+  nav.tabs .glyph,
+  nav.tabs button.on .glyph {
+    position: static;
+    width: auto; min-width: 38px; height: 34px;
+    gap: 6px;
+    background: none; border-color: transparent; box-shadow: none;
+  }
+  /* Laid out in a row, the count sits beside the figure rather than pinned to
+     the corner of a stacked icon. */
   nav.tabs .dot {
     position: static;
-    margin-left: auto;
     top: auto;
-    left: auto;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    font: 700 11px/18px var(--font);
+    right: auto;
   }
 
   .rail-mark {
-    display: block;
-    font: 600 14px var(--mono);
-    color: var(--accent);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 0 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font: 800 30px/1 var(--font);
+    letter-spacing: -0.04em;
+    padding: 0 4px 20px;
   }
   /* The Me TAB is hidden here, not removed from the markup: the mobile bar
      still needs it, and the rail's own foot takes its place. */
@@ -844,29 +1013,25 @@ nav.tabs button.rail-user { display: none; }
     gap: 10px;
     margin-top: auto;
     margin-bottom: 0;
-    padding: 10px 12px;
-    min-height: 0;
-    border-top: 1px solid var(--line-2);
-    border-radius: 0;
+    padding: 9px 10px;
+    min-height: 60px;
+    border: var(--bw) solid var(--ink);
+    background: var(--surface);
     color: var(--text);
     text-align: left;
   }
   nav.tabs button.rail-user:hover { background: var(--surface-2); }
-  /* Lit like any other item, but without the pill: it is the foot of the rail
-     and its top border is what separates it, so a rounded tint would fight it. */
-  nav.tabs button.rail-user.on { background: var(--tint); font-weight: 500; }
-  nav.tabs button.rail-user.on .rail-name { color: var(--accent); font-weight: 600; }
+  nav.tabs button.rail-user.on { background: var(--accent); color: var(--on-accent); }
   .rail-user .avatar {
-    width: 32px;
-    height: 32px;
-    background: var(--tint);
-    border: 1px solid var(--line-accent);
-    color: var(--accent);
-    font: 600 12px var(--font);
+    width: 38px;
+    height: 38px;
+    background: var(--accent);
+    color: var(--on-accent);
   }
+  nav.tabs button.rail-user.on .avatar { background: var(--paper-white); }
   .rail-name {
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 700;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -877,12 +1042,11 @@ nav.tabs button.rail-user { display: none; }
 
   /* The column, centred in what the rail leaves. No wrapper element: capping the
      direct children keeps their existing vertical margins doing the spacing, so
-     the column is identical to the mobile one at the same width. The 110px foot
-     that cleared the fixed bar is not needed once the bar is a rail. */
+     the column is identical to the mobile one at the same width. */
   main {
     flex: 1;
     min-width: 0;
-    padding: 28px 32px 40px;
+    padding: 36px 32px 48px;
   }
   main > * {
     max-width: 520px;
@@ -890,25 +1054,30 @@ nav.tabs button.rail-user { display: none; }
     margin-right: auto;
   }
 
+  /* No tab bar to clear down here, so the toast drops into the corner proper. */
+  .banner { left: auto; right: 24px; bottom: 24px; width: 400px; }
+
   /* Pointer affordances the touch layout has no use for. */
-  .list .rowbtn:hover { background: var(--surface-2); }
-  .card.tappable:hover { border-color: var(--line-strong); }
+  .list .rowbtn:hover { background: var(--surface-low); }
+  .card.tappable:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--shadow-ink); }
   button.primary:hover,
-  .composer .send:hover { opacity: 0.92; }
+  button.tinted:hover,
+  .composer .send:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--shadow-ink); }
+  .card.hero button.primary:hover { transform: none; box-shadow: none; opacity: 0.9; }
 }
 
 /* --- the active session -----------------------------------------------------
    The only moving parts in the app. Three moments — start, the live pulse, and
    finish — and nothing else animates, which is what keeps them meaning
-   something. The keyframes are the design's own, verbatim.
+   something.
 
    Every one of them is skipped under `prefers-reduced-motion`, not shortened:
    a 3-second countdown you cannot opt out of is worse than no countdown, and
    confetti is decoration by definition. The countdown is skipped in JS (the
-   session opens immediately instead), so this only has to handle the pulse. */
+   session opens immediately instead), so this only has to handle the rest. */
 @keyframes countNum {
-  0% { opacity: 0; transform: scale(0.5); }
-  8% { opacity: 1; transform: scale(1); }
+  0% { opacity: 0; transform: scale(0.5) rotate(-6deg); }
+  8% { opacity: 1; transform: scale(1) rotate(0deg); }
   28% { opacity: 1; transform: scale(1.04); }
   33%, 100% { opacity: 0; transform: scale(1.15); }
 }
@@ -919,7 +1088,7 @@ nav.tabs button.rail-user { display: none; }
 }
 @keyframes checkPop {
   0% { transform: scale(0); }
-  60% { transform: scale(1.18); }
+  60% { transform: scale(1.12); }
   100% { transform: scale(1); }
 }
 @keyframes pulseDot {
@@ -937,12 +1106,12 @@ nav.tabs button.rail-user { display: none; }
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: color-mix(in oklab, var(--bg-deep) 78%, transparent);
+  background: color-mix(in oklab, var(--bg-deep) 86%, transparent);
   backdrop-filter: blur(6px);
 }
 .countdown-label {
   color: var(--muted);
-  font: 600 12px var(--font);
+  font: 400 13px var(--mono);
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
@@ -953,15 +1122,16 @@ nav.tabs button.rail-user { display: none; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font: 600 128px var(--mono);
-  color: var(--accent);
+  font: 800 150px var(--font);
+  color: var(--text);
+  text-shadow: 6px 6px 0 var(--accent);
   opacity: 0;
-  /* Once, not `infinite` — the canvas loops because a canvas has to. */
+  /* Once, not `infinite`. */
   animation: countNum 3s 1 both;
 }
 .countdown-digits span:nth-child(2) { animation-delay: 1s; }
 .countdown-digits span:nth-child(3) { animation-delay: 2s; }
-.countdown-name { font-size: 17px; font-weight: 600; }
+.countdown-name { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
 .countdown-skip {
   margin-top: 6px;
   min-height: 44px;
@@ -969,29 +1139,32 @@ nav.tabs button.rail-user { display: none; }
   background: transparent;
   border: 0;
   color: var(--muted);
-  font: 500 14px var(--font);
-  border-radius: 10px;
+  font: 600 14px var(--font);
 }
 
-/* The bar. Docks above the tab bar — a sibling of it, not inside it, so the
-   bar's own margins hold it clear of the bar's border. */
+/* The bar. Docks above the tab bar — a sibling of it, not inside it. It is the
+   one INVERTED strip in the app, and the same in both themes: ink-dark with a
+   mint clock, because it has to be found at a glance from any screen. */
 .session-bar {
   flex: none;
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0 10px 8px;
-  min-height: 56px;
+  margin: 0 10px 10px;
+  min-height: 58px;
   padding: 0 14px;
-  background: var(--surface-hi);
-  border: 1px solid var(--line-accent);
-  border-radius: 16px;
+  background: #17181a;
+  color: var(--paper-white);
+  border: var(--bw) solid var(--ink);
+  border-radius: 18px;
   box-shadow: var(--shadow-card);
   text-align: left;
 }
+.session-bar:active { background: #17181a; }
+.session-bar .chev { color: var(--paper-white); }
 .session-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   flex: none;
   border-radius: 999px;
   background: var(--accent);
@@ -1002,8 +1175,8 @@ nav.tabs button.rail-user { display: none; }
 .session-what { min-width: 0; }
 .session-name {
   display: block;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1014,9 +1187,10 @@ nav.tabs button.rail-user { display: none; }
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+.session-bar .session-sub { color: #b9b6aa; }
 .session-clock {
   margin-left: auto;
-  font: 600 18px var(--mono);
+  font: 500 18px var(--mono);
   color: var(--accent);
   letter-spacing: 0.02em;
 }
@@ -1030,118 +1204,154 @@ nav.tabs button.rail-user { display: none; }
   flex-direction: column;
   justify-content: center;
   padding: 0 16px;
-  background: var(--bg-deep);
+  background-color: var(--bg-deep);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1.2px);
+  background-size: 18px 18px;
   overflow: hidden;
 }
-.confetti { position: absolute; inset: 0; pointer-events: none; }
+.finish > * { width: 100%; max-width: 488px; margin-left: auto; margin-right: auto; }
+.confetti { position: absolute; inset: 0; max-width: none !important; pointer-events: none; }
 .confetti .bit {
   position: absolute;
   top: 0;
-  width: 8px;
+  width: 16px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: 3px;
+  border: 2px solid var(--ink);
   animation-name: confettiFall;
   animation-timing-function: linear;
   /* Once, for about three seconds — not a loop you have to watch. */
   animation-iteration-count: 1;
   animation-fill-mode: both;
 }
-.confetti .bit.dot { width: 7px; height: 7px; border-radius: 999px; }
-.finish-card { text-align: center; padding: 28px 20px; margin: 0; }
-.finish-card .disc {
-  display: inline-flex;
-  width: 56px;
-  height: 56px;
+.confetti .bit.dot { width: 13px; height: 13px; border-radius: 999px; }
+.finish-hero { position: relative; width: 210px !important; height: 200px; margin: 0 auto 4px; }
+.finish-disc {
+  position: absolute; left: 30px; top: 40px;
+  width: 150px; height: 150px;
   border-radius: 999px;
   background: var(--accent);
-  color: var(--on-accent);
-  align-items: center;
-  justify-content: center;
+  border: var(--bw) solid var(--ink);
+  box-shadow: var(--shadow-raised);
 }
-.finish-card .disc.pop { animation: checkPop 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
-.finish-head { font-size: 22px; font-weight: 700; margin-top: 12px; }
-.finish-sub { font: 500 15px var(--mono); color: var(--muted); margin-top: 4px; }
-.finish-stats { display: flex; justify-content: center; gap: 24px; margin-top: 18px; }
-.finish-stat { font: 600 22px var(--mono); font-variant-numeric: tabular-nums; }
-.finish-unit { font-size: 14px; color: var(--muted); }
-.finish-label { color: var(--muted); font-size: 12px; }
-.finish-earned {
-  background: var(--tint-good);
-  border: 1px solid var(--line-good);
-  border-radius: 12px;
-  padding: 10px 14px;
-  margin-top: 18px;
-  text-align: left;
+.finish-hero .fig { position: absolute; left: 0; top: 0; }
+.finish-hero .fig.pop { animation: checkPop 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.finish-card { text-align: center; padding: 22px 18px; margin: 0; }
+.finish-hand { display: block; text-align: center; margin-bottom: 6px; }
+.finish-head { font-size: 40px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+.finish-sub { font: 400 14px var(--mono); color: var(--muted); margin-top: 8px; }
+.finish-stats { display: flex; justify-content: center; gap: 10px; margin-top: 18px; }
+.finish-stats > div {
+  flex: 1;
+  border: var(--bw) solid var(--ink);
+  border-radius: 14px;
+  padding: 10px 6px;
 }
-.finish-earned-label {
-  color: var(--good);
-  font: 600 11px var(--font);
+/* `nowrap` and a size that fits "4 620 kg" in a third of a phone: a unit that
+   drops to its own line reads as a second number. */
+.finish-stat { font: 500 19px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.finish-unit { font-size: 12px; }
+.finish-label {
+  color: var(--muted);
+  font: 400 11px var(--mono);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.finish-earned-body { font-size: 13px; margin-top: 2px; }
+.finish-earned {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: var(--bw) solid var(--ink);
+  border-radius: 14px;
+  padding: 10px 14px;
+  margin-top: 14px;
+  text-align: left;
+}
+.finish-earned-label {
+  font: 500 11px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.finish-earned-body { font-size: 14px; font-weight: 600; margin-top: 2px; }
 .finish-card .primary { margin-top: 16px; }
-.finish-quiet { margin-top: 6px; min-height: 44px; color: var(--muted); font: 500 14px var(--font); }
+.finish-quiet { margin-top: 6px; min-height: 44px; color: var(--muted); font: 600 14px var(--font); }
 
 /* The session clock in the logging header: the same fact as the bar, bigger,
    on the screen you are actually working on. */
 .session-head { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
-.session-head .session-clock { margin-left: 0; font: 600 20px var(--mono); }
+.session-head .session-clock { margin-left: 0; font: 500 22px var(--mono); color: var(--text); }
 .session-head .session-sub { font-size: 13px; }
-.session-head .actions { margin-left: auto; margin-top: 0; }
+.session-head .actions { margin-left: auto; margin-top: 0; flex-wrap: nowrap; gap: 8px; }
+.session-head .actions button { min-height: 44px; padding: 0 10px; font-size: 13.5px; white-space: nowrap; border-width: 2px; }
+
+/* The runner on the track: how far through the session you are, as somebody
+   running along it. The position is the fact; the running is the fun. */
+.track { position: relative; height: 60px; margin: 0 0 16px; }
+.track-bar {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 13px;
+  border: var(--bw) solid var(--ink);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.track-bar i { display: block; height: 100%; background: var(--accent); border-right: var(--bw) solid var(--ink); transition: width 0.6s ease; }
+.track-bar i[data-empty='true'] { border-right: 0; }
+.track .fig { position: absolute; bottom: 4px; transition: left 0.6s ease; }
+.track-label { position: absolute; right: 0; top: 4px; font: 400 12px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
 
 @media (prefers-reduced-motion: reduce) {
   /* The pulse is the one thing that survives as a state, so it holds still
      rather than disappearing — the dot still says "open", it just stops moving. */
   .session-dot { animation: none; }
+  .banner,
   .countdown-digits span,
   .confetti .bit,
-  .finish-card .disc.pop { animation: none; }
+  .finish-hero .fig.pop { animation: none; }
+  .track .fig, .track-bar i { transition: none; }
 }
-
 
 /* --- sides: left against right ---------------------------------------------
-   One-sided exercises are two numbers. The toggle picks which arm the set is
-   for; the small label heads a row of pills; the editor's L/R button moves a
-   prescribed set to the other side. Left is accent, right is share-blue, and
-   both are always also spelled out — colour is never the only signal. */
+   One-sided exercises are two numbers. Left is mint, right is blue, and both
+   are always also spelled out — colour is never the only signal. */
 .side-toggle { display: flex; gap: 8px; margin-bottom: 10px; }
-.side-toggle .pill.toggle { flex: 1; text-align: center; min-height: 40px; text-transform: capitalize; font: 600 14px var(--font); }
-.side-toggle .pill.toggle.left.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.side-toggle .pill.toggle.right.on { background: var(--share); border-color: var(--share); color: #0b1020; }
+.side-toggle .pill.toggle { flex: 1; justify-content: center; min-height: 42px; text-transform: capitalize; font: 700 14px var(--font); }
+.side-toggle .pill.toggle.left.on { background: var(--accent); color: var(--on-accent); }
+.side-toggle .pill.toggle.right.on { background: var(--share-fill); color: #17181a; }
 .side-label {
   display: inline-block; min-width: 18px; margin-right: 6px;
-  font: 700 12px var(--mono); letter-spacing: 0.04em; color: var(--muted);
+  font: 500 12px var(--mono); letter-spacing: 0.04em; color: var(--muted);
 }
-.side-label.left { color: var(--accent); }
+.side-label.left { color: var(--accent-ink); }
 .side-label.right { color: var(--share); }
 .side-pick {
-  min-height: 44px; width: 44px; padding: 0; border-radius: 10px;
+  min-height: 44px; width: 44px; padding: 0; border-radius: 12px; border-width: 2px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  font: 700 15px var(--mono); line-height: 1;
+  font: 500 15px var(--mono); line-height: 1;
 }
-.side-pick small { font: 500 10px var(--mono); color: var(--muted); margin-top: 2px; }
-.side-pick.left { color: var(--accent); border-color: var(--line-accent); }
-.side-pick.right { color: var(--share); border-color: var(--line-share); }
+.side-pick small { font: 400 10px var(--mono); color: var(--muted); margin-top: 2px; }
+.side-pick.left { background: var(--tint); }
+.side-pick.right { background: var(--tint-share); }
 .item-editor .editor-row.sided { grid-template-columns: 44px 1fr 1fr 44px; }
-.last-time { color: var(--accent); }
+.last-time { color: var(--accent-ink); }
 
 /* --- progress: curves, bars, deltas ----------------------------------------
    A sparkline per side, a pair of bars for the symmetry, and a delta in mono.
    Ringed points on a curve are baselines. */
-.spark { display: block; width: 100%; height: 36px; margin-top: 6px; }
-.curve-row { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line-2); }
+.spark { display: block; width: 100%; height: 40px; margin-top: 6px; overflow: visible; }
+.curve-row { margin-top: 10px; padding-top: 8px; border-top: 2px dashed var(--line-2); }
 .curve-row:first-of-type { border-top: 0; }
 .curve-head { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
-.curve-head .mono { font: 600 16px var(--mono); }
+.curve-head .mono { font: 500 16px var(--mono); }
 .bars {
   display: grid; grid-template-columns: 24px 1fr 64px; gap: 8px 10px;
   align-items: center; margin-top: 12px;
 }
-.bars .mono { text-align: right; font: 600 14px var(--mono); }
-.bar { display: block; height: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
-.bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
-.bar.weak i { background: var(--warn); }
-.delta { font: 600 13px var(--mono); }
+.bars .mono { text-align: right; font: 500 14px var(--mono); }
+.bar { display: block; height: 14px; border: 2px solid var(--ink); border-radius: 999px; background: var(--surface); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-right: 2px solid var(--ink); }
+.bar.weak i { background: var(--warn-fill); }
+/* Left and right, facing each other over the numbers. */
+.sym-pair { display: flex; justify-content: center; gap: 28px; margin: 10px 0 -2px; }
+.delta { font: 500 13px var(--mono); }
 .delta.up { color: var(--good); }
 .delta.down { color: var(--warn); }

@@ -348,6 +348,38 @@ An engine declares no `http` and should not: it is entity-agnostic and does not 
 shape. The vertical binds the name (`workorder/start` → `/programs/{orderId}/start`), and
 `knownOperations` turns a typo into a mount-time error instead of a 404 nobody hits.
 
+## The look: ink & mint, and the cast
+
+A gym notebook — dotted paper, thick ink outlines, hard sticker shadows, one accent. All of
+it is tokens in `app/src/styles.css`; paper is the default and the chalkboard (dark) resolves
+from the OS. Four things to know before you add a screen:
+
+- **The mint is a FILL, never text.** `#7fd08a` on paper is about 1.7:1. `--accent` fills
+  things and carries `--on-accent`; `--accent-ink` is the deep green that may be *set* as
+  text (a ghost button, a back link). Reach for `color: var(--accent)` and you have written
+  something nobody can read in the light theme.
+- **The figures are `app/src/figures.tsx`** — one stick figure, fourteen poses, ink for the
+  body and mint for the kit. They are **decoration, always `aria-hidden`**: a figure never
+  carries a fact the text beside it does not say. `poseFor(name, unit)` picks a pose off the
+  exercise's NAME, because that is the one thing every row carries (a scheduled item has no
+  slug). A wrong guess costs nothing; an unknown exercise gets the curl.
+- **Anything mint re-inks what stands on it.** On a mint surface the body must be dark in
+  BOTH themes — chalk on mint is unreadable — so `.card.hero`, `.fig-tile` and friends set
+  `--fig-ink` / `--fig-head` / `--fig-kit`. `.card.hero` goes further and re-points `--text`,
+  `--muted` and `--ink` for everything inside it, which is why its children need no rules of
+  their own. At most one hero per screen.
+- **Feet land at 90% of a figure's size**, so it can STAND on things: `.topfig` on a card's
+  top edge, `.hero-fig` on the hero's button, the runner on the session track. Use the
+  ratio (`--s`), not a magic number, or the first size change leaves somebody hovering.
+
+The week strip on Today is read off the **booked slots** — it is the plan for the week, not
+a record of it, so a past day is never ticked. The runner on the session track is read off
+the same `done`/`total` the session bar reports, so the two cannot disagree.
+
+Directly under a screen's `<h1>`, never style with the `margin` shorthand: on desktop the
+column is centred by `main > * { margin-left: auto; margin-right: auto }`, and a shorthand
+zeroes it and strands the line in the gutter. Set `marginTop` / `marginBottom`.
+
 ## The URL is the state
 
 Every screen is addressable — see `app/src/router.ts`. The **hash** holds the route
@@ -482,6 +514,13 @@ npx @substrat-run/boundary-lint
 
 The web app is `app/` — Vite + React, mobile-first. A denial surfaces as the **"Denied by
 the kernel"** banner; that banner is a feature, not an error state.
+
+The banner is a **toast in the lower right** (above the tab bar on a phone) and it leaves by
+itself — 4s for a confirmation, 9s for a refusal or an error, because a refusal names a
+permission and has to be READ. The clock stops while the pointer or focus is on it, tapping
+still dismisses it, and it is announced (`alert` / `status`) since it no longer sits in the
+reading order. Its timer depends on a **stable** `onDismiss`: hand it an inline arrow and
+every re-render of the shell — the unread poll, a route change — quietly restarts the clock.
 
 ## One auth path, two issuers
 
