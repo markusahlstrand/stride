@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionSummary } from './session';
 import {
   elapsedMs,
@@ -836,11 +836,24 @@ export function ProgramDetailScreen({
   me,
   run,
   onBack,
-}: ScreenProps & { programId: string; onBack: () => void }) {
+  onProgress,
+}: ScreenProps & { programId: string; onBack: () => void; onProgress?: () => void }) {
   const [detail, setDetail] = useState<ProgramDetail | null>(null);
   const [earned, setEarned] = useState<string | null>(null);
   /** Which prescription row is open for editing, if any. One at a time. */
   const [editing, setEditing] = useState<string | null>(null);
+  /**
+   * TWO VIEWS OF ONE WORKOUT. While a session is on, the screen is the SESSION:
+   * one exercise at a time and an overview of the rest. Everything about
+   * managing the workout — its schedule, finishing a block, adding exercises —
+   * is the other view, one tap away. They used to be one long page, which meant
+   * someone who had just pressed "start" was looking at a schedule editor.
+   */
+  const [view, setView] = useState<'session' | 'manage'>('session');
+  /** The exercise on screen. Null means "the first one not finished yet". */
+  const [cursor, setCursor] = useState<string | null>(null);
+  /** The row a set was just logged on — so finishing it moves you along. */
+  const advance = useRef<string | null>(null);
 
   const reload = useCallback(() => {
     api
@@ -872,6 +885,18 @@ export function ProgramDetailScreen({
     if (isSessionComplete(detail)) finishSession(summaryOf(detail, earned, elapsedMs(live)));
   }, [detail, live, earned]);
 
+  // MOVE ALONG. When the set just logged completes its row, let go of the
+  // cursor so the screen falls to the next unfinished exercise. Only after a
+  // log: tapping a finished row in the overview to look at it must not bounce.
+  useEffect(() => {
+    if (!detail || !advance.current) return;
+    const id = advance.current;
+    advance.current = null;
+    const item = detail.items.find((i) => i.id === id);
+    const logged = (openSessionOf(detail)?.sets ?? []).filter((x) => x.program_item_id === id).length;
+    if (item && logged >= prescribedTotal(item)) setCursor(null);
+  }, [detail]);
+
   if (!detail) return <div className="empty">
           <Figure pose="rest" size={132} />Not visible to {me?.name ?? 'you'}.</div>;
 
@@ -879,6 +904,37 @@ export function ProgramDetailScreen({
   const openSession = program.status === 'in_progress' ? sessions[sessions.length - 1] : undefined;
 
   const setsFor = (itemId: string) => openSession?.sets.filter((s) => s.program_item_id === itemId) ?? [];
+
+  // A session is ON when the clock is running here, or the latest session is
+  // today's. Last week's session is history, not something you are in.
+  const inSession =
+    Boolean(openSession) &&
+    (Boolean(live) || new Date(openSession!.performed_at).toDateString() === new Date().toDateString());
+  const assessment = program.kind === 'assessment';
+  const isDone = (item: ProgramDetail['items'][number]) => setsFor(item.id).length >= prescribedTotal(item);
+  const firstOpen = items.find((i) => !isDone(i));
+  const current = (cursor ? items.find((i) => i.id === cursor) : undefined) ?? firstOpen ?? null;
+  const allDone = items.length > 0 && !firstOpen;
+  const totalSets = items.reduce((n, i) => n + prescribedTotal(i), 0);
+  const doneSets = items.reduce((n, i) => n + Math.min(setsFor(i.id).length, prescribedTotal(i)), 0);
+
+  /**
+   * START TRAINING — two calls from the client, on purpose. `workorder/start`
+   * carries the manifest guard and stays its own deliberate request; `begin`
+   * then opens (or resumes) today's session. Neither is folded into the other.
+   */
+  const startTraining = async () => {
+    const ok = await run(async () => {
+      if (program.status === 'planned') await api.startProgram(program.id);
+      await api.begin(program.id);
+    }, assessment ? 'Baseline started' : 'Session started');
+    if (ok) {
+      startSession(program.id, program.title, false);
+      setView('session');
+      setCursor(null);
+    }
+    reload();
+  };
 
   /**
    * End the session by hand — the early exit, for when you stop before the end.
@@ -1029,6 +1085,9 @@ export function ProgramDetailScreen({
         )}
         {openSession && (
           <SetLogger
+            // Remounts after every logged set, so it comes back on the OTHER arm
+            // with that arm's numbers rather than still showing the last one.
+            key={`${item.id}:${done.length}`}
             unit={item.exercise?.unit ?? 'reps'}
             modality={item.exercise?.modality ?? 'strength'}
             defaultSide={nextSide}
@@ -1037,7 +1096,12 @@ export function ProgramDetailScreen({
             defaultFor={(side) => {
               const onSide = done.filter((s) => s.side === (side ?? null)).length;
               const target = prescribedFor(side ?? null)[onSide];
-              return { reps: target?.reps ?? item.target_reps, load: target?.load ?? item.target_load };
+              // The prescription wins; failing that, the weight you just used.
+              const lastLoad = done[done.length - 1]?.load ?? null;
+              return {
+                reps: target?.reps ?? item.target_reps,
+                load: target?.load ?? lastLoad ?? item.target_load,
+              };
             }}
             onLog={async (bodyInput) => {
               let gotEarned = false;
@@ -1049,6 +1113,7 @@ export function ProgramDetailScreen({
                 gotEarned = res.earned;
               });
               if (gotEarned) setEarned(item.exercise?.name ?? 'That exercise');
+              advance.current = item.id;
               reload();
             }}
           />
@@ -1057,11 +1122,160 @@ export function ProgramDetailScreen({
     );
   };
 
+  // -------------------------------------------------------------------------
+  // THE SESSION VIEW — one exercise at a time, and where you are in the whole.
+  // -------------------------------------------------------------------------
+  if (inSession && view === 'session') {
+    const index = current ? items.findIndex((i) => i.id === current.id) : -1;
+    const step = (dir: 1 | -1) => {
+      if (items.length === 0) return;
+      const from = index < 0 ? 0 : index;
+      // Skip lands on the next UNFINISHED row; Previous is simply the row before.
+      if (dir === 1) {
+        const ahead = [...items.slice(from + 1), ...items.slice(0, from)].find((i) => !isDone(i));
+        setCursor((ahead ?? items[(from + 1) % items.length]!).id);
+      } else {
+        setCursor(items[(from - 1 + items.length) % items.length]!.id);
+      }
+      setEditing(null);
+    };
+    return (
+      <>
+        <button className="back" onClick={onBack}>
+          ‹ Workouts
+        </button>
+        <div className="row center" style={{ marginTop: 2 }}>
+          <h1 style={{ margin: 0 }}>{program.title}</h1>
+          <span className="badge in_progress">{assessment ? 'baseline' : 'in session'}</span>
+        </div>
+        {live && <SessionClock session={live} onEnd={endNow} />}
+
+        <div className="card session-progress">
+          <div className="row center">
+            <span className="title">
+              {allDone ? 'All done' : `Exercise ${index + 1} of ${items.length}`}
+            </span>
+            <span className="sub mono" style={{ marginTop: 0 }}>
+              {doneSets}/{totalSets} sets
+            </span>
+          </div>
+          <div className="progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={totalSets} aria-valuenow={doneSets}>
+            <i style={{ width: `${totalSets ? (doneSets / totalSets) * 100 : 0}%` }} />
+          </div>
+        </div>
+
+        {allDone ? (
+          <div className="card raised accent">
+            <div className="title big">{assessment ? 'That is your baseline.' : 'Every set is logged.'}</div>
+            <div className="sub">
+              {assessment
+                ? 'Save it and it becomes the first point on every curve — and the left/right gap as a number.'
+                : 'Nothing more to do here today. Everything was saved as you went.'}
+            </div>
+            <div className="actions">
+              {assessment ? (
+                <button
+                  className="primary wide"
+                  onClick={async () => {
+                    const ok = await run(() => api.completeProgram(program.id), 'Baseline saved');
+                    reload();
+                    if (ok) onProgress?.();
+                  }}
+                >
+                  Save it and see my numbers
+                </button>
+              ) : (
+                <button className="primary wide" onClick={onBack}>
+                  Back to my workouts
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          current && itemCard(current, null)
+        )}
+
+        {!allDone && items.length > 1 && (
+          <div className="actions session-nav">
+            <button onClick={() => step(-1)}>‹ Previous</button>
+            <button onClick={() => step(1)}>Skip for now ›</button>
+          </div>
+        )}
+
+        {earned && (
+          <div className="earned-card" onClick={() => setEarned(null)}>
+            <Figure pose="cheer" size={120} />
+            <div className="head">Yours forever</div>
+            <div className="what">{earned} · earned</div>
+            <div className="why">
+              Performing it once earned it into your library. Nobody can take it out of the
+              catalogue from under you.
+            </div>
+          </div>
+        )}
+
+        <h2>This session</h2>
+        <div className="list">
+          {items.map((i, n) => {
+            const logged = setsFor(i.id);
+            const done = isDone(i);
+            return (
+              <button
+                key={i.id}
+                type="button"
+                className={`rowbtn${current?.id === i.id && !allDone ? ' current' : ''}`}
+                onClick={() => {
+                  setCursor(i.id);
+                  setEditing(null);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+              >
+                <span className="person">
+                  <span className={`step${done ? ' done' : logged.length > 0 ? ' part' : ''}`}>
+                    {done ? '✓' : n + 1}
+                  </span>
+                  <span>
+                    <span className="name">{i.exercise?.name ?? 'Exercise'}</span>
+                    <span className="sub mono">
+                      {logged.length > 0
+                        ? sideSummary(logged, i.exercise?.unit ?? 'reps')
+                        : `${i.target_sets} × ${formatAmount(i.target_reps, i.exercise?.unit ?? 'reps')}${
+                            i.target_load ? ` @ ${i.target_load}` : ''
+                          }${i.exercise?.laterality === 'unilateral' ? ' each side' : ''}`}
+                    </span>
+                  </span>
+                </span>
+                <span className="right">
+                  <Counter done={Math.min(logged.length, prescribedTotal(i))} total={prescribedTotal(i)} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="actions" style={{ marginTop: 14 }}>
+          {!allDone && <button onClick={endNow}>End the session early</button>}
+          <button className="ghost" onClick={() => setView('manage')}>
+            Workout settings
+          </button>
+        </div>
+        <div className="sub">Every set is saved the moment you log it. Leaving loses nothing.</div>
+      </>
+    );
+  }
+
   return (
     <>
       <button className="back" onClick={onBack}>
         ‹ Workouts
       </button>
+      {inSession && (
+        <div className="actions" style={{ marginBottom: 10 }}>
+          <button className="primary wide" onClick={() => setView('session')}>
+            ‹ Back to the session
+          </button>
+        </div>
+      )}
       {/* Title and state on one line, the identifiers beneath it in mono — the
           header answers "which one, and where is it" before anything else. */}
       <div className="row center" style={{ marginTop: 2 }}>
@@ -1074,7 +1288,14 @@ export function ProgramDetailScreen({
       </div>
       {live && <SessionClock session={live} onEnd={endNow} />}
       <div className="card">
-        {program.status === 'in_progress' && (
+        {program.status === 'planned' && (
+          <div className="sub" style={{ marginTop: 0 }}>
+            {assessment
+              ? 'Look it over, warm up, then start. You do one exercise at a time and write down what you managed.'
+              : 'Look it over and change anything that is not right for you, then start.'}
+          </div>
+        )}
+        {program.status === 'in_progress' && !assessment && (
           <div className="sub" style={{ marginTop: 0 }}>
             A standing workout never has to be finished — keep logging into it week after
             week. Finishing is for when you close off a block and want the adherence number.
@@ -1087,21 +1308,13 @@ export function ProgramDetailScreen({
               supposed to avoid. Let the kernel decide; a refusal lands in the
               banner like any other. */}
           {program.status === 'planned' && (
-            <button
-              className="primary"
-              onClick={() => run(() => api.startProgram(program.id), 'Started').then(reload)}
-            >
-              Start it
+            <button className="primary" onClick={startTraining}>
+              {assessment ? 'Start the baseline' : 'Start training'}
             </button>
           )}
-          {program.status === 'in_progress' && !openSession && (
-            <button
-              className="primary"
-              onClick={() =>
-                run(() => api.logSession(program.id, {}), 'Session opened').then(reload)
-              }
-            >
-              Start a session
+          {program.status === 'in_progress' && !inSession && (
+            <button className="primary" onClick={startTraining}>
+              {assessment ? 'Continue the baseline' : "Start today's session"}
             </button>
           )}
           {program.status === 'in_progress' && (
@@ -1115,7 +1328,7 @@ export function ProgramDetailScreen({
                 )
               }
             >
-              Finish this block
+              {assessment ? 'Save the baseline as it is' : 'Finish this block'}
             </button>
           )}
         </div>
@@ -1123,7 +1336,8 @@ export function ProgramDetailScreen({
 
       {summary && <AdherenceCard summary={summary} />}
 
-      {(program.status === 'planned' || program.status === 'in_progress') && (
+      {/* A baseline is taken, not booked: no weekly schedule to set. */}
+      {!assessment && (program.status === 'planned' || program.status === 'in_progress') && (
         <ScheduleEditor programId={program.id} slots={slots} run={run} onSaved={reload} />
       )}
 

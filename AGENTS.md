@@ -408,6 +408,22 @@ that programme — the same key that guards adding an item — and neither is of
 block is `completed` or `closed`, because then the prescription is what adherence is
 measured against. Guarded by test 30.
 
+**A workout screen has two views, and a session is the first one.** While a session is on
+— the device clock is running here, or the latest session is today's — `ProgramDetailScreen`
+shows the SESSION: a progress header, **one exercise at a time**, Previous / Skip, and an
+overview list whose steps tick as rows complete and which you can tap to jump. Logging the
+set that completes a row lets go of the cursor, so the screen falls to the next unfinished
+exercise; tapping a finished row to look at it must NOT bounce, which is why the advance is
+keyed to a log (`advance` ref) and not to completion. Everything about managing the workout —
+the schedule, finishing a block, adding exercises, the session history — is the other view,
+behind *Workout settings*. They used to be one long page, which put a schedule editor in
+front of someone who had just pressed start. A baseline (`assessment`) has no schedule at
+all, and its end state is *Save it and see my numbers* → `complete-program` → Progress.
+
+`Start training` on a planned workout is **two client calls** — `workorder/start`, then
+`stride/begin` — and that is deliberate: the guard rides the first, and an in-scope shortcut
+around it is still forbidden. One tap for the person, two requests on the wire.
+
 **WHO IT IS FOR is a question only when there is more than one answer.** A gym of one
 person — which every gym is on its first day — has exactly one: you. So the "for whom"
 picker appears only when somebody else is actually in the roster, and `me.traineeId` (from

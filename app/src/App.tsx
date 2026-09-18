@@ -307,6 +307,7 @@ export function App() {
             me={me}
             run={run}
             onBack={() => navigate({ name: 'workouts' })}
+            onProgress={() => navigate({ name: 'progress', traineeId: null })}
           />
         ) : route.name === 'thread' ? (
           <ThreadScreen

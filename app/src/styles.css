@@ -1355,3 +1355,22 @@ nav.tabs button.rail-user { display: none; }
 .delta { font: 500 13px var(--mono); }
 .delta.up { color: var(--good); }
 .delta.down { color: var(--warn); }
+
+/* --- the session view --------------------------------------------------------
+   One exercise on screen, and where you are in the whole: a thin bar for sets
+   done, numbered steps that tick, and the current row outlined in the list. */
+.session-progress { padding-bottom: 14px; }
+.progress-bar { height: 6px; margin-top: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.progress-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width 240ms ease; }
+.session-nav { justify-content: space-between; }
+.session-nav button { flex: 1; }
+.step {
+  flex: none; width: 28px; height: 28px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 600 13px var(--mono); color: var(--muted);
+  background: var(--surface-2); border: 1px solid transparent;
+}
+.step.part { color: var(--accent); border-color: var(--line-accent); }
+.step.done { background: var(--accent); color: var(--on-accent); }
+.step svg { width: 14px; height: 14px; }
+.list .rowbtn.current { box-shadow: inset 3px 0 0 var(--accent); background: var(--tint); }
