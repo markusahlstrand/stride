@@ -3,6 +3,7 @@ import {
   assignProgramInput,
   createCoachInput,
   createTraineeInput,
+  describeExerciseInput,
   equipmentInput,
   exerciseInput,
   inviteInput,
@@ -106,6 +107,12 @@ export const operations = {
   },
   'stride/retire-exercise': {
     http: { method: 'POST', path: '/exercises/{exerciseId}/retire' },
+  },
+  // `description` rides in the BODY, so the input has to be declared or the
+  // mount invokes with no argument at all and the body is silently dropped.
+  'stride/describe-exercise': {
+    http: { method: 'POST', path: '/exercises/{exerciseId}/describe' },
+    input: describeExerciseInput,
   },
 
   // --- templates -----------------------------------------------------------

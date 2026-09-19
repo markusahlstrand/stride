@@ -214,6 +214,44 @@ main { flex: 1; padding: calc(env(safe-area-inset-top) + 16px) 16px 120px; }
   border: var(--bw) solid var(--ink);
 }
 
+/* --- the movement ---------------------------------------------------------
+   Two frames and a mint arrow: where the rep starts, where it ends. This is the
+   one place a drawing carries something the reader came for, so both frames sit
+   on the paper (not on mint), and each one has a real caption under it — the
+   figures stay `aria-hidden` and the words say the same two things. */
+.movement {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  margin: 2px 0 6px;
+}
+.movement figure {
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.movement figcaption {
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: var(--muted);
+  text-align: center;
+  text-wrap: balance;
+}
+.movement-arrow {
+  flex: none;
+  margin-top: 40px;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* A figure STANDING ON the top edge of its card. `--s` is its size; the feet
    are at 90% of it, so the box hangs 10% below the edge, less the border. */
 .has-topfig { position: relative; margin-top: 84px; }
@@ -333,6 +371,77 @@ h2 {
 /* The quantity line — "4 × 12 @ 60 kg". Mono because it is numbers. */
 .sub.mono { font: 400 14px var(--mono); margin-top: 4px; }
 .quantity { font: 400 15px var(--mono); color: var(--text); margin-top: 4px; }
+
+/* An exercise's NAME is a door: tap it and you get what it is, how to do it, and
+   the two frames of the movement. It has to keep looking like a title, because
+   a row of link-blue names would drown the numbers that row exists for — so the
+   affordance is a small mint question mark that appears next to it. */
+.namelink {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+  text-align: left;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+}
+.namelink:disabled { cursor: default; }
+.namelink-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px;
+  margin-left: 7px;
+  vertical-align: 1px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid var(--ink);
+  color: var(--on-accent);
+  font: 700 12px/1 var(--font);
+}
+.namelink:hover .namelink-mark,
+.namelink:focus-visible .namelink-mark { background: var(--accent-ink); color: var(--paper-white); }
+
+/* A field label that answers for itself — "RPE" means nothing to somebody who
+   has not met it, and an input box is the worst possible place to find out. */
+.labelhint {
+  display: inline-flex; align-items: center;
+  background: transparent; border: 0; padding: 0; margin: 0; min-height: 0;
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+  cursor: pointer;
+}
+.labelhint .namelink-mark {
+  width: 15px; height: 15px; margin-left: 5px; border-width: 1.5px;
+  font-size: 10px; text-transform: none;
+}
+/* On a heading the mark scales with it; the hint that opens reads as a normal
+   paragraph rather than as more heading. */
+h2 > .labelhint .namelink-mark { width: 19px; height: 19px; font-size: 12px; border-width: 2px; }
+.sub.hint { display: block; font-size: 13px; font-weight: 400; letter-spacing: normal; margin-top: 8px; line-height: 1.5; text-wrap: pretty; }
+
+/* The how-to. The first paragraph is the sentence a row already showed, so it
+   is set larger; the last is normally "Watch for:", and a mint rule down its
+   side is what makes it findable when somebody is half-way through a set. */
+.lede { font-size: 16px; line-height: 1.5; margin: 12px 0 0; text-wrap: pretty; }
+.card p { font-size: 14.5px; line-height: 1.55; margin: 10px 0 0; color: var(--text); text-wrap: pretty; }
+.card p.watch {
+  border-left: 4px solid var(--accent);
+  padding-left: 12px;
+  color: var(--muted);
+}
+/* "Load:" — same family as the warning, asked as a different question: where
+   the weight goes and what the number in the box means. Dashed, because the
+   answer on a lot of rows is "nothing goes here". */
+.card p.load {
+  border-left: 4px dashed var(--accent);
+  padding-left: 12px;
+  color: var(--muted);
+}
+/* The same sentence where somebody is about to type a number, rather than
+   reading about the exercise. */
+.sub.hint.load-note { margin-top: 6px; margin-bottom: 4px; }
 
 /* "2/4" — done count strong, the total muted. */
 .counter { font: 500 16px var(--mono); color: var(--muted); }
@@ -536,6 +645,58 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
   padding: 0 6px;
 }
 .setgrid label { text-align: center; margin: 0 0 5px; }
+/* A field's heading: its label, and — beside it, never inside it — the mark that
+   explains the box. Inside, the label would name nothing and clicking the mark
+   would focus the input it is explaining. */
+.setgrid .fieldhead { display: flex; align-items: center; justify-content: center; margin: 0 0 5px; }
+.setgrid .fieldhead label { margin: 0; }
+/* The hold clock. A plank, a dead hang, a single-leg balance: the exercise is
+   measured in seconds, and the phone on the mat is the only thing in the room
+   that knows them. Transient and device-local like the session clock — it feeds
+   the time field, and the SET is what gets kept.
+
+   The clock is big enough to read from the floor, and turns accent-ink once the
+   prescribed hold has passed. It never stops you: holding longer is the point. */
+.holdtimer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--radius);
+}
+.hold-clock {
+  grid-column: 1;
+  grid-row: 1;
+  font: 500 36px var(--mono);
+  line-height: 1.05;
+}
+.hold-target {
+  grid-column: 1;
+  grid-row: 2;
+  font: 400 12px var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.holdtimer .hold-go { grid-column: 2; grid-row: 1 / span 2; min-width: 108px; }
+.holdtimer.hit .hold-clock { color: var(--accent-ink); }
+.holdtimer.hit .hold-target { color: var(--accent-ink); }
+
+/* Just the mark, as its own control beside a label rather than inside it. */
+.markbtn {
+  background: transparent; border: 0; padding: 0 0 0 5px; margin: 0; min-height: 0;
+  line-height: 1; cursor: pointer;
+}
+.markbtn .namelink-mark {
+  width: 15px; height: 15px; margin-left: 0; border-width: 1.5px;
+  font-size: 10px; text-transform: none;
+}
+.markbtn:hover .namelink-mark,
+.markbtn:focus-visible .namelink-mark { background: var(--accent-ink); color: var(--paper-white); }
 
 /* --- pills & chips --------------------------------------------------------
    A pill is a set: "1: 12 × 60 ✓". A chip is a piece of equipment. A toggle is
@@ -1355,3 +1516,22 @@ nav.tabs button.rail-user { display: none; }
 .delta { font: 500 13px var(--mono); }
 .delta.up { color: var(--good); }
 .delta.down { color: var(--warn); }
+
+/* --- the session view --------------------------------------------------------
+   One exercise on screen, and where you are in the whole: a thin bar for sets
+   done, numbered steps that tick, and the current row outlined in the list. */
+.session-progress { padding-bottom: 14px; }
+.progress-bar { height: 6px; margin-top: 10px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.progress-bar i { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width 240ms ease; }
+.session-nav { justify-content: space-between; }
+.session-nav button { flex: 1; }
+.step {
+  flex: none; width: 28px; height: 28px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: 600 13px var(--mono); color: var(--muted);
+  background: var(--surface-2); border: 1px solid transparent;
+}
+.step.part { color: var(--accent); border-color: var(--line-accent); }
+.step.done { background: var(--accent); color: var(--on-accent); }
+.step svg { width: 14px; height: 14px; }
+.list .rowbtn.current { box-shadow: inset 3px 0 0 var(--accent); background: var(--tint); }

@@ -8,6 +8,7 @@ import {
 import {
   ChatScreen,
   initials,
+  ExerciseScreen,
   LibraryScreen,
   PeopleScreen,
   PlansScreen,
@@ -307,6 +308,13 @@ export function App() {
             me={me}
             run={run}
             onBack={() => navigate({ name: 'workouts' })}
+            // Whose baseline was that? A coach finishing one FOR someone must land on
+            // that person's curves, not their own. No id still means mine, so the
+            // trainee's own route keeps its bare `#/progress`.
+            onProgress={(traineeId) =>
+              navigate({ name: 'progress', traineeId: traineeId === me?.traineeId ? null : traineeId })
+            }
+            onExercise={(id) => navigate({ name: 'exercise', id })}
           />
         ) : route.name === 'thread' ? (
           <ThreadScreen
@@ -349,12 +357,22 @@ export function App() {
             onOpen={openWorkout}
             onPlans={() => navigate({ name: 'plans' })}
           />
+        ) : route.name === 'exercise' ? (
+          <ExerciseScreen
+            id={route.id}
+            me={me}
+            run={run}
+            // Back to the catalogue with no filters set. Browser Back keeps the
+            // ones you had; this is the plain door, for arriving from a workout.
+            onBack={() => navigate(EXERCISES_DEFAULT as Route)}
+          />
         ) : route.name === 'exercises' ? (
           <LibraryScreen
             me={me}
             run={run}
             filters={route}
             onFilters={(next: Route) => navigate(next, true)}
+            onOpen={(id) => navigate({ name: 'exercise', id })}
           />
         ) : route.name === 'me' ? (
           <PeopleScreen

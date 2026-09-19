@@ -34,38 +34,38 @@ export type Pose =
 /** Where the feet are, as a fraction of the figure's size. */
 export const FOOT = 108 / 120;
 
-const Head = ({ x, y, r = 10 }: { x: number; y: number; r?: number }) => (
+export const Head = ({ x, y, r = 10 }: { x: number; y: number; r?: number }) => (
   <circle className="fig-head" cx={x} cy={y} r={r} />
 );
-const Eye = ({ x, y }: { x: number; y: number }) => <circle className="fig-eye" cx={x} cy={y} r={1.8} />;
-const Eyes = ({ x, y }: { x: number; y: number }) => (
+export const Eye = ({ x, y }: { x: number; y: number }) => <circle className="fig-eye" cx={x} cy={y} r={1.8} />;
+export const Eyes = ({ x, y }: { x: number; y: number }) => (
   <>
     <Eye x={x - 3.6} y={y} />
     <Eye x={x + 3.6} y={y} />
   </>
 );
-const Smile = ({ x, y }: { x: number; y: number }) => (
+export const Smile = ({ x, y }: { x: number; y: number }) => (
   <path className="fig-thin" d={`M${x - 4} ${y}Q${x} ${y + 4.5} ${x + 4} ${y}`} />
 );
-const Kit = (p: { x: number; y: number; w: number; h: number; rx?: number }) => (
+export const Kit = (p: { x: number; y: number; w: number; h: number; rx?: number }) => (
   <rect className="fig-kit" x={p.x} y={p.y} width={p.w} height={p.h} rx={p.rx ?? 3} />
 );
-const Plates = ({ y }: { y: number }) => (
+export const Plates = ({ y }: { y: number }) => (
   <>
     <Kit x={19} y={y} w={9} h={28} />
     <Kit x={92} y={y} w={9} h={28} />
   </>
 );
-const Dumbbell = ({ x, y }: { x: number; y: number }) => (
+export const Dumbbell = ({ x, y }: { x: number; y: number }) => (
   <>
     <path d={`M${x - 6} ${y}H${x + 6}`} />
     <Kit x={x - 10} y={y - 5} w={5} h={10} rx={2} />
     <Kit x={x + 5} y={y - 5} w={5} h={10} rx={2} />
   </>
 );
-const Mat = () => <Kit x={8} y={102} w={104} h={7} rx={3.5} />;
+export const Mat = () => <Kit x={8} y={102} w={104} h={7} rx={3.5} />;
 
-const POSES: Record<Pose, React.ReactNode> = {
+export const POSES: Record<Pose, React.ReactNode> = {
   press: (
     <>
       <path d="M12 22H108" />
