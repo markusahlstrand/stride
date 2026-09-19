@@ -36,17 +36,31 @@ interface ColumnInfo {
 }
 
 /**
- * SQLite's own affinity rules, applied to the type a column was declared with.
- * We only need to know whether a column holds a NUMBER or text, because that is
- * the whole of what the declaration says: every field in `spec/model.ts` is a
- * `z.string()` or a `z.number()`, nullable or not.
+ * Whether a column holds a NUMBER or text — the whole of what the declaration
+ * says, because every field in `spec/model.ts` is a `z.string()` or a
+ * `z.number()`, nullable or not.
+ *
+ * Deliberately NOT SQLite's affinity table. Affinity answers a different
+ * question: `DATETIME` and `DECIMAL` both take NUMERIC affinity, and in this
+ * schema both would hold ISO text against a `z.string()` — rule 5 in AGENTS.md
+ * requires timestamps be stored as text and money as decimal strings. Reading
+ * affinity as "holds a number" would fail the gate on exactly the rows the
+ * codebase mandates.
+ *
+ * So the recognised set is the one the migrations actually use, and anything
+ * else THROWS rather than being guessed into a bucket. A column type nobody has
+ * thought about is a question for whoever adds it, and a gate that quietly
+ * answers it on their behalf is the pass-that-checked-nothing this file exists
+ * to prevent.
  */
-function holdsNumber(declaredType: string): boolean {
+function holdsNumber(declaredType: string, where: string): boolean {
   const t = declaredType.toUpperCase();
-  if (t.includes('INT')) return true;
-  if (t.includes('CHAR') || t.includes('CLOB') || t.includes('TEXT')) return false;
-  if (t.includes('BLOB') || t === '') return false;
-  return t.includes('REAL') || t.includes('FLOA') || t.includes('DOUB') || t.includes('NUMERIC');
+  if (t === 'TEXT') return false;
+  if (t === 'INTEGER') return true;
+  throw new Error(
+    `${where}: no rule for the declared type ${declaredType || '(none)'}. ` +
+      `Decide whether it holds a number or text and extend holdsNumber — do not assume.`,
+  );
 }
 
 const db = migratedSchema();
@@ -98,7 +112,7 @@ describe('the entity registry describes the migrated schema', () => {
           // the wrong type with the gate green — and 21 of these columns are
           // integers, so the mistake is available to make.
           const declared = field.safeParse(0).success ? 'number' : 'text';
-          const inSql = holdsNumber(col.type) ? 'number' : 'text';
+          const inSql = holdsNumber(col.type, `${entity.table}.${col.name}`) ? 'number' : 'text';
           expect({ column: col.name, holds: declared }, `${entity.table}.${col.name}`).toEqual({
             column: col.name,
             holds: inSql,
