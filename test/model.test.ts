@@ -30,8 +30,23 @@ function migratedSchema() {
 
 interface ColumnInfo {
   name: string;
+  type: string;
   notnull: number;
   pk: number;
+}
+
+/**
+ * SQLite's own affinity rules, applied to the type a column was declared with.
+ * We only need to know whether a column holds a NUMBER or text, because that is
+ * the whole of what the declaration says: every field in `spec/model.ts` is a
+ * `z.string()` or a `z.number()`, nullable or not.
+ */
+function holdsNumber(declaredType: string): boolean {
+  const t = declaredType.toUpperCase();
+  if (t.includes('INT')) return true;
+  if (t.includes('CHAR') || t.includes('CLOB') || t.includes('TEXT')) return false;
+  if (t.includes('BLOB') || t === '') return false;
+  return t.includes('REAL') || t.includes('FLOA') || t.includes('DOUB') || t.includes('NUMERIC');
 }
 
 const db = migratedSchema();
@@ -68,6 +83,26 @@ describe('the entity registry describes the migrated schema', () => {
             { column: col.name, nullable: field.safeParse(null).success },
             `${entity.table}.${col.name}`,
           ).toEqual({ column: col.name, nullable: nullableInSql });
+        }
+      });
+
+      it('agrees about what a column holds', () => {
+        for (const col of columns) {
+          const field = shape[col.name];
+          if (!field) continue; // the test above owns that failure
+          // Asked the same way nullability is, by offering the field a value
+          // rather than reading Zod's internals: a number field accepts 0 and a
+          // string field does not, through `.nullable()` and whatever else the
+          // declaration wraps it in. Without this a `z.string()` on an INTEGER
+          // column passes every other assertion here and `model.json` publishes
+          // the wrong type with the gate green — and 21 of these columns are
+          // integers, so the mistake is available to make.
+          const declared = field.safeParse(0).success ? 'number' : 'text';
+          const inSql = holdsNumber(col.type) ? 'number' : 'text';
+          expect({ column: col.name, holds: declared }, `${entity.table}.${col.name}`).toEqual({
+            column: col.name,
+            holds: inSql,
+          });
         }
       });
 
