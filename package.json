@@ -14,7 +14,8 @@
     "lint:boundaries": "substrat-boundary-lint",
     "deploy": "substrat push",
     "deploy:preview": "substrat preview create --empty --tag dev",
-    "issuer": "tsx node_modules/@substrat-run/dev-issuer/dist/cli.js --personas src/personas.ts"
+    "issuer": "tsx node_modules/@substrat-run/dev-issuer/dist/cli.js --personas src/personas.ts",
+    "lint:model": "tsx tools/model.mts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
