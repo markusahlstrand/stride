@@ -29,6 +29,8 @@ export type Route =
   | { name: 'me' }
   /** The curve and the body — yours, or (staff) one trainee's. */
   | { name: 'progress'; traineeId: string | null }
+  /** One exercise, read: what it is, how to do it, and the two frames. */
+  | { name: 'exercise'; id: string }
   | {
       name: 'exercises';
       q: string;
@@ -72,6 +74,7 @@ export function parseRoute(hash: string): Route {
     case 'progress':
       return { name: 'progress', traineeId: parts[1] ?? null };
     case 'exercises':
+      if (parts[1]) return { name: 'exercise', id: parts[1] };
       return {
         name: 'exercises',
         q: q.get('q') ?? '',
@@ -103,6 +106,8 @@ export function formatRoute(route: Route): string {
       return '#/me';
     case 'progress':
       return route.traineeId ? `#/progress/${route.traineeId}` : '#/progress';
+    case 'exercise':
+      return `#/exercises/${route.id}`;
     case 'exercises': {
       const q = new URLSearchParams();
       if (route.q) q.set('q', route.q);
@@ -131,7 +136,7 @@ export function tabOf(route: Route, role: string | undefined): string {
   // your own coaches for a trainee.
   if (route.name === 'thread' || route.name === 'chat') return staff ? 'trainees' : 'me';
   // The library is reached from a workout or from Me; it is not a destination.
-  if (route.name === 'exercises') return staff ? 'workouts' : 'me';
+  if (route.name === 'exercises' || route.name === 'exercise') return staff ? 'workouts' : 'me';
   // Progress is about a PERSON: someone on the roster for staff, you on Me.
   if (route.name === 'progress') return staff && route.traineeId ? 'trainees' : 'me';
   return route.name;

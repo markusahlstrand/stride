@@ -835,6 +835,58 @@ const retireExerciseOp: OperationHandler<z.infer<typeof retireExerciseInput>, Ex
   return ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [exercise.id])[0]!;
 };
 
+export const describeExerciseInput = z.object({
+  exerciseId: z.string().min(1),
+  description: z.string(),
+});
+
+/**
+ * Rewrite a LIBRARY exercise's how-to. Admin only, and deliberately refused on
+ * an exercise somebody owns: a coach's or a member's private exercise is theirs
+ * to describe, and `library:publish` is not a licence to edit it.
+ *
+ * It exists because `install-starter-library` skips a slug that is already
+ * there — correct, since overwriting would destroy a gym's own edits — which
+ * meant a description added to the catalogue in a later revision could never
+ * reach a gym that had already installed. Topping up an EMPTY description is a
+ * gap being filled, not an edit being lost, so the installer calls this for
+ * exactly that case and leaves anything already written alone.
+ */
+const describeExerciseOp: OperationHandler<
+  z.infer<typeof describeExerciseInput>,
+  ExerciseRow
+> = async (ctx, rawInput) => {
+  assertAllowed(await ctx.check(TRAIN_PERM.libraryPublish));
+  const input = describeExerciseInput.parse(rawInput);
+  const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
+    input.exerciseId,
+  ])[0];
+  if (!exercise) throw new Error(`exercise not found: ${input.exerciseId}`);
+  if (exercise.owner_coach_id || exercise.owner_trainee_id) {
+    throw new Error(
+      `${exercise.slug} belongs to whoever authored it — only its owner can describe it`,
+    );
+  }
+  ctx.sql.exec('UPDATE train_exercises SET description = ? WHERE id = ?', [
+    input.description,
+    exercise.id,
+  ]);
+  ctx.emit({
+    type: 'stride.exercise-described',
+    schemaVersion: 1,
+    entity: { entityType: 'exercise', entityId: exercise.id },
+    piiClass: 'none',
+    payload: {
+      exerciseId: exercise.id,
+      slug: exercise.slug,
+      name: exercise.name,
+      description: input.description,
+      previousDescription: exercise.description,
+    },
+  });
+  return ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [exercise.id])[0]!;
+};
+
 export type ExerciseView = ExerciseRow & {
   access: 'shared' | 'granted';
   equipment: string[];
@@ -1222,6 +1274,8 @@ export interface StarterReport {
   /** Rows added to library templates that were already here — a later revision
    *  of the catalogue grew a plan, and an installed gym should grow with it. */
   templateItems: number;
+  /** Library exercises that were here but had no how-to, and now have one. */
+  descriptions: number;
   /** True when the call added nothing at all — the library was already here. */
   alreadyInstalled: boolean;
 }
@@ -1237,6 +1291,7 @@ const installStarterLibraryOp: OperationHandler<undefined, StarterReport> = asyn
     exercises: 0,
     templates: 0,
     templateItems: 0,
+    descriptions: 0,
     alreadyInstalled: true,
   };
 
@@ -1258,7 +1313,33 @@ const installStarterLibraryOp: OperationHandler<undefined, StarterReport> = asyn
       .map((e) => [e.slug, e] as const),
   );
   for (const exercise of EXERCISES) {
-    if (bySlug.has(exercise.slug)) continue;
+    const existing = bySlug.get(exercise.slug);
+    if (existing) {
+      // Here already. Everything about it is the gym's now — EXCEPT a how-to the
+      // catalogue has since GROWN, because the installer skipping the slug is
+      // the only reason that text was never going to arrive. The test is that
+      // nothing is lost: the seed either fills an empty field, or it starts with
+      // exactly what is stored and carries on. A gym that has written its own
+      // words fails that test and is left alone, as is anyone's private
+      // exercise — `library:publish` is not a licence to edit those.
+      if (
+        exercise.description &&
+        exercise.description !== existing.description &&
+        (!existing.description || exercise.description.startsWith(existing.description)) &&
+        !existing.owner_coach_id &&
+        !existing.owner_trainee_id
+      ) {
+        bySlug.set(
+          exercise.slug,
+          await describeExerciseOp(ctx, {
+            exerciseId: existing.id,
+            description: exercise.description,
+          }),
+        );
+        report.descriptions += 1;
+      }
+      continue;
+    }
     bySlug.set(exercise.slug, await publishExerciseOp(ctx, exercise));
     report.exercises += 1;
   }
@@ -1337,7 +1418,8 @@ const installStarterLibraryOp: OperationHandler<undefined, StarterReport> = asyn
     report.equipment === 0 &&
     report.exercises === 0 &&
     report.templates === 0 &&
-    report.templateItems === 0;
+    report.templateItems === 0 &&
+    report.descriptions === 0;
   ctx.emit({
     type: 'stride.starter-library-installed',
     schemaVersion: 1,
@@ -3728,6 +3810,7 @@ export const strideModule: ModuleRegistration = {
     'stride/publish-exercise': publishExerciseOp as never,
     'stride/author-exercise': authorExerciseOp as never,
     'stride/retire-exercise': retireExerciseOp as never,
+    'stride/describe-exercise': describeExerciseOp as never,
     'stride/exercises': exercisesOp as never,
     'stride/my-exercises': myExercisesOp as never,
     'stride/publish-template': publishTemplateOp as never,

@@ -8,6 +8,7 @@ import {
 import {
   ChatScreen,
   initials,
+  ExerciseScreen,
   LibraryScreen,
   PeopleScreen,
   PlansScreen,
@@ -308,6 +309,7 @@ export function App() {
             run={run}
             onBack={() => navigate({ name: 'workouts' })}
             onProgress={() => navigate({ name: 'progress', traineeId: null })}
+            onExercise={(id) => navigate({ name: 'exercise', id })}
           />
         ) : route.name === 'thread' ? (
           <ThreadScreen
@@ -350,12 +352,22 @@ export function App() {
             onOpen={openWorkout}
             onPlans={() => navigate({ name: 'plans' })}
           />
+        ) : route.name === 'exercise' ? (
+          <ExerciseScreen
+            id={route.id}
+            me={me}
+            run={run}
+            // Back to the catalogue with no filters set. Browser Back keeps the
+            // ones you had; this is the plain door, for arriving from a workout.
+            onBack={() => navigate(EXERCISES_DEFAULT as Route)}
+          />
         ) : route.name === 'exercises' ? (
           <LibraryScreen
             me={me}
             run={run}
             filters={route}
             onFilters={(next: Route) => navigate(next, true)}
+            onOpen={(id) => navigate({ name: 'exercise', id })}
           />
         ) : route.name === 'me' ? (
           <PeopleScreen

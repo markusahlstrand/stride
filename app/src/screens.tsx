@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { SessionSummary } from './session';
 import {
   elapsedMs,
@@ -41,7 +41,8 @@ import {
   type Trainee,
 } from './api';
 import { SendIcon } from './icons';
-import { Figure, FigureTile, poseFor, type Pose } from './figures';
+import { Figure, poseFor, type Pose } from './figures';
+import { MoveTile, MovementFigures, moveFor } from './moves';
 
 type Run = (fn: () => Promise<unknown>, ok?: string) => Promise<boolean>;
 export type ExerciseFilters = {
@@ -113,6 +114,31 @@ export function initials(name: string): string {
     .join('');
 }
 
+/**
+ * A heading or a label that answers for itself. Notation that is obvious once
+ * you know it — a set pill, RPE — is opaque until somebody tells you, and the
+ * place people ask is the screen they are looking at, not a manual.
+ */
+export function Explain({ children, what }: { children: React.ReactNode; what: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className="labelhint"
+        onClick={() => setOpen((on) => !on)}
+        aria-expanded={open}
+      >
+        {children}
+        <span className="namelink-mark" aria-hidden="true">?</span>
+      </button>
+      {/* A span, not a div: this renders inside an <h2> and inside a .title, and
+          a block element in either is invalid markup. `.sub.hint` blocks it. */}
+      {open && <span className="sub hint">{what}</span>}
+    </>
+  );
+}
+
 /** "2" in accent over "/4" in muted — the counter reads at arm's length. */
 function Counter({ done, total }: { done: number; total: number }) {
   return (
@@ -161,7 +187,7 @@ export function TodayScreen({
       className="card tappable with-fig"
       onClick={() => onOpen(i.programId)}
     >
-      <FigureTile pose={poseFor(i.exerciseName, i.unit)} size={62} />
+      <MoveTile move={moveFor(i.exerciseName, i.unit)} size={62} />
       <div className="grow">
         <div className="row center">
           <span className="title">{i.exerciseName}</span>
@@ -679,6 +705,9 @@ function ItemEditor({
   };
 
   const quantity = unit === 'metres' ? 'metres' : unit === 'seconds' ? 'seconds' : 'reps';
+  // Here there is room for it, and this is the moment somebody is deciding what
+  // number to write — so the load note is open, not behind a "?".
+  const loadNote = loadNoteOf(item.exercise?.description ?? null);
 
   /** Row numbers count per side, the way the server numbers them. */
   const numberOf = (i: number) => sets.slice(0, i + 1).filter((s) => s.side === sets[i]!.side).length;
@@ -686,9 +715,10 @@ function ItemEditor({
   return (
     <div className="item-editor">
       <label>
-        each set — {quantity}, and load in kg if it takes one
+        each set — {quantity}, and the load{loadNote ? '' : ' in kg if it takes one'}
         {unilateral ? '. Left and right can differ.' : ''}
       </label>
+      {loadNote && <div className="sub hint load-note">{loadNote}</div>}
       {sets.map((s, i) => (
         <div key={i} className={`editor-row${unilateral ? ' sided' : ''}`}>
           {unilateral ? (
@@ -837,11 +867,20 @@ export function ProgramDetailScreen({
   run,
   onBack,
   onProgress,
-}: ScreenProps & { programId: string; onBack: () => void; onProgress?: () => void }) {
+  onExercise,
+}: ScreenProps & {
+  programId: string;
+  onBack: () => void;
+  onProgress?: () => void;
+  /** Open one exercise's how-to. Optional, so the screen renders without it. */
+  onExercise?: (exerciseId: string) => void;
+}) {
   const [detail, setDetail] = useState<ProgramDetail | null>(null);
   const [earned, setEarned] = useState<string | null>(null);
   /** Which prescription row is open for editing, if any. One at a time. */
   const [editing, setEditing] = useState<string | null>(null);
+  /** "1: 10" in a dotted circle explains itself only once somebody says so. */
+  const [explainSets, setExplainSets] = useState(false);
   /**
    * TWO VIEWS OF ONE WORKOUT. While a session is on, the screen is the SESSION:
    * one exercise at a time and an overview of the rest. Everything about
@@ -997,13 +1036,20 @@ export function ProgramDetailScreen({
     return (
       <div key={item.id} className={`card${openSession ? ' raised' : ''}`}>
         <div className="row center">
-          <span className="title with-fig">
-            <FigureTile pose={poseFor(item.exercise?.name, unit)} size={46} />
+          <button
+            type="button"
+            className="title with-fig namelink"
+            onClick={() => item.exercise && onExercise?.(item.exercise.id)}
+            disabled={!item.exercise || !onExercise}
+            aria-label={`how to do ${item.exercise?.name ?? 'this exercise'}`}
+          >
+            <MoveTile move={moveFor(item.exercise?.name, unit)} size={46} />
             <span>
               {tag && <span className="tag" style={{ marginRight: 8 }}>{tag}</span>}
               {item.exercise?.name ?? 'Unknown exercise'}
+              {item.exercise && onExercise && <span className="namelink-mark" aria-hidden="true">?</span>}
             </span>
-          </span>
+          </button>
           {editable && editing !== item.id && (
             <button
               className="ghost small"
@@ -1090,6 +1136,7 @@ export function ProgramDetailScreen({
             key={`${item.id}:${done.length}`}
             unit={item.exercise?.unit ?? 'reps'}
             modality={item.exercise?.modality ?? 'strength'}
+            loadNote={loadNoteOf(item.exercise?.description ?? null)}
             defaultSide={nextSide}
             // The next prescribed set ON THAT SIDE is the default — so after the
             // baseline, the left arm is offered its own lighter load.
@@ -1154,11 +1201,30 @@ export function ProgramDetailScreen({
           <div className="row center">
             <span className="title">
               {allDone ? 'All done' : `Exercise ${index + 1} of ${items.length}`}
+              {/* The mark is a sibling of the title, not inside it: in this row
+                  the counter sits on the right, and a hint that opened inside
+                  the title would wrap against it instead of taking a line. */}
+              <button
+                type="button"
+                className="markbtn"
+                onClick={() => setExplainSets((on) => !on)}
+                aria-expanded={explainSets}
+                aria-label="what do the set pills mean?"
+              >
+                <span className="namelink-mark" aria-hidden="true">?</span>
+              </button>
             </span>
             <span className="sub mono" style={{ marginTop: 0 }}>
               {doneSets}/{totalSets} sets
             </span>
           </div>
+          {explainSets && (
+            <div className="sub hint">
+              Each pill below is one set: its number, then the target in this exercise's own
+              unit. Dotted means still to do; logging a set fills its pill in with what you
+              actually did.
+            </div>
+          )}
           <div className="progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={totalSets} aria-valuenow={doneSets}>
             <i style={{ width: `${totalSets ? (doneSets / totalSets) * 100 : 0}%` }} />
           </div>
@@ -1341,7 +1407,11 @@ export function ProgramDetailScreen({
         <ScheduleEditor programId={program.id} slots={slots} run={run} onSaved={reload} />
       )}
 
-      <h2>Prescription</h2>
+      <h2>
+        <Explain what="Each pill is one set: its number, then the target in the exercise's own unit — so 1: 10 × 50 is the first set, ten reps at fifty. A dotted pill is still to do; logging it fills it in with what you actually did.">
+          Prescription
+        </Explain>
+      </h2>
       {groupItems(items).map((group) =>
         group.key ? (
           <div key={group.key} className="superset">
@@ -1473,6 +1543,11 @@ function AddProgramItem({
   const [f, setF] = useState({ exerciseId: '', sets: '3', reps: '10', load: '' });
   const [days, setDays] = useState<number[]>([]);
   const [perWeek, setPerWeek] = useState('');
+  // What the load box means for the exercise just chosen — a barbell total, one
+  // dumbbell or two, where a weight sits on a bridge, or that there is none.
+  const chosenNote = loadNoteOf(
+    exercises.find((e) => e.id === f.exerciseId)?.description ?? null,
+  );
 
   if (!open) {
     return (
@@ -1511,6 +1586,7 @@ function AddProgramItem({
           <input inputMode="decimal" value={f.load} onChange={(e) => setF({ ...f, load: e.target.value })} />
         </div>
       </div>
+      {chosenNote && <div className="sub hint load-note">{chosenNote}</div>}
       <label>repeat</label>
       <div className="sets">
         {[1, 2, 3, 4, 5, 6, 7].map((d) => (
@@ -1658,6 +1734,17 @@ function formatQuantity(value: number, unit: string): string {
   return m > 0 ? `${m}:${String(sec).padStart(2, '0')}` : `${sec}s`;
 }
 
+/**
+ * The mm:ss a time INPUT holds — always a colon, so what a field renders is what
+ * `parseClock` reads back out of it. `formatQuantity` writes "45s" under a
+ * minute, which is right on a pill and unparseable in a box: a prescribed
+ * 45-second plank prefilled a field the Log button then quietly refused.
+ */
+function clockValue(seconds: number): string {
+  const m = Math.floor(Math.max(0, seconds) / 60);
+  return `${m}:${String(Math.max(0, seconds) % 60).padStart(2, '0')}`;
+}
+
 const UNIT_LABEL: Record<string, string> = { reps: 'reps', seconds: 'time', metres: 'metres' };
 
 /** A quantity with its unit where one is needed on the pill: "5 km", "800 m", "1:30", "12". */
@@ -1684,12 +1771,17 @@ function formatPace(secondsPerKm: number): string {
 function SetLogger({
   unit,
   modality,
+  loadNote,
   defaultSide,
   defaultFor,
   onLog,
 }: {
   unit: string;
   modality: string;
+  /** What the load box means for THIS exercise — where the weight sits, whether
+   *  it is one dumbbell or two, or that there is nothing to put in it. Behind a
+   *  "?" like RPE: mid-set is no place for a paragraph nobody asked for. */
+  loadNote: string | null;
   /** Set on a unilateral exercise: the side to offer first. Undefined = bilateral. */
   defaultSide: Side | undefined;
   /** The next prescribed set for a side — its reps and load prefill the fields. */
@@ -1708,25 +1800,32 @@ function SetLogger({
   const isCardio = modality === 'cardio';
   const [side, setSide] = useState<Side | undefined>(defaultSide);
   const initial = defaultFor(side);
-  const [amount, setAmount] = useState(isTime ? formatQuantity(initial.reps, unit) : String(initial.reps));
+  const [amount, setAmount] = useState(isTime ? clockValue(initial.reps) : String(initial.reps));
   const [load, setLoad] = useState(initial.load ?? '');
   const [rpe, setRpe] = useState('');
   const [mins, setMins] = useState('');
   const [hr, setHr] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Three letters over an input box is not an explanation. Ask and it says. */
+  const [explainEffort, setExplainEffort] = useState(false);
+  const effortId = useId();
+  /** Nor is "load". Same affordance, same answer: ask and it says. */
+  const [explainLoad, setExplainLoad] = useState(false);
 
   /** Switching arm re-prefills from THAT arm's prescription — which may differ. */
   const pick = (next: Side) => {
     setSide(next);
     const d = defaultFor(next);
-    setAmount(isTime ? formatQuantity(d.reps, unit) : String(d.reps));
+    setAmount(isTime ? clockValue(d.reps) : String(d.reps));
     setLoad(d.load ?? '');
   };
 
-  /** '2:30' → 150, '45' → 45. Time is the one field people write two ways. */
+  /** '2:30' → 150, '45' → 45, '45s' → 45. Time is the one field people write
+   *  several ways, and a stray unit must not come back as NaN. */
   const parseClock = (raw: string): number => {
-    if (!raw.includes(':')) return Number(raw);
-    const [m, sec] = raw.split(':');
+    const t = raw.trim().replace(/[^\d:]/g, '');
+    if (!t.includes(':')) return Number(t);
+    const [m, sec] = t.split(':');
     return Number(m) * 60 + Number(sec || 0);
   };
   const quantity = isTime ? parseClock(amount) : Number(amount);
@@ -1774,19 +1873,55 @@ function SetLogger({
           </div>
         ) : (
           <div>
-            <label>load</label>
+            <label>
+              {loadNote ? (
+                <button
+                  type="button"
+                  className="labelhint"
+                  onClick={() => setExplainLoad((on) => !on)}
+                  aria-expanded={explainLoad}
+                >
+                  load
+                  <span className="namelink-mark" aria-hidden="true">
+                    ?
+                  </span>
+                </button>
+              ) : (
+                'load'
+              )}
+            </label>
             <input inputMode="decimal" value={load} onChange={(e) => setLoad(e.target.value)} />
           </div>
         )}
         <div>
-          <label>{isCardio ? 'avg HR' : 'RPE'}</label>
+          <label htmlFor={effortId}>
+            {isCardio ? 'avg HR' : 'RPE'}
+            <button
+              type="button"
+              className="markbtn"
+              onClick={() => setExplainEffort((on) => !on)}
+              aria-expanded={explainEffort}
+              aria-label={isCardio ? 'what is average HR?' : 'what is RPE?'}
+            >
+              <span className="namelink-mark" aria-hidden="true">?</span>
+            </button>
+          </label>
           <input
+            id={effortId}
             inputMode="numeric"
             value={isCardio ? hr : rpe}
             onChange={(e) => (isCardio ? setHr(e.target.value) : setRpe(e.target.value))}
           />
         </div>
       </div>
+      {explainLoad && loadNote && <div className="sub hint">{loadNote}</div>}
+      {explainEffort && (
+        <div className="sub hint">
+          {isCardio
+            ? 'Average heart rate for the effort, in beats per minute — whatever your watch or the machine says at the end. Optional.'
+            : 'RPE is rate of perceived exertion: how hard that set felt, from 1 to 10. 10 means you could not have done one more rep, 8 means you had two left. Optional, and a guess is fine — it is there so a set you did at the same weight but much harder does not read as the same set.'}
+        </div>
+      )}
       {(pace !== null || (isDistance && quantity >= 1000)) && (
         <div className="sub mono" style={{ textAlign: 'center' }}>
           {isDistance && quantity >= 1000 ? formatAmount(quantity, unit) : ''}
@@ -1818,6 +1953,154 @@ function SetLogger({
 }
 
 // ---------------------------------------------------------------------------
+// One exercise, read
+// ---------------------------------------------------------------------------
+
+/**
+ * A description is four paragraphs by convention — the one-line summary a row
+ * shows, the how-to, the "Watch for:" line and the "Load:" line (see
+ * `src/catalogue.ts`). Split on blank lines so an exercise somebody wrote
+ * themselves, with one line or five, renders correctly too.
+ */
+export function describeParagraphs(description: string | null): string[] {
+  return (description ?? '')
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+/** The first paragraph — what a list row has room for. */
+export function ledeOf(description: string | null): string | null {
+  return describeParagraphs(description)[0] ?? null;
+}
+
+/**
+ * WHAT THE LOAD BOX MEANS HERE. One input labelled "load" sits under every
+ * exercise that is not cardio, and on its own it answers none of the questions
+ * people actually have: is that my bodyweight, is it one dumbbell or two, and
+ * on a single-leg glute bridge where does the thing even go? The catalogue
+ * answers per exercise in a "Load:" paragraph; this digs it back out, without
+ * the label, for the places that are about to ask for a number.
+ *
+ * Null for an exercise nobody has written one for — a member's own, or a gym
+ * installed before this existed. The field still works; it just says nothing.
+ */
+export function loadNoteOf(description: string | null): string | null {
+  const p = describeParagraphs(description).find((x) => x.startsWith('Load:'));
+  return p ? p.slice('Load:'.length).trim() : null;
+}
+
+/**
+ * The exercise screen. No new operation and no new key: it is one row out of
+ * the same `stride/exercises` the catalogue screen reads, found by id. If the
+ * kernel did not return it, you may not read it, and the screen says exactly
+ * that rather than inventing a narrower answer of its own.
+ */
+export function ExerciseScreen({
+  id,
+  me,
+  onBack,
+}: ScreenProps & { id: string; onBack: () => void }) {
+  const [all] = useList<Exercise>(() => api.exercises(), [me?.key]);
+  const exercise = all.find((e) => e.id === id);
+  const move = moveFor(exercise?.name, exercise?.unit);
+  const paragraphs = describeParagraphs(exercise?.description ?? null);
+
+  if (all.length > 0 && !exercise) {
+    return (
+      <>
+        <button className="back" onClick={onBack}>
+          ‹ Exercises
+        </button>
+        <div className="empty">
+          <Figure pose="rest" size={132} />
+          <span className="head">Not one you can read.</span>
+          Either it was never here, or it belongs to somebody else and nothing you have done
+          has earned it into your library.
+        </div>
+      </>
+    );
+  }
+  if (!exercise) return <div className="sub">Loading…</div>;
+
+  return (
+    <>
+      <button className="back" onClick={onBack}>
+        ‹ Exercises
+      </button>
+      <div className="row center" style={{ marginTop: 2 }}>
+        <h1 style={{ margin: 0 }}>{exercise.name}</h1>
+        {exercise.active === 0 ? (
+          <span className="badge retired">retired</span>
+        ) : exercise.visibility === 'shared' ? (
+          <span className="badge shared">shared</span>
+        ) : (
+          <span className="badge private">private</span>
+        )}
+      </div>
+      <div className="sub mono" style={{ marginTop: 6, marginBottom: 14 }}>
+        {exercise.modality} · counted in {UNIT_LABEL[exercise.unit] ?? exercise.unit}
+        {exercise.laterality === 'unilateral' ? ' · one side at a time' : ''}
+      </div>
+
+      <div className="card">
+        <MovementFigures move={move} />
+        {paragraphs.length === 0 ? (
+          <div className="sub">
+            Nobody has written this one down yet. The picture is a guess from the name.
+          </div>
+        ) : (
+          paragraphs.map((p, i) => (
+            // The first paragraph IS the summary, so it leads; "Watch for:"
+            // earns the mint rule beside it, and "Load:" a dashed one — same
+            // family, different question, and both findable mid-set.
+            <p
+              key={i}
+              className={
+                i === 0
+                  ? 'lede'
+                  : p.startsWith('Watch for:')
+                    ? 'watch'
+                    : p.startsWith('Load:')
+                      ? 'load'
+                      : ''
+              }
+            >
+              {p}
+            </p>
+          ))
+        )}
+      </div>
+
+      <h2>What it needs</h2>
+      <div className="card">
+        <div className="sets" style={{ marginTop: 0 }}>
+          <EquipmentChips e={exercise} />
+        </div>
+        <div className="sub">
+          {exercise.equipment.length === 0
+            ? 'Nothing. You can do this anywhere.'
+            : exercise.canDo
+              ? 'You have all of it.'
+              : `You are missing ${exercise.missing.map((s) => s.replace(/-/g, ' ')).join(', ')} today — still yours to read, and to plan for.`}
+        </div>
+      </div>
+
+      {exercise.laterality === 'unilateral' && (
+        <div className="card">
+          <div className="title">Left and right are two numbers</div>
+          <div className="sub">
+            Every set names a side, and a prescription of three sets means three each way. That
+            is the only way a weaker side shows up as something you can watch rather than
+            something you feel.
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Library — the same operation, three different correct answers
 // ---------------------------------------------------------------------------
 
@@ -1826,9 +2109,11 @@ export function LibraryScreen({
   run,
   filters,
   onFilters,
+  onOpen,
 }: ScreenProps & {
   filters: ExerciseFilters;
   onFilters: (next: ExerciseFilters) => void;
+  onOpen: (exerciseId: string) => void;
 }) {
   const [all, reload] = useList<Exercise>(() => api.exercises(), [me?.key]);
   const [equipment] = useList<Equipment>(() => api.equipment(), [me?.key]);
@@ -1987,16 +2272,26 @@ export function LibraryScreen({
       {rows.map((e) => (
         <div key={e.id} className="card">
           <div className="row center">
-            <span className="title with-fig">
-              <FigureTile pose={poseFor(e.name, e.unit)} size={46} />
-              <span>{e.name}</span>
-            </span>
+            <button
+              type="button"
+              className="title with-fig namelink"
+              onClick={() => onOpen(e.id)}
+              aria-label={`how to do ${e.name}`}
+            >
+              <MoveTile move={moveFor(e.name, e.unit)} size={46} />
+              <span>
+                {e.name}
+                <span className="namelink-mark" aria-hidden="true">?</span>
+              </span>
+            </button>
             {badge(e)}
           </div>
           <div className="sub">
             {e.modality} · measured in {e.unit}
           </div>
-          {e.description && <div className="sub">{e.description}</div>}
+          {/* Only the first paragraph: the rest is the how-to, and it belongs on
+              the screen that opens when you tap the name. */}
+          {ledeOf(e.description) && <div className="sub">{ledeOf(e.description)}</div>}
           <div className="sets">
             <EquipmentChips e={e} />
             {!e.canDo && <span className="sub" style={{ marginTop: 0 }}>missing today — still yours to read</span>}
@@ -3822,6 +4117,9 @@ function AddPlanItem({ templateId, run, onAdded }: { templateId: string; run: Ru
           <input inputMode="decimal" value={f.load} onChange={(e) => setF({ ...f, load: e.target.value })} />
         </div>
       </div>
+      {loadNoteOf(chosen?.description ?? null) && (
+        <div className="sub hint load-note">{loadNoteOf(chosen?.description ?? null)}</div>
+      )}
       <label>repeat on</label>
       <div className="sets">
         {[1, 2, 3, 4, 5, 6, 7].map((d) => (

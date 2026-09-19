@@ -30,6 +30,7 @@ import type {
   TraineeRow,
   WhoAmI,
 } from '../src/module.js';
+import { EXERCISES } from '../src/catalogue.js';
 import {
   buildStrideHost,
   drainPlatformRequests,
@@ -1367,6 +1368,7 @@ describe('training scenario', () => {
       exercises: number;
       templates: number;
       templateItems: number;
+      descriptions: number;
       alreadyInstalled: boolean;
     }>('stride/install-starter-library');
     expect(again).toEqual({
@@ -1374,6 +1376,7 @@ describe('training scenario', () => {
       exercises: 0,
       templates: 0,
       templateItems: 0,
+      descriptions: 0,
       alreadyInstalled: true,
     });
 
@@ -1911,5 +1914,94 @@ describe('training scenario', () => {
     await expect(
       astrid.invoke('stride/share-template', { templateId: w.templateId, with: 'nobody' }),
     ).rejects.toThrow(/gym's own library plan/);
+  });
+
+  it('36. HOW TO DO IT: the catalogue tops up a description it never had, and only that', async () => {
+    // Every library exercise arrived with a how-to, because the seed installs
+    // the catalogue through the same operation a deployed gym does.
+    const catalogue = await astrid.invoke<ExerciseView[]>('stride/exercises');
+    const raise = catalogue.find((e) => e.slug === 'assisted-arm-raise')!;
+    expect(raise.description).toMatch(/the other hand helping/);
+    // Four paragraphs: the line a row shows, the how-to, the warning, and what
+    // the load box means here.
+    expect(raise.description!.split(/\n\s*\n/)).toHaveLength(4);
+
+    // AND EVERY ROW ANSWERS THE LOAD QUESTION. One box labelled "load" sits
+    // under every non-cardio exercise, so every exercise has to say what goes
+    // in it — a bar total, one dumbbell or two, or nothing at all. A row
+    // without a "Load:" paragraph is a shrug in the middle of a set.
+    const librarySlugs = new Set(EXERCISES.map((e) => e.slug));
+    for (const e of catalogue.filter((x) => librarySlugs.has(x.slug))) {
+      expect(e.description ?? '').toContain('\n\nLoad: ');
+    }
+    // The case that prompted it: on one leg the weight is neither bodyweight
+    // nor nothing, and it does NOT go on the belly.
+    const bridge = catalogue.find((e) => e.slug === 'single-leg-glute-bridge')!;
+    expect(bridge.description).toMatch(/across the hips on the WORKING side/);
+    expect(bridge.description).toMatch(/never on the belly/);
+    // Cardio has no load box at all, so its rows say so rather than leaving a
+    // number to be guessed at.
+    expect(catalogue.find((e) => e.slug === 'run-outdoor')!.description).toMatch(
+      /Load: No load/,
+    );
+
+    // THE GAP THIS CLOSES. A gym installed before the how-tos existed has rows
+    // with a null description, and the installer skips a slug it already has —
+    // so without a top-up the words could never reach it. Blank one out to
+    // stand in for that gym.
+    const squat = catalogue.find((e) => e.slug === 'back-squat')!;
+    await astrid.invoke('stride/describe-exercise', { exerciseId: squat.id, description: '' });
+    const report = await astrid.invoke<{ descriptions: number; alreadyInstalled: boolean }>(
+      'stride/install-starter-library',
+    );
+    expect(report.descriptions).toBe(1);
+    expect(report.alreadyInstalled).toBe(false);
+    const afterwards = await astrid.invoke<ExerciseView[]>('stride/exercises');
+    expect(afterwards.find((e) => e.slug === 'back-squat')!.description).toMatch(/upper back/);
+
+    // IT ALSO TOPS UP A DESCRIPTION THE CATALOGUE HAS GROWN. Blank is not the
+    // only stale state — a gym installed when the text was one line has that one
+    // line, and the test is that nothing of the gym's is lost: the seed starts
+    // with exactly what is stored, so the rest is an addition.
+    await astrid.invoke('stride/describe-exercise', {
+      exerciseId: squat.id,
+      description: 'Barbell on the upper back, hips below parallel.',
+    });
+    const grown = await astrid.invoke<{ descriptions: number }>('stride/install-starter-library');
+    expect(grown.descriptions).toBe(1);
+    expect(
+      (await astrid.invoke<ExerciseView[]>('stride/exercises')).find((e) => e.slug === 'back-squat')!
+        .description,
+    ).toMatch(/Watch for:/);
+
+    // AND ONLY THAT. A description the gym has written itself is the gym's, so
+    // a second install leaves it exactly as it stands.
+    await astrid.invoke('stride/describe-exercise', {
+      exerciseId: squat.id,
+      description: 'Ask Astrid before you load this one.',
+    });
+    const quiet = await astrid.invoke<{ descriptions: number }>('stride/install-starter-library');
+    expect(quiet.descriptions).toBe(0);
+    expect(
+      (await astrid.invoke<ExerciseView[]>('stride/exercises')).find((e) => e.slug === 'back-squat')!
+        .description,
+    ).toBe('Ask Astrid before you load this one.');
+
+    // It is the PUBLISH key, like everything else about the shared library.
+    await expect(
+      nina.invoke('stride/describe-exercise', { exerciseId: squat.id, description: 'no' }),
+    ).rejects.toThrow(/permission denied: library:publish/);
+    await expect(
+      bjorn.invoke('stride/describe-exercise', { exerciseId: squat.id, description: 'no' }),
+    ).rejects.toThrow(/permission denied: library:publish/);
+
+    // And holding it is still not a licence to rewrite somebody's own exercise.
+    // Björn's kettlebell complex is his; the admin who runs the gym is refused.
+    const his = (await bjorn.invoke<ExerciseRow[]>('stride/my-exercises')).find(
+      (e) => e.visibility === 'private',
+    )!;
+    await expect(
+      astrid.invoke('stride/describe-exercise', { exerciseId: his.id, description: 'mine now' }),
+    ).rejects.toThrow(/only its owner can describe it/);
   });
 });
