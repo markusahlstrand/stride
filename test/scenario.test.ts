@@ -2020,4 +2020,121 @@ describe('training scenario', () => {
       astrid.invoke('stride/describe-exercise', { exerciseId: his.id, description: 'mine now' }),
     ).rejects.toThrow(/only its owner can describe it/);
   });
+
+  it('37. TAKING A SET BACK: the wrong arm is a void, not a deletion', async () => {
+    const press = (await vera.invoke<ExerciseView[]>('stride/exercises')).find(
+      (e) => e.slug === 'single-arm-dumbbell-press',
+    )!;
+    // Her own drill, so the earning can be watched from nothing.
+    const drill = await vera.invoke<ExerciseRow>('stride/author-exercise', {
+      slug: 'vera-wrist-drill',
+      name: 'Wrist drill (Vera)',
+      modality: 'rehab',
+      unit: 'reps',
+    });
+    const { program } = await vera.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'The wrong arm',
+      kind: 'strength',
+    });
+    const item = await vera.invoke<ItemRow>('stride/add-program-item', {
+      programId: program.id,
+      exerciseId: press.id,
+      targetSets: 2, // per side
+      targetReps: 10,
+      targetLoad: '4',
+    });
+    const drillItem = await vera.invoke<ItemRow>('stride/add-program-item', {
+      programId: program.id,
+      exerciseId: drill.id,
+      targetSets: 1,
+      targetReps: 20,
+    });
+    await vera.invoke('workorder/start', { orderId: program.id });
+    const session = await vera.invoke<SessionRow>('stride/log-session', { programId: program.id });
+
+    type Logged = { set: { id: string; set_no: number; side: string | null }; earned: boolean };
+    const log = (side: 'left' | 'right', reps: number) =>
+      vera.invoke<Logged>('stride/log-set', {
+        sessionId: session.id,
+        programItemId: item.id,
+        reps,
+        load: '4',
+        side,
+      });
+    const sessionSets = async () =>
+      (await vera.invoke<ProgramDetail>('stride/get-program', { programId: program.id })).sessions.at(
+        -1,
+      )!.sets;
+
+    const first = await log('left', 10);
+    const wrongArm = await log('left', 12); // …which was actually the right arm.
+    expect([first.set.set_no, wrongArm.set.set_no]).toEqual([1, 2]);
+
+    // Knowing a set id is not reaching it. Pinned to the KEY, not to
+    // /permission denied/: it is `result:log` on the session that decides, the
+    // same key on the same entity that let it be written in the first place.
+    await expect(bjorn.invoke('stride/void-set', { setId: wrongArm.set.id })).rejects.toThrow(
+      /permission denied: result:log/,
+    );
+
+    await vera.invoke('stride/void-set', { setId: wrongArm.set.id });
+    expect((await sessionSets()).map((x) => x.id)).toEqual([first.set.id]);
+
+    // Two taps on a phone are one intention.
+    const again = await vera.invoke<{ alreadyVoided: boolean }>('stride/void-set', {
+      setId: wrongArm.set.id,
+    });
+    expect(again.alreadyVoided).toBe(true);
+    expect((await sessionSets()).map((x) => x.id)).toEqual([first.set.id]);
+
+    // The number comes back with it: the right arm gets its own 1, and the next
+    // set on the left is 2 again rather than a 3 with a hole behind it.
+    const rightArm = await log('right', 12);
+    const secondLeft = await log('left', 9);
+    expect([rightArm.set.set_no, secondLeft.set.set_no]).toEqual([1, 2]);
+
+    // NOTHING WAS DELETED. Both facts are in the spine, in order.
+    const spine = await vera.invoke<{ type: string }[]>('stride/timeline', {
+      entityType: 'session',
+      entityId: session.id,
+    });
+    expect(spine.filter((e) => e.type === 'stride.set-logged')).toHaveLength(4);
+    expect(spine.filter((e) => e.type === 'stride.set-voided')).toHaveLength(1);
+
+    // AND THE EXERCISE STAYS EARNED. The only set of the drill is taken back:
+    // it leaves the curve, because a curve is what was performed…
+    const logDrill = () =>
+      vera.invoke<Logged>('stride/log-set', {
+        sessionId: session.id,
+        programItemId: drillItem.id,
+        reps: 20,
+      });
+    const drillSet = await logDrill();
+    expect(drillSet.earned).toBe(true);
+    await vera.invoke('stride/void-set', { setId: drillSet.set.id });
+    const curves = await vera.invoke<ProgressView>('stride/progress', { traineeId: w.veraId });
+    expect(curves.exercises.find((e) => e.slug === 'vera-wrist-drill')).toBeUndefined();
+    // …but `ctx.link` has no un-link, so doing it again is not meeting it again.
+    const redone = await logDrill();
+    expect(redone.earned).toBe(false);
+    expect(
+      (await vera.invoke<ProgressView>('stride/progress', { traineeId: w.veraId })).exercises.find(
+        (e) => e.slug === 'vera-wrist-drill',
+      ),
+    ).toBeTruthy();
+
+    // Adherence counts the live sets and nothing else: 2 per arm + 1 drill asked
+    // for, four done.
+    const done = await vera.invoke<{ summary: ProgramSummaryRow }>('stride/complete-program', {
+      programId: program.id,
+    });
+    expect([done.summary.prescribed_sets, done.summary.performed_sets]).toEqual([5, 4]);
+    expect(done.summary.adherence_pct).toBe('80.00');
+
+    // And once adherence is computed, what was performed is the thing it was
+    // computed against.
+    await expect(vera.invoke('stride/void-set', { setId: first.set.id })).rejects.toThrow(
+      /a completed program takes no corrections/,
+    );
+  });
 });

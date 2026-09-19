@@ -149,7 +149,7 @@ reasoning behind every choice: [`spec/concept.md`](spec/concept.md).
 | **template** | `train_templates` + `train_template_items` — a reusable prescription |
 | **program** | the ENGINE's work order. `planned → in_progress → completed → closed` |
 | **prescription** | `train_program_items` — **snapshot** from a template at assignment, never a reference. `add-program-item` builds one directly (no template), while `planned` or `in_progress` |
-| **session** / **set result** | `train_sessions` / `train_set_results` — append-only; a correction is a new row |
+| **session** / **set result** | `train_sessions` / `train_set_results` — append-only; a correction is a new row. A set logged by mistake is **voided** (`train_set_voids`, one row per set), never deleted |
 | **adherence** | `train_program_summary` — prescribed vs performed, decimal strings only |
 | **equipment** | `train_equipment` (vocabulary) · `train_exercise_equipment` (what it needs) · `train_account_equipment` (what a person has). No rows = bodyweight |
 | **slot** | `train_program_slots` — `(weekday, time_of_day)`, several per programme. "I train Wednesdays at 11". Different question from an item's rhythm; keyed by the engine's id with **no foreign key** (rule 4) |
@@ -451,6 +451,21 @@ the schedule, finishing a block, adding exercises, the session history — is th
 behind *Workout settings*. They used to be one long page, which put a schedule editor in
 front of someone who had just pressed start. A baseline (`assessment`) has no schedule at
 all, and its end state is *Save it and see my numbers* → `complete-program` → Progress.
+
+**Taking a set back is a void, not a delete.** The left arm's ten that were the right
+arm's had no way out: the set was in the session, in the week's count and in the symmetry
+percentage. `stride/void-set` writes a row to `train_set_voids` and touches the set itself
+not at all — so both the logging and the taking back are in the audit spine, with a
+principal and a timestamp on each. Every read of what was performed carries
+`AND ${NOT_VOIDED}` (module.ts); **add a read of `train_set_results` without it and a set
+somebody took back is back on their curve.** Two things it deliberately does not do: it does
+not un-earn the exercise (`ctx.link` has no un-link, and the earning check therefore counts
+voided sets too — do the movement once and it is yours), and it is refused once the
+programme is `completed`, because by then what was performed is what adherence was computed
+against. Set numbering re-flows over live sets only, so taking the last one back and logging
+it again gives that number back; the pills render **by position**, so a hole in the middle
+never hides the set at the end. Gated by `result:log` on the SESSION — the same key on the
+same entity as logging it. Guarded by test 37.
 
 **An exercise measured in seconds gets a clock.** A plank, a dead hang, a single-leg
 balance: the hold is the number being logged, and the phone on the mat is the only thing in

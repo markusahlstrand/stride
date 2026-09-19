@@ -1107,7 +1107,11 @@ export function ProgramDetailScreen({
                 {side && <span className={`side-label ${side}`}>{side === 'left' ? 'L' : 'R'}</span>}
                 {Array.from({ length: total }, (_, i) => {
                   const no = i + 1;
-                  const performed = onSide.find((s) => s.set_no === no);
+                  // BY POSITION, not by stored set number. Take a set back in
+                  // the middle of a row and the numbers behind it keep theirs,
+                  // so a lookup on `set_no` would leave a hole here and drop
+                  // the last set off the end of the list entirely.
+                  const performed = onSide[i];
                   if (performed) {
                     return (
                       <span key={performed.id} className="pill done">
@@ -1118,6 +1122,25 @@ export function ProgramDetailScreen({
                           : ''}
                         {performed.avg_hr ? ` · ${performed.avg_hr} bpm` : ''}
                         {performed.rpe ? ` · RPE ${performed.rpe}` : ''} ✓
+                        {/* Logged on the wrong arm, or the wrong number typed.
+                            Only ever on a set in the session that is open —
+                            which is the only session these pills show.
+                            An UNDO ARROW, not a ×: the pill already contains a
+                            multiplication sign, and one glyph cannot mean both
+                            "times" and "take this back" a centimetre apart. */}
+                        <button
+                          type="button"
+                          className="undo"
+                          aria-label={`take back set ${no}${side ? `, ${side}` : ''} of ${
+                            item.exercise?.name ?? 'this exercise'
+                          }`}
+                          onClick={async () => {
+                            await run(() => api.voidSet(performed.id), 'Set taken back');
+                            reload();
+                          }}
+                        >
+                          ↺
+                        </button>
                       </span>
                     );
                   }
@@ -1244,7 +1267,8 @@ export function ProgramDetailScreen({
             <div className="sub hint">
               Each pill below is one set: its number, then the target in this exercise's own
               unit. Dotted means still to do; logging a set fills its pill in with what you
-              actually did.
+              actually did. Logged the wrong arm, or the wrong number? The ↺ on a filled
+              pill takes that set back.
             </div>
           )}
           <div className="progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={totalSets} aria-valuenow={doneSets}>
@@ -1430,7 +1454,7 @@ export function ProgramDetailScreen({
       )}
 
       <h2>
-        <Explain what="Each pill is one set: its number, then the target in the exercise's own unit — so 1: 10 × 50 is the first set, ten reps at fifty. A dotted pill is still to do; logging it fills it in with what you actually did.">
+        <Explain what="Each pill is one set: its number, then the target in the exercise's own unit — so 1: 10 × 50 is the first set, ten reps at fifty. A dotted pill is still to do; logging it fills it in with what you actually did. Logged the wrong arm, or the wrong number? The ↺ on a filled pill takes that set back.">
           Prescription
         </Explain>
       </h2>
