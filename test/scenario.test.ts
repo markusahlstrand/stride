@@ -1974,6 +1974,22 @@ describe('training scenario', () => {
         .description,
     ).toMatch(/Watch for:/);
 
+    // AND A GYM'S OWN WORDS SURVIVE EVEN WHEN OURS BEGIN THE SAME WAY. Growth
+    // is counted in whole paragraphs, so a shorter line of the gym's that reads
+    // like the start of the catalogue's first sentence is NOT a stale seed —
+    // matching on a bare prefix would have overwritten it, and a description
+    // nobody kept a copy of is gone for good.
+    await astrid.invoke('stride/describe-exercise', {
+      exerciseId: squat.id,
+      description: 'Barbell on the upper back',
+    });
+    const theirs = await astrid.invoke<{ descriptions: number }>('stride/install-starter-library');
+    expect(theirs.descriptions).toBe(0);
+    expect(
+      (await astrid.invoke<ExerciseView[]>('stride/exercises')).find((e) => e.slug === 'back-squat')!
+        .description,
+    ).toBe('Barbell on the upper back');
+
     // AND ONLY THAT. A description the gym has written itself is the gym's, so
     // a second install leaves it exactly as it stands.
     await astrid.invoke('stride/describe-exercise', {

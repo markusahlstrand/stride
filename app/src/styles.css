@@ -645,6 +645,11 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
   padding: 0 6px;
 }
 .setgrid label { text-align: center; margin: 0 0 5px; }
+/* A field's heading: its label, and — beside it, never inside it — the mark that
+   explains the box. Inside, the label would name nothing and clicking the mark
+   would focus the input it is explaining. */
+.setgrid .fieldhead { display: flex; align-items: center; justify-content: center; margin: 0 0 5px; }
+.setgrid .fieldhead label { margin: 0; }
 /* The hold clock. A plank, a dead hang, a single-leg balance: the exercise is
    measured in seconds, and the phone on the mat is the only thing in the room
    that knows them. Transient and device-local like the session clock — it feeds

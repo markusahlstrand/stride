@@ -340,16 +340,38 @@ export function TodayScreen({
 
 /** Every list here is what the KERNEL returned for this principal — the client
  *  filters nothing. An empty list is an open door onto an empty room. */
-function useList<T>(load: () => Promise<T[]>, deps: unknown[] = []): [T[], () => void] {
+/**
+ * Rows, a reload, and — third — what actually happened to the request.
+ *
+ * It used to answer with rows alone and turn a rejection into `[]`, which made
+ * three very different situations look identical: still loading, read nothing,
+ * and could not ask. A screen that rendered "Loading…" until a row arrived then
+ * said it for ever on an empty catalogue or a failed fetch. The third element is
+ * a tuple member so every existing `const [rows] = useList(…)` is untouched.
+ */
+type ListState = 'loading' | 'ready' | 'error';
+
+function useList<T>(
+  load: () => Promise<T[]>,
+  deps: unknown[] = [],
+): [T[], () => void, ListState] {
   const [rows, setRows] = useState<T[]>([]);
+  const [state, setState] = useState<ListState>('loading');
   const reload = useCallback(() => {
+    setState('loading');
     load()
-      .then(setRows)
-      .catch(() => setRows([]));
+      .then((r) => {
+        setRows(r);
+        setState('ready');
+      })
+      .catch(() => {
+        setRows([]);
+        setState('error');
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
   useEffect(reload, [reload]);
-  return [rows, reload];
+  return [rows, reload, state];
 }
 
 // ---------------------------------------------------------------------------
@@ -1861,6 +1883,8 @@ function SetLogger({
   /** Three letters over an input box is not an explanation. Ask and it says. */
   const [explainEffort, setExplainEffort] = useState(false);
   const effortId = useId();
+  const loadId = useId();
+  const amountId = useId();
   /** Nor is "load". Same affordance, same answer: ask and it says. */
   const [explainLoad, setExplainLoad] = useState(false);
 
@@ -1873,15 +1897,28 @@ function SetLogger({
     reset();
   };
 
-  /** '2:30' → 150, '45' → 45, '45s' → 45. Time is the one field people write
-   *  several ways, and a stray unit must not come back as NaN. */
+  /**
+   * '2:30' → 150, '45' → 45, '45s' → 45, and NaN for anything else.
+   *
+   * It used to strip what it did not recognise, which quietly turned `1.30`
+   * into 130 seconds and `1:2:3` into 62 — a number the person never typed,
+   * logged against an APPEND-ONLY row they cannot then edit. Refusing is the
+   * only safe answer, and `timeHint` below is what stops a refusal being
+   * silent: the Log button is already disabled on a NaN quantity.
+   */
   const parseClock = (raw: string): number => {
-    const t = raw.trim().replace(/[^\d:]/g, '');
-    if (!t.includes(':')) return Number(t);
-    const [m, sec] = t.split(':');
-    return Number(m) * 60 + Number(sec || 0);
+    const t = raw.trim();
+    const plain = /^(\d+)\s*s?$/i.exec(t);
+    if (plain) return Number(plain[1]);
+    // One or two digits after the colon: somebody typing 1:5 means 1:05, and
+    // making them find the zero is not integrity, it is pedantry.
+    const clock = /^(\d+):([0-5]?\d)$/.exec(t);
+    return clock ? Number(clock[1]) * 60 + Number(clock[2]) : Number.NaN;
   };
   const quantity = isTime ? parseClock(amount) : Number(amount);
+  /** Something is typed, and it is not a time. Say so rather than greying out
+   *  the only button on the card and leaving them to guess why. */
+  const timeHint = isTime && amount.trim() !== '' && !Number.isFinite(quantity);
   // Minutes accept "22" and "22:30" alike — a run is timed in both.
   const seconds = mins.trim() ? Math.round(mins.includes(':') ? parseClock(mins) : Number(mins) * 60) : 0;
   const pace = isDistance && quantity > 0 && seconds > 0 ? Math.round((seconds * 1000) / quantity) : null;
@@ -1925,8 +1962,9 @@ function SetLogger({
       )}
       <div className="setgrid">
         <div>
-          <label>{UNIT_LABEL[unit] ?? unit}</label>
+          <label htmlFor={amountId}>{UNIT_LABEL[unit] ?? unit}</label>
           <input
+            id={amountId}
             inputMode={isTime ? 'text' : 'numeric'}
             value={amount}
             // While the clock runs the field IS the clock — typing would be
@@ -1948,29 +1986,35 @@ function SetLogger({
           </div>
         ) : (
           <div>
-            <label>
-              {loadNote ? (
+            {/* The mark is a SIBLING of the label, never inside it. A <label>
+                whose whole content is a button labels nothing — the input was
+                left with no accessible name at all — and clicking the mark
+                would also focus the box it is explaining. */}
+            <div className="fieldhead">
+              <label htmlFor={loadId}>load</label>
+              {loadNote && (
                 <button
                   type="button"
-                  className="labelhint"
+                  className="markbtn"
                   onClick={() => setExplainLoad((on) => !on)}
                   aria-expanded={explainLoad}
+                  aria-label="what goes in the load box?"
                 >
-                  load
-                  <span className="namelink-mark" aria-hidden="true">
-                    ?
-                  </span>
+                  <span className="namelink-mark" aria-hidden="true">?</span>
                 </button>
-              ) : (
-                'load'
               )}
-            </label>
-            <input inputMode="decimal" value={load} onChange={(e) => setLoad(e.target.value)} />
+            </div>
+            <input
+              id={loadId}
+              inputMode="decimal"
+              value={load}
+              onChange={(e) => setLoad(e.target.value)}
+            />
           </div>
         )}
         <div>
-          <label htmlFor={effortId}>
-            {isCardio ? 'avg HR' : 'RPE'}
+          <div className="fieldhead">
+            <label htmlFor={effortId}>{isCardio ? 'avg HR' : 'RPE'}</label>
             <button
               type="button"
               className="markbtn"
@@ -1980,7 +2024,7 @@ function SetLogger({
             >
               <span className="namelink-mark" aria-hidden="true">?</span>
             </button>
-          </label>
+          </div>
           <input
             id={effortId}
             inputMode="numeric"
@@ -1989,6 +2033,12 @@ function SetLogger({
           />
         </div>
       </div>
+      {timeHint && (
+        <div className="sub hint" role="alert">
+          Time is <span className="mono">mm:ss</span> — <span className="mono">1:30</span> for
+          a minute and a half, or <span className="mono">45</span> for forty-five seconds.
+        </div>
+      )}
       {explainLoad && loadNote && <div className="sub hint">{loadNote}</div>}
       {explainEffort && (
         <div className="sub hint">
@@ -2079,12 +2129,30 @@ export function ExerciseScreen({
   me,
   onBack,
 }: ScreenProps & { id: string; onBack: () => void }) {
-  const [all] = useList<Exercise>(() => api.exercises(), [me?.key]);
+  const [all, , listState] = useList<Exercise>(() => api.exercises(), [me?.key]);
   const exercise = all.find((e) => e.id === id);
   const move = moveFor(exercise?.name, exercise?.unit);
   const paragraphs = describeParagraphs(exercise?.description ?? null);
 
-  if (all.length > 0 && !exercise) {
+  if (listState === 'error') {
+    return (
+      <>
+        <button className="back" onClick={onBack}>
+          ‹ Exercises
+        </button>
+        <div className="empty">
+          <Figure pose="rest" size={132} />
+          <span className="head">Could not reach the catalogue.</span>
+          Something went wrong on the way to the gym's library — not a refusal, just a
+          request that did not arrive. Try again in a moment.
+        </div>
+      </>
+    );
+  }
+  // Settled and it is not here: either it never was, or it is not yours to read.
+  // An empty catalogue lands here too, which is the honest answer for a deep
+  // link into a gym whose library has not been installed yet.
+  if (listState === 'ready' && !exercise) {
     return (
       <>
         <button className="back" onClick={onBack}>

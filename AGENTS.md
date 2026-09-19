@@ -172,11 +172,17 @@ reasoning behind every choice: [`spec/concept.md`](spec/concept.md).
 **A description is paragraphs, and the shape is fixed**: the one-line summary a row shows,
 the how-to, `Watch for:`, `Load:`. They are one TEXT column split on blank lines — there is
 no second column and no migration behind any of it — and `ledeOf` is what a row renders.
-`install-starter-library` skips a slug it already has, so a description the catalogue GROWS
-would never reach an installed gym; `stride/describe-exercise` (admin, `library:publish`) is
-the top-up, and the test it applies is that **nothing is lost** — the seed either fills an
-empty field or starts with exactly what is stored. A gym's own words, and anyone's private
-exercise, are left alone. Guarded by test 36.
+`install-starter-library` never republishes a slug it already has, but it does **top up that
+row's how-to**: re-running it calls `stride/describe-exercise` (admin, `library:publish`) for
+a library row whose description is empty, or which the catalogue has since grown, exactly as
+an admin would by hand — so an installed gym grows with the catalogue instead of keeping the
+one line it was stocked with. The test it applies is that **nothing is lost**, and growth is
+counted in WHOLE PARAGRAPHS (`growsFrom`): every stored paragraph must still be there,
+identical and in order, with the new text carrying on after them. A bare prefix test looked
+the same and was not — it could not tell a grown catalogue from a gym whose own shorter line
+merely began like ours, and would have replaced words nobody kept a copy of. A gym's own
+words, and anyone's private exercise, are left alone; `stride/describe-exercise` by hand is
+the path for everything the installer declines to touch. Guarded by test 36.
 
 **Notation that is obvious once you know it is opaque until somebody says so.** A set pill
 ("1: 10 × 50"), RPE, avg HR — each carries a mint `?` that opens one plain sentence in

@@ -39,14 +39,20 @@ sentence in place, on the set pills (both the Prescription heading and the in-se
 header), on RPE and on avg HR. The mark is never put inside a `<label>`: a button there
 takes its accessible name from the label containing it and computes to nothing.
 
-Fixed on the way: `install-starter-library` skips a slug the gym already has — correct,
-because overwriting would destroy a gym's own edits — which meant a description the
-catalogue GREW could never reach a gym that had already installed, and the first deployed
-instance would have stayed on the old one line for ever. `stride/describe-exercise` (admin,
-on the existing `library:publish`) is the top-up, and the test it applies is that nothing is
-lost: the seed either fills an empty field or starts with exactly what is already stored.
-A gym's own words are left alone, and so is anyone's private exercise — holding
-`library:publish` is not a licence to rewrite what a coach or a member authored.
+Fixed on the way: a gym that installed the library before the how-tos existed had no way to
+get them. `install-starter-library` still never republishes a slug the gym already has —
+overwriting would destroy a gym's own edits — but **re-running it now tops up that row's
+description**, through the same `stride/describe-exercise` an admin would use by hand (admin
+only, on the existing `library:publish`). So an installed gym grows with the catalogue
+rather than keeping the one line it was stocked with.
+
+The test it applies is that nothing is lost, and growth is counted in whole paragraphs:
+the seed either fills an empty field, or every paragraph already stored is still there,
+identical and in order, with the new text carrying on after them. A gym's own words are
+left alone even when ours happen to begin the same way, and so is anyone's private exercise
+— holding `library:publish` is not a licence to rewrite what a coach or a member authored.
+`stride/describe-exercise` by hand remains the path for everything the installer declines
+to touch.
 
 Also: `clockValue` is what a time input is filled from, always `m:ss`. `formatQuantity`
 writes `45s` under a minute, which is right on a pill and unparseable in a box, so a

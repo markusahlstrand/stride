@@ -1304,6 +1304,26 @@ const installStarterLibraryOp: OperationHandler<undefined, StarterReport> = asyn
     report.equipment += 1;
   }
 
+  // A description is PARAGRAPHS, so growth is measured in them.
+  //
+  // This used to be a bare `seed.startsWith(stored)`, which cannot tell the
+  // catalogue growing a paragraph from a gym writing its own shorter line that
+  // happens to read like the start of ours: a gym whose back squat said
+  // "Barbell on the upper back" would have had it silently replaced, and a
+  // description nobody kept a copy of is gone for good. Whole paragraphs only —
+  // every stored paragraph must be there, identical and in order, with the new
+  // text carrying on after them.
+  const paragraphsOf = (text: string) =>
+    text
+      .split(/\n\s*\n/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const growsFrom = (seed: string, stored: string) => {
+    const had = paragraphsOf(stored);
+    const now = paragraphsOf(seed);
+    return had.length < now.length && had.every((p, i) => p === now[i]);
+  };
+
   // Slugs are unique per gym, shared and private alike — so a gym where a coach
   // already authored a private `back-squat` keeps theirs and simply does not get
   // the shared one. Skipping is the only answer that does not destroy something.
@@ -1318,14 +1338,14 @@ const installStarterLibraryOp: OperationHandler<undefined, StarterReport> = asyn
       // Here already. Everything about it is the gym's now — EXCEPT a how-to the
       // catalogue has since GROWN, because the installer skipping the slug is
       // the only reason that text was never going to arrive. The test is that
-      // nothing is lost: the seed either fills an empty field, or it starts with
-      // exactly what is stored and carries on. A gym that has written its own
+      // nothing is lost: the seed either fills an empty field, or it adds whole
+      // paragraphs to the ones already stored. A gym that has written its own
       // words fails that test and is left alone, as is anyone's private
       // exercise — `library:publish` is not a licence to edit those.
       if (
         exercise.description &&
         exercise.description !== existing.description &&
-        (!existing.description || exercise.description.startsWith(existing.description)) &&
+        (!existing.description || growsFrom(exercise.description, existing.description)) &&
         !existing.owner_coach_id &&
         !existing.owner_trainee_id
       ) {
