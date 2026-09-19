@@ -2,6 +2,7 @@
   "name": "stride",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@12.4.2",
   "type": "module",
   "scripts": {
     "dev": "concurrently -n issuer,api,web -c yellow,blue,magenta \"pnpm issuer\" \"STRIDE_DEV_AUTH=1 tsx watch src/server.ts\" \"pnpm --filter stride-app dev\"",
@@ -31,12 +32,12 @@
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",
-    "@cloudflare/workers-types": "^5.20260919.1",
+    "@cloudflare/workers-types": "^5.20260918.1",
     "@substrat-run/boundary-lint": "^0.4.2",
     "@substrat-run/cli": "^0.32.4",
     "@substrat-run/dev-issuer": "^0.1.29",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.1",
     "concurrently": "^10.0.5",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
