@@ -38,6 +38,9 @@ The linter and tests expect this shape. `manifest`/`migrations`/`module` are **m
 code** (the rules below bind them); `seed`/`server` are **harness** (exempt).
 
 ```
+spec/model.ts          the entity registry: defineEntities({…})   ← module code
+model.json             EMITTED from it. Never hand-edit; `pnpm lint:model`
+tools/model.mts        the emitter + the --check gate              ← harness
 src/manifest.ts        moduleManifest.parse({…}) + PERM consts   ← module code
 src/migrations.ts      the SqlMigration[]                         ← module code
 src/module.ts          imports both; operations + registration    ← module code
@@ -96,10 +99,31 @@ one this list does not otherwise state — module code must not catch an engine 
 
 ## Declare every link edge
 
-`entityRelations` in the manifest must declare every edge you traverse — both your own
-(`bike → customer`) and the ones an engine makes on your behalf (`workorder → bike`). The
-adapter **rejects** a `ctx.link` for an undeclared edge, so a missing one fails loudly.
-This is also what lets a portal permission-walk reach the owner.
+Every edge you traverse must be declared — both your own (`bike → customer`) and the ones an
+engine makes on your behalf (`workorder → bike`). The adapter **rejects** a `ctx.link` for an
+undeclared edge, so a missing one fails loudly. This is also what lets a portal
+permission-walk reach the owner.
+
+**`entityRelations` is no longer written by hand, and must not be.** It is composed by
+`manifestEntities(strideEntities, {…})`:
+
+- a **local** edge is the child's own `parents` in [`spec/model.ts`](spec/model.ts)
+  (`exercise → coach`, `template → trainee`), checked against the registry's own keys;
+- an edge crossing into an **engine** goes in `relations` (`workorder → trainee`,
+  `session → workorder`), with `engines: [workorderEntities]` so BOTH ends are checked
+  against the engine's registry too.
+
+A local-to-local edge in `relations` is wrong — it is already derived, and two descriptions
+of one fact is how they come to disagree.
+
+The thing this closes has no runtime symptom: a typo'd `parentType` **parsed cleanly** and
+produced an edge permission never flows along. No error, no denial to read — the grant just
+silently failed to reach the child, and stride hand-wrote seven of them with a depth-3 walk.
+They are compile errors now.
+
+What it does **not** change: migrations. `spec/model.ts` is not the source the DDL is derived
+from, and adopting it moved no SQL — upstream is explicit that deriving migrations is a
+separate open question. `migrations.ts` stays append-only and authoritative.
 
 ## The gates — run them, believe them
 
@@ -107,8 +131,14 @@ This is also what lets a portal permission-walk reach the owner.
 npm test                        # the scenario, including the denials
 npx @substrat-run/boundary-lint # the layer rules (R1–R8)
 npm run typecheck
+npm run lint:model -- --check    # model.json matches spec/model.ts
 npx substrat push --check       # the layer rules + the permission surface, no network
 ```
+
+`lint:model --check` is not optional politeness. `substrat push` carries the **checked-in**
+`model.json` and never compares it to the TypeScript, so a registry edited without re-emitting
+ships a stale model silently. The artifact is the record — the dashboard, `substrat model view`
+and the deploy manifest all read the JSON, never `spec/model.ts`.
 
 `push --check` is the gate the deploy runs, locally: it derives the permission registry and
 prints the `digests.permission` that promotion compares. It belongs in CI. Note that `push`

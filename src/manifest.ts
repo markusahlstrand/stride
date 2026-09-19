@@ -1,4 +1,6 @@
-import { moduleManifest, permissionKey } from '@substrat-run/contracts';
+import { manifestEntities, moduleManifest, permissionKey } from '@substrat-run/contracts';
+import { workorderEntities } from '@substrat-run/engine-workorder';
+import { strideEntities } from '../spec/model.js';
 
 // ============================================================================
 // The vertical's MANIFEST — the reviewable contract the kernel reads at
@@ -131,11 +133,6 @@ export const strideManifest = moduleManifest.parse({
     consumes: [],
   },
   migrations: { journalDir: './migrations', compatibleFrom: '0.0.1' },
-  attachmentTargets: [
-    { entityType: 'exercise', readPermission: 'exercise:read' },
-    { entityType: 'trainee', readPermission: 'result:read' },
-    { entityType: 'session', readPermission: 'result:read' },
-  ],
   // ---------------------------------------------------------------------------
   // EVERY edge the app walks must be declared here or `ctx.link` is rejected.
   //
@@ -152,19 +149,41 @@ export const strideManifest = moduleManifest.parse({
   // trainees, their programs, their sessions and every set in them — and
   // reaches nothing of another coach's. Deepest walk is
   // session → workorder → trainee → coach (3); the evaluator's limit is 4.
+  //
+  // NONE of it is written here any more. The four LOCAL edges are derived from
+  // the `parents` declarations in `spec/model.ts`, and the three that cross into
+  // the engine are declared below as `relations` — where both ends are checked
+  // against `workorderEntities`. A typo in any of the seven used to parse
+  // cleanly and produce an edge permission never flows along; it is a compile
+  // error now.
   // ---------------------------------------------------------------------------
-  entityRelations: [
-    { entityType: 'exercise', parentType: 'coach' },
-    { entityType: 'exercise', parentType: 'trainee' },
-    { entityType: 'template', parentType: 'coach' },
-    { entityType: 'template', parentType: 'trainee' },
-    { entityType: 'workorder', parentType: 'trainee' },
-    // The program a coach assigned belongs to that coach. This edge — per
-    // PROGRAM — is what replaced the old trainee -> coach edge, which handed a
-    // coach that person's entire history for ever.
-    { entityType: 'workorder', parentType: 'coach' },
-    { entityType: 'session', parentType: 'workorder' },
-  ],
+  ...manifestEntities(strideEntities, {
+    // The engine registry whose entity names the edges below may name. Without
+    // this, `workorder` is not a checkable name and the old silent-typo hazard
+    // survives exactly where it matters most.
+    engines: [workorderEntities],
+    // Moved in here from a top-level `attachmentTargets` so the entity names are
+    // checked too — and an attachment target must be POINTABLE, which the
+    // composite-keyed tables in the registry are not.
+    attachmentTargets: [
+      { entityType: 'exercise', readPermission: 'exercise:read' },
+      { entityType: 'trainee', readPermission: 'result:read' },
+      { entityType: 'session', readPermission: 'result:read' },
+    ],
+    relations: [
+      // The programme's subject. The ENGINE links this hop, but only this
+      // vertical knows a work order hangs off a trainee — an engine is
+      // entity-agnostic and cannot know its own parent.
+      { entityType: 'workorder', parentType: 'trainee' },
+      // The programme a coach assigned belongs to that coach. This edge — per
+      // PROGRAMME — is what replaced the old trainee → coach edge, which handed
+      // a coach that person's entire history for ever.
+      { entityType: 'workorder', parentType: 'coach' },
+      // Local child, foreign parent, so it belongs here rather than as a
+      // `parents` entry on `session`.
+      { entityType: 'session', parentType: 'workorder' },
+    ],
+  }),
   guards: GUARDED_ENGINE_OPERATIONS.map((before) => ({
     before,
     predicate: PROGRAM_IN_REACH,
