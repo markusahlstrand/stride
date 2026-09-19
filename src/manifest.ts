@@ -1,4 +1,7 @@
-import { moduleManifest, permissionKey } from '@substrat-run/contracts';
+import { manifestEntities, moduleManifest, permissionKey } from '@substrat-run/contracts';
+import { workorderEntities } from '@substrat-run/engine-workorder';
+
+import { strideEntities } from '../spec/model.js';
 
 // ============================================================================
 // The vertical's MANIFEST — the reviewable contract the kernel reads at
@@ -132,11 +135,6 @@ export const strideManifest = moduleManifest.parse({
     consumes: [],
   },
   migrations: { journalDir: './migrations', compatibleFrom: '0.0.1' },
-  attachmentTargets: [
-    { entityType: 'exercise', readPermission: 'exercise:read' },
-    { entityType: 'trainee', readPermission: 'result:read' },
-    { entityType: 'session', readPermission: 'result:read' },
-  ],
   // ---------------------------------------------------------------------------
   // EVERY edge the app walks must be declared here or `ctx.link` is rejected.
   //
@@ -153,19 +151,31 @@ export const strideManifest = moduleManifest.parse({
   // trainees, their programs, their sessions and every set in them — and
   // reaches nothing of another coach's. Deepest walk is
   // session → workorder → trainee → coach (3); the evaluator's limit is 4.
+  //
+  // The first four are DERIVED from `parents` in spec/model.ts rather than
+  // written here a second time — a relation naming an entity that does not
+  // exist is a permission edge that silently never resolves, and two
+  // descriptions of one fact are how they come to disagree. The three below are
+  // declared because one end of each is the ENGINE's work order, which this
+  // module does not own; both ends are still checked, against our entities plus
+  // `workorderEntities`.
   // ---------------------------------------------------------------------------
-  entityRelations: [
-    { entityType: 'exercise', parentType: 'coach' },
-    { entityType: 'exercise', parentType: 'trainee' },
-    { entityType: 'template', parentType: 'coach' },
-    { entityType: 'template', parentType: 'trainee' },
-    { entityType: 'workorder', parentType: 'trainee' },
-    // The program a coach assigned belongs to that coach. This edge — per
-    // PROGRAM — is what replaced the old trainee -> coach edge, which handed a
-    // coach that person's entire history for ever.
-    { entityType: 'workorder', parentType: 'coach' },
-    { entityType: 'session', parentType: 'workorder' },
-  ],
+  ...manifestEntities(strideEntities, {
+    engines: [workorderEntities],
+    attachmentTargets: [
+      { entityType: 'exercise', readPermission: 'exercise:read' },
+      { entityType: 'trainee', readPermission: 'result:read' },
+      { entityType: 'session', readPermission: 'result:read' },
+    ],
+    relations: [
+      { entityType: 'workorder', parentType: 'trainee' },
+      // The program a coach assigned belongs to that coach. This edge — per
+      // PROGRAM — is what replaced the old trainee -> coach edge, which handed a
+      // coach that person's entire history for ever.
+      { entityType: 'workorder', parentType: 'coach' },
+      { entityType: 'session', parentType: 'workorder' },
+    ],
+  }),
   guards: GUARDED_ENGINE_OPERATIONS.map((before) => ({
     before,
     predicate: PROGRAM_IN_REACH,

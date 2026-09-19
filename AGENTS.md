@@ -38,13 +38,17 @@ The linter and tests expect this shape. `manifest`/`migrations`/`module` are **m
 code** (the rules below bind them); `seed`/`server` are **harness** (exempt).
 
 ```
+spec/model.ts          defineEntities({…}) — what exists          ← module code
 src/manifest.ts        moduleManifest.parse({…}) + PERM consts   ← module code
 src/migrations.ts      the SqlMigration[]                         ← module code
 src/module.ts          imports both; operations + registration    ← module code
 src/seed.ts            host, tenants, roles, grants, seed world    ← harness
 src/personas.ts        the dev cast: `sub` → the person             ← harness
 src/server.ts          thin wrapper, one route per operation       ← harness
+tools/emit-model.mts   emits model.json from spec/model.ts         ← build tool
+model.json             the emitted artifact — checked in, never hand-edited
 test/scenario.test.ts  the scenario — including the denials
+test/model.test.ts     the registry vs. the migrated schema
 ```
 
 ## The rules (non-negotiable)
@@ -101,12 +105,42 @@ one this list does not otherwise state — module code must not catch an engine 
 adapter **rejects** a `ctx.link` for an undeclared edge, so a missing one fails loudly.
 This is also what lets a portal permission-walk reach the owner.
 
+In this vertical they are **derived, not written**: `manifestEntities(strideEntities, …)`
+builds `entityRelations` out of each entity's `parents` in [`spec/model.ts`](spec/model.ts),
+so a local edge is stated once and a typo is a compile error instead of a permission edge
+that silently never resolves. The three edges involving the ENGINE's work order
+(`workorder → trainee`, `workorder → coach`, `session → workorder`) are declared in the
+`relations` list beside it, because one end of each is a noun this module does not own —
+both ends are still checked, against our entities plus `workorderEntities`.
+
+## The model, and `model.json`
+
+[`spec/model.ts`](spec/model.ts) declares **what exists**: every `train_*` table, its
+columns, its keys, and the parent edges permission flows along. It is a second description
+of rows [`src/migrations.ts`](src/migrations.ts) already creates, so `test/model.test.ts`
+applies every migration to a real SQLite database and compares the two column by column —
+in both directions, because a table a migration adds and the model never hears about is the
+failure that would otherwise rot quietly.
+
+`pnpm lint:model` emits it to **`model.json`**, which is checked in and re-emitted rather
+than built, for the same reason the permission and migration checkpoints exist: a changed
+table or a moved parent edge then appears in the pull-request diff. `substrat push` reads
+that file off the disk and carries it in the deploy manifest — it is what the dashboard's
+**Data → Model** tab renders, and `substrat model view .` draws the same page locally.
+A vertical without one deploys perfectly well and records no model at all, which is exactly
+what the first deployed versions of stride did.
+
+`parents` is the PERMISSION graph, not the foreign keys. `exercise → trainee` is there
+because performing an exercise earns it for ever; `set_result → session` is a foreign key
+no grant ever walks, and is deliberately absent.
+
 ## The gates — run them, believe them
 
 ```sh
 npm test                        # the scenario, including the denials
 npx @substrat-run/boundary-lint # the layer rules (R1–R8)
 npm run typecheck
+pnpm lint:model --check         # model.json still matches spec/model.ts
 npx substrat push --check       # the layer rules + the permission surface, no network
 ```
 
@@ -607,6 +641,7 @@ platform's directory and is injected; declaring it is refused.
 pnpm dev          # dev issuer on :8879, API on :8871 (API_PORT), web on :5173 (WEB_PORT)
 pnpm test         # the scenario, including every denial
 pnpm typecheck    # both packages
+pnpm lint:model   # re-emit model.json (--check to gate it)
 npx @substrat-run/boundary-lint
 ```
 
