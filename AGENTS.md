@@ -50,7 +50,10 @@ test/scenario.test.ts  the scenario — including the denials
 ## The rules (non-negotiable)
 
 **Module code** = everything reachable from a `ModuleRegistration` (operations,
-consumers). Rules 1–5 are enforced mechanically by `boundary-lint`.
+consumers). Rules 1–6 are enforced mechanically by `boundary-lint`, which numbers them
+R1–R8 in its own order: the clock rule is a gate now rather than a review note, and **R7 is
+one this list does not otherwise state — module code must not catch an engine error outside
+`ctx.atomic`**. R8 (`no SELECT *`) binds engines, not verticals.
 
 1. **Data access is `ctx.sql` only.** Never import `better-sqlite3`, an adapter,
    `node:*`, or `cloudflare:workers` in module code. That last one is not a style rule:
@@ -102,9 +105,14 @@ This is also what lets a portal permission-walk reach the owner.
 
 ```sh
 npm test                        # the scenario, including the denials
-npx @substrat-run/boundary-lint # the layer rules (1–5)
+npx @substrat-run/boundary-lint # the layer rules (R1–R8)
 npm run typecheck
+npx substrat push --check       # the layer rules + the permission surface, no network
 ```
+
+`push --check` is the gate the deploy runs, locally: it derives the permission registry and
+prints the `digests.permission` that promotion compares. It belongs in CI. Note that `push`
+has **no `--help`** — an unknown flag is still a push.
 
 `boundary-lint` exits non-zero if it *couldn't do its job* (no module code found, no
 engines resolvable) — a pass that checked nothing is worse than no linter. Never wave that
