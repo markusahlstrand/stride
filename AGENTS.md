@@ -156,6 +156,7 @@ reasoning behind every choice: [`spec/concept.md`](spec/concept.md).
 | **schedule** | `recur_days` `'1,3,5'` (ISO weekdays) **or** `recur_per_week`, never both, on template and program items |
 | **quantity & unit** | a set's `reps` column is the count **in the exercise's own unit** (`reps` / `seconds` / `metres`). Rowing 5000 is 5000 metres — cardio needed no separate table, only a form that says what the field is |
 | **cardio extras** | `duration_seconds` and `avg_hr`, optional on **every** set. A 5 km row is a distance *and* a duration; a 90-second plank at 140 bpm is the same shape |
+| **load** | the WEIGHT BEING MOVED as one number — a bar plus its plates, a pair of dumbbells added together, a machine's pin. On a bodyweight movement it is the **added** weight only, never your body, and blank means bodyweight. Which of those it is differs per exercise, so every catalogue row says so in a `Load:` paragraph — the fourth, after `Watch for:`. It rides the same `description` column the how-to does (no second column, no migration), and `loadNoteOf` digs it back out for the set form and both planning forms. The single-leg glute bridge is why: the dumbbell goes across the hip crease of the working side, and nothing in the app said so |
 | **prescription shape** | uniform (`target_sets × target_reps @ load` on the item) **or** explicit rows in `train_item_sets` when the sets differ. `target_sets` is kept in step with the list so adherence and the schedule stay right |
 | **superset** | `group_key` on the item. Same key **and adjacent** = one superset; a key that reappears later is a second one |
 | **onboarding** | `goal` + `days_per_week` on `train_trainees`. Prefills a schedule, never enforces one |
@@ -167,6 +168,21 @@ reasoning behind every choice: [`spec/concept.md`](spec/concept.md).
 | **baseline** | a programme of kind `assessment`, normally from the "Baseline — strength & symmetry" template: sixteen light sets covering the whole body, ten of them per side, all doable with dumbbells, a band and a mat. Offered as the **skippable third step of onboarding** (`BaselineStep`, dismissal remembered per device) and for ever from Progress. Not a table — it is the first point on every curve in `stride/progress` |
 | **progress** | `stride/progress` — nothing stored. A **walk over sessions** (`result:read` per session) folded into one point per (exercise, side, session): best set, volume, pace. `symmetry` compares left and right from the latest session both were logged in, as a percentage in integer arithmetic |
 | **measurement** | `train_measurements` — weight, girths, grip, shoulder range of motion. Append-only, decimal strings, sided where a body is. Gated by `result:log` / `result:read` on the **trainee record**: no new keys |
+
+**A description is paragraphs, and the shape is fixed**: the one-line summary a row shows,
+the how-to, `Watch for:`, `Load:`. They are one TEXT column split on blank lines — there is
+no second column and no migration behind any of it — and `ledeOf` is what a row renders.
+`install-starter-library` skips a slug it already has, so a description the catalogue GROWS
+would never reach an installed gym; `stride/describe-exercise` (admin, `library:publish`) is
+the top-up, and the test it applies is that **nothing is lost** — the seed either fills an
+empty field or starts with exactly what is stored. A gym's own words, and anyone's private
+exercise, are left alone. Guarded by test 36.
+
+**Notation that is obvious once you know it is opaque until somebody says so.** A set pill
+("1: 10 × 50"), RPE, avg HR — each carries a mint `?` that opens one plain sentence in
+place (`Explain` / `.markbtn` in `screens.tsx`). The `?` never goes inside a `<label>`: a
+button there takes its accessible name from the label that contains it, and computes to
+nothing.
 
 The default library a gym starts with is [`src/catalogue.ts`](src/catalogue.ts) — 31
 equipment types, 71 exercises and five starter templates (two lifting blocks, the whole-body
@@ -358,6 +374,16 @@ from the OS. Four things to know before you add a screen:
   things and carries `--on-accent`; `--accent-ink` is the deep green that may be *set* as
   text (a ghost button, a back link). Reach for `color: var(--accent)` and you have written
   something nobody can read in the light theme.
+- **The MOVEMENTS are `app/src/moves.tsx`** — 36 families, each drawn TWICE (where the rep
+  starts, where it ends) with a mint arrow between. A pose says "a person with weights"; a
+  pair says "the bar goes from here to here", which is what somebody meeting an exercise for
+  the first time actually needs. `moveFor(name, unit)` picks one off the NAME, like
+  `poseFor`, and RULES order is load bearing — `leg curl` must meet `legcurl` before `curl`.
+  A list row shows frame `b` (`MoveTile`); the exercise screen shows both (`MovementFigures`).
+  This is the one place a drawing carries something the reader came for, so each frame has a
+  real caption under it and the drawings stay `aria-hidden` — the words say it, the picture
+  illustrates it. Adding a family? Render them and LOOK: half the first pass read as
+  scribbles, and a typechecked SVG is not a legible one.
 - **The figures are `app/src/figures.tsx`** — one stick figure, fourteen poses, ink for the
   body and mint for the kit. They are **decoration, always `aria-hidden`**: a figure never
   carries a fact the text beside it does not say. `poseFor(name, unit)` picks a pose off the
@@ -420,6 +446,12 @@ behind *Workout settings*. They used to be one long page, which put a schedule e
 front of someone who had just pressed start. A baseline (`assessment`) has no schedule at
 all, and its end state is *Save it and see my numbers* → `complete-program` → Progress.
 
+**A time field needs its two directions to agree:** `formatQuantity` writes `45s` under a
+minute, which is right on a pill and unreadable to `parseClock`, so a prescribed 45-second
+plank prefilled a box whose *Log set* was then silently disabled. **`clockValue` is what a
+time INPUT is filled from** — always `m:ss` — and `parseClock` strips a stray unit rather
+than answering `NaN`.
+
 `Start training` on a planned workout is **two client calls** — `workorder/start`, then
 `stride/begin` — and that is deliberate: the guard rides the first, and an in-scope shortcut
 around it is still forbidden. One tap for the person, two requests on the wire.
@@ -458,6 +490,7 @@ staff read "programme". Guarded by test 25.
   session and nothing more. `workorder/start` carries the manifest guard, and an in-scope
   shortcut around it would be the hole the guard exists to close — a `planned` programme is
   refused with *start it first*. Guarded by test 24.
+- **A cardio row has no load box**, which is right for a run and wrong for exactly one exercise: `sled-push`, whose plates ARE the load. Its `Load:` paragraph says to put the sled weight in the row note. Widening the set form to four fields for one row is a design decision, not a bug fix.
 - **Search and type filters are client-side too**, same reason. A search that filtered
   server-side would be a second access path to keep honest.
 - **The exercise screen filters client-side, on purpose.** Default is everything the kernel
