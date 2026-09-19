@@ -372,6 +372,15 @@ from the OS. Four things to know before you add a screen:
   top edge, `.hero-fig` on the hero's button, the runner on the session track. Use the
   ratio (`--s`), not a magic number, or the first size change leaves somebody hovering.
 
+- **The app icon is a `FigureTile`, not a letterform.** `app/public/icon.svg` is the `run`
+  pose on a mint field — one of the cast, at icon scale — and the browser-tab weight
+  (`favicon.svg`) is the same figure drawn `mini`, because at 16px the eyes and the band
+  are noise. Its colours are **frozen**: a pinned icon cannot follow the OS, so the body
+  stays ink and the head and band stay paper-white, which is the mint-surface rule applied
+  once and for ever. The PNGs beside it are derived — `icon.svg` carries the `rsvg-convert`
+  lines that rebuild them, and editing a path here without editing `figures.tsx` makes the
+  mark and the cast drift apart. Without this the pinned app was a browser-drawn **S**.
+
 The week strip on Today is read off the **booked slots** — it is the plan for the week, not
 a record of it, so a past day is never ticked. The runner on the session track is read off
 the same `done`/`total` the session bar reports, so the two cannot disagree.

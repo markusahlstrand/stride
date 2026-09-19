@@ -17,6 +17,17 @@
       href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Caveat+Brush&family=DM+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+    <!-- The mark is one of the cast: the `run` pose from src/figures.tsx on a
+         mint field — a FigureTile at icon scale. A pinned icon cannot follow the
+         OS the way the app does, so its colours are frozen on the mint side.
+         Sources are app/public/*.svg; the PNGs beside them are derived. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- iOS reads the name off this one, not off <title>, when you pin it. -->
+    <meta name="apple-mobile-web-app-title" content="Stride" />
+    <meta name="application-name" content="Stride" />
     <title>Stride</title>
   </head>
   <body>

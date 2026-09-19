@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<!--
+  Stride's mark: the browser-tab weight — no eyes, no band, a heavier stroke.
+
+  It is one of the cast — the `run` pose out of app/src/figures.tsx, at icon
+  scale — sitting in a mint field, which is a FigureTile and nothing new. The
+  colours are frozen on purpose: a home-screen icon cannot follow the OS the way
+  the app does, so the body is ink in both themes exactly as the rule for a mint
+  surface says, and the head — and, in the weights that draw one, the headband —
+  goes paper-white rather than vanishing into the fill. Edit the paths here and in figures.tsx together or the two will drift.
+
+  The PNGs beside this file are derived. To rebuild them:
+    rsvg-convert -w 180 -h 180 icon.svg          -o apple-touch-icon.png
+    rsvg-convert -w 192 -h 192 icon.svg          -o icon-192.png
+    rsvg-convert -w 512 -h 512 icon.svg          -o icon-512.png
+    rsvg-convert -w 512 -h 512 icon-maskable.svg -o icon-maskable-512.png
+    rsvg-convert -w 32  -h 32  favicon.svg       -o favicon-32.png
+-->
+<rect width="512" height="512" rx="96" fill="#7fd08a"/><g transform="translate(107.20 76.20) scale(3.1)"><g fill="none" stroke="#17181a" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 52H20M0 64H14M6 76H18" stroke-width="7"/><path d="M63 37L54 68L74 76L70 98L79 101M54 68L40 84L22 78L19 69M61 45L74 54L83 44M61 45L47 50L41 63"/><circle cx="67" cy="27" r="10" fill="#fffdf8"/></g></g></svg>
