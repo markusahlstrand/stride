@@ -1,0 +1,917 @@
+{
+  "entities": {
+    "accountEquipment": {
+      "table": "train_account_equipment",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "owner_type": {
+            "type": "string"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "equipment_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "owner_type",
+          "owner_id",
+          "equipment_slug"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "owner_type",
+        "owner_id",
+        "equipment_slug"
+      ]
+    },
+    "coach": {
+      "table": "train_coaches",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "principal_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "principal_id",
+          "name",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "key": [
+        "principal_id"
+      ],
+      "erasable": [
+        "name"
+      ]
+    },
+    "equipment": {
+      "table": "train_equipment",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "category",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "slug"
+      ]
+    },
+    "exercise": {
+      "table": "train_exercises",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "modality": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "owner_coach_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active": {
+            "type": "number"
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "owner_trainee_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "laterality": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "modality",
+          "unit",
+          "description",
+          "visibility",
+          "owner_coach_id",
+          "active",
+          "created_by",
+          "created_at",
+          "owner_trainee_id",
+          "laterality"
+        ],
+        "additionalProperties": false
+      },
+      "parents": [
+        "coach",
+        "trainee"
+      ],
+      "key": [
+        "slug"
+      ]
+    },
+    "exerciseEquipment": {
+      "table": "train_exercise_equipment",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "exercise_id": {
+            "type": "string"
+          },
+          "equipment_slug": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "exercise_id",
+          "equipment_slug"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "exercise_id",
+        "equipment_slug"
+      ]
+    },
+    "itemSet": {
+      "table": "train_item_sets",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "item_id": {
+            "type": "string"
+          },
+          "item_kind": {
+            "type": "string"
+          },
+          "set_no": {
+            "type": "number"
+          },
+          "target_reps": {
+            "type": "number"
+          },
+          "target_load": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "side": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "item_id",
+          "item_kind",
+          "set_no",
+          "target_reps",
+          "target_load",
+          "note",
+          "side"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "measurement": {
+      "table": "train_measurements",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "trainee_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "side": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "measured_at": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logged_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trainee_id",
+          "kind",
+          "side",
+          "value",
+          "unit",
+          "measured_at",
+          "note",
+          "logged_by",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "erasable": [
+        "note"
+      ]
+    },
+    "message": {
+      "table": "train_messages",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "trainee_id": {
+            "type": "string"
+          },
+          "coach_id": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trainee_id",
+          "coach_id",
+          "author",
+          "body",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "erasable": [
+        "body"
+      ]
+    },
+    "programItem": {
+      "table": "train_program_items",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "program_id": {
+            "type": "string"
+          },
+          "exercise_id": {
+            "type": "string"
+          },
+          "position": {
+            "type": "number"
+          },
+          "target_sets": {
+            "type": "number"
+          },
+          "target_reps": {
+            "type": "number"
+          },
+          "target_load": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recur_days": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recur_per_week": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "program_id",
+          "exercise_id",
+          "position",
+          "target_sets",
+          "target_reps",
+          "target_load",
+          "notes",
+          "recur_days",
+          "recur_per_week",
+          "group_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "programSlot": {
+      "table": "train_program_slots",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "program_id": {
+            "type": "string"
+          },
+          "weekday": {
+            "type": "number"
+          },
+          "time_of_day": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "program_id",
+          "weekday",
+          "time_of_day",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "key": [
+        "program_id",
+        "time_of_day",
+        "weekday"
+      ]
+    },
+    "programSummary": {
+      "table": "train_program_summary",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "program_id": {
+            "type": "string"
+          },
+          "prescribed_sets": {
+            "type": "number"
+          },
+          "performed_sets": {
+            "type": "number"
+          },
+          "total_reps": {
+            "type": "number"
+          },
+          "total_volume": {
+            "type": "string"
+          },
+          "adherence_pct": {
+            "type": "string"
+          },
+          "computed_at": {
+            "type": "string"
+          },
+          "total_seconds": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "program_id",
+          "prescribed_sets",
+          "performed_sets",
+          "total_reps",
+          "total_volume",
+          "adherence_pct",
+          "computed_at",
+          "total_seconds"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "program_id"
+      ]
+    },
+    "session": {
+      "table": "train_sessions",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "program_id": {
+            "type": "string"
+          },
+          "trainee_id": {
+            "type": "string"
+          },
+          "performed_at": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logged_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "program_id",
+          "trainee_id",
+          "performed_at",
+          "note",
+          "logged_by",
+          "created_at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "setResult": {
+      "table": "train_set_results",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": "string"
+          },
+          "program_item_id": {
+            "type": "string"
+          },
+          "exercise_id": {
+            "type": "string"
+          },
+          "set_no": {
+            "type": "number"
+          },
+          "reps": {
+            "type": "number"
+          },
+          "load": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rpe": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "logged_by": {
+            "type": "string"
+          },
+          "logged_at": {
+            "type": "string"
+          },
+          "duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "avg_hr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "side": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "program_item_id",
+          "exercise_id",
+          "set_no",
+          "reps",
+          "load",
+          "rpe",
+          "logged_by",
+          "logged_at",
+          "duration_seconds",
+          "avg_hr",
+          "side"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "setVoid": {
+      "table": "train_set_voids",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "set_id": {
+            "type": "string"
+          },
+          "voided_by": {
+            "type": "string"
+          },
+          "voided_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "set_id",
+          "voided_by",
+          "voided_at"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "set_id"
+      ]
+    },
+    "sharing": {
+      "table": "train_sharing",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "trainee_id": {
+            "type": "string"
+          },
+          "coach_id": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "since": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "trainee_id",
+          "coach_id",
+          "mode",
+          "since",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "trainee_id",
+        "coach_id"
+      ]
+    },
+    "template": {
+      "table": "train_templates",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "owner_coach_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "owner_trainee_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "visibility",
+          "owner_coach_id",
+          "created_by",
+          "created_at",
+          "owner_trainee_id"
+        ],
+        "additionalProperties": false
+      },
+      "parents": [
+        "coach",
+        "trainee"
+      ]
+    },
+    "templateItem": {
+      "table": "train_template_items",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "exercise_id": {
+            "type": "string"
+          },
+          "position": {
+            "type": "number"
+          },
+          "target_sets": {
+            "type": "number"
+          },
+          "target_reps": {
+            "type": "number"
+          },
+          "target_load": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recur_days": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recur_per_week": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "group_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "template_id",
+          "exercise_id",
+          "position",
+          "target_sets",
+          "target_reps",
+          "target_load",
+          "notes",
+          "recur_days",
+          "recur_per_week",
+          "group_key"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "threadRead": {
+      "table": "train_thread_reads",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "trainee_id": {
+            "type": "string"
+          },
+          "coach_id": {
+            "type": "string"
+          },
+          "principal_id": {
+            "type": "string"
+          },
+          "last_read_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "trainee_id",
+          "coach_id",
+          "principal_id",
+          "last_read_at"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "trainee_id",
+        "coach_id",
+        "principal_id"
+      ]
+    },
+    "trainee": {
+      "table": "train_trainees",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "contact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coach_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "principal_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "goal": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "days_per_week": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "onboarded_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "name",
+          "contact",
+          "coach_id",
+          "created_at",
+          "principal_id",
+          "goal",
+          "days_per_week",
+          "onboarded_at"
+        ],
+        "additionalProperties": false
+      },
+      "key": [
+        "number"
+      ],
+      "erasable": [
+        "contact",
+        "name"
+      ]
+    }
+  }
+}

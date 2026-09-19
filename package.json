@@ -13,6 +13,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit && pnpm --filter stride-app exec tsc -b",
     "lint:boundaries": "substrat-boundary-lint",
+    "lint:model": "tsx tools/emit-model.mts",
     "deploy": "substrat push",
     "deploy:preview": "substrat preview create --empty --tag dev",
     "issuer": "tsx node_modules/@substrat-run/dev-issuer/dist/cli.js --personas src/personas.ts"
