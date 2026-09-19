@@ -446,7 +446,18 @@ behind *Workout settings*. They used to be one long page, which put a schedule e
 front of someone who had just pressed start. A baseline (`assessment`) has no schedule at
 all, and its end state is *Save it and see my numbers* → `complete-program` → Progress.
 
-**A time field needs its two directions to agree:** `formatQuantity` writes `45s` under a
+**An exercise measured in seconds gets a clock.** A plank, a dead hang, a single-leg
+balance: the hold is the number being logged, and the phone on the mat is the only thing in
+the room that knows it. `SetLogger` shows a stopwatch above the fields for `unit: 'seconds'`
+— Start / Stop, the prescribed hold beside it, accent-ink once it is passed and one
+`navigator.vibrate` for someone not looking at the screen. It is device-local and transient
+like the session clock, and for the same reason: **what is kept is the set**, which arrives
+through `logSet` exactly as a typed one does. The running clock **writes the time field on
+every tick** (the field is read-only until Stop), so tapping *Log set* mid-hold logs what
+was actually held rather than the prescription — there is no state a forgotten Stop can
+lose.
+
+That field also needs its two directions to agree: `formatQuantity` writes `45s` under a
 minute, which is right on a pill and unreadable to `parseClock`, so a prescribed 45-second
 plank prefilled a box whose *Log set* was then silently disabled. **`clockValue` is what a
 time INPUT is filled from** — always `m:ss` — and `parseClock` strips a stray unit rather

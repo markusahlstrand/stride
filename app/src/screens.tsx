@@ -1806,6 +1806,58 @@ function SetLogger({
   const [mins, setMins] = useState('');
   const [hr, setHr] = useState('');
   const [busy, setBusy] = useState(false);
+  // ---- the hold clock ----------------------------------------------------
+  // A plank is prescribed in seconds and was logged by typing them in from
+  // memory, which is the one number a phone on the mat can just KNOW. It is
+  // device-local and transient, like the session clock and for the same reason:
+  // what the gym keeps is the set, and the set arrives through `logSet` as
+  // usual. `startedAt` is when this run of the clock began; null = not running.
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [heldSec, setHeldSec] = useState(0);
+  /** The prescribed hold for the side on offer — the goal the clock is read against. */
+  const targetSec = isTime ? initial.reps : 0;
+  const reached = isTime && targetSec > 0 && heldSec >= targetSec;
+  /** One buzz when the target passes, never one per tick. */
+  const buzzed = useRef(false);
+
+  const reset = () => {
+    setStartedAt(null);
+    setHeldSec(0);
+    buzzed.current = false;
+  };
+
+  /** Start over from zero — one hold, one run of the clock. */
+  const startHold = () => {
+    buzzed.current = false;
+    setHeldSec(0);
+    setAmount('0:00');
+    setStartedAt(Date.now());
+  };
+
+  // Polls faster than it renders: the rounded second is what the display and
+  // the field hold, so three ticks in four set the state they already had and
+  // React bails out. The clock feeds the AMOUNT FIELD as it runs, so a hold
+  // logged without stopping first still logs what was actually held.
+  useEffect(() => {
+    if (startedAt === null) return;
+    const id = window.setInterval(() => {
+      const sec = Math.round((Date.now() - startedAt) / 1000);
+      setHeldSec(sec);
+      setAmount(clockValue(sec));
+      if (targetSec > 0 && sec >= targetSec && !buzzed.current) {
+        buzzed.current = true;
+        // A cue for someone face-down on a mat not looking at the screen.
+        // Absent on most desktops and on iOS; never a reason to throw.
+        try {
+          navigator.vibrate?.(180);
+        } catch {
+          /* no haptics here, and the clock is the real signal anyway */
+        }
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [startedAt, targetSec]);
+
   /** Three letters over an input box is not an explanation. Ask and it says. */
   const [explainEffort, setExplainEffort] = useState(false);
   const effortId = useId();
@@ -1818,6 +1870,7 @@ function SetLogger({
     const d = defaultFor(next);
     setAmount(isTime ? clockValue(d.reps) : String(d.reps));
     setLoad(d.load ?? '');
+    reset();
   };
 
   /** '2:30' → 150, '45' → 45, '45s' → 45. Time is the one field people write
@@ -1851,12 +1904,34 @@ function SetLogger({
           ))}
         </div>
       )}
+      {isTime && (
+        <div className={`holdtimer${startedAt !== null ? ' running' : ''}${reached ? ' hit' : ''}`}>
+          {/* role="timer" is live-off by design: a screen reader announcing every
+              second would drown out everything else on the screen. */}
+          <div className="hold-clock mono" role="timer">
+            {clockValue(heldSec)}
+          </div>
+          <div className="hold-target">
+            {reached ? 'target held' : targetSec > 0 ? `target ${clockValue(targetSec)}` : 'no target'}
+          </div>
+          <button
+            type="button"
+            className="tinted hold-go"
+            onClick={() => (startedAt === null ? startHold() : setStartedAt(null))}
+          >
+            {startedAt !== null ? 'Stop' : heldSec > 0 ? 'Again' : 'Start'}
+          </button>
+        </div>
+      )}
       <div className="setgrid">
         <div>
           <label>{UNIT_LABEL[unit] ?? unit}</label>
           <input
             inputMode={isTime ? 'text' : 'numeric'}
             value={amount}
+            // While the clock runs the field IS the clock — typing would be
+            // overwritten on the next tick — so it is read-only until Stop.
+            readOnly={isTime && startedAt !== null}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={isTime ? 'mm:ss' : ''}
           />
@@ -1934,6 +2009,9 @@ function SetLogger({
           disabled={busy || !Number.isFinite(quantity) || quantity <= 0}
           onClick={async () => {
             setBusy(true);
+            // Logging ends the hold — the field already mirrors the clock, so
+            // what goes in is what the clock said at the moment of the tap.
+            setStartedAt(null);
             await onLog({
               reps: Math.round(quantity),
               ...(!isCardio && load ? { load } : {}),

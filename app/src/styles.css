@@ -645,6 +645,42 @@ textarea { resize: vertical; min-height: 76px; line-height: 1.5; }
   padding: 0 6px;
 }
 .setgrid label { text-align: center; margin: 0 0 5px; }
+/* The hold clock. A plank, a dead hang, a single-leg balance: the exercise is
+   measured in seconds, and the phone on the mat is the only thing in the room
+   that knows them. Transient and device-local like the session clock — it feeds
+   the time field, and the SET is what gets kept.
+
+   The clock is big enough to read from the floor, and turns accent-ink once the
+   prescribed hold has passed. It never stops you: holding longer is the point. */
+.holdtimer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--radius);
+}
+.hold-clock {
+  grid-column: 1;
+  grid-row: 1;
+  font: 500 36px var(--mono);
+  line-height: 1.05;
+}
+.hold-target {
+  grid-column: 1;
+  grid-row: 2;
+  font: 400 12px var(--mono);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.holdtimer .hold-go { grid-column: 2; grid-row: 1 / span 2; min-width: 108px; }
+.holdtimer.hit .hold-clock { color: var(--accent-ink); }
+.holdtimer.hit .hold-target { color: var(--accent-ink); }
+
 /* Just the mark, as its own control beside a label rather than inside it. */
 .markbtn {
   background: transparent; border: 0; padding: 0 0 0 5px; margin: 0; min-height: 0;
