@@ -505,4 +505,13 @@ export const api = {
   logSession: (programId: string, b: unknown) => post<Session>(`/programs/${programId}/sessions`, b),
   logSet: (sessionId: string, b: unknown) =>
     post<{ set: SetResult; earned: boolean }>(`/sessions/${sessionId}/sets`, b),
+
+  /**
+   * Take a set back — the ten on the left arm that were the right arm's.
+   *
+   * Nothing is deleted: the server writes a void beside the set, and every read
+   * of what was performed skips it from then on. So the answer arrives as a
+   * reload of the programme, exactly like logging one.
+   */
+  voidSet: (setId: string) => post<{ voided: string }>(`/sets/${setId}/void`),
 };

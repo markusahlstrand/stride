@@ -413,4 +413,36 @@ export const strideMigrations: SqlMigration[] = [
       CREATE INDEX train_set_results_exercise ON train_set_results(exercise_id, side);
     `,
   },
+  {
+    version: '0010-taking-a-set-back',
+    sql: `
+      -- TAKING A SET BACK ----------------------------------------------------
+      -- Ten on the left arm that were the right arm's. Until now there was no
+      -- way out of that: the set was in the session, in the week's count and in
+      -- the symmetry percentage, and all you could do was log the right one too
+      -- and live with both.
+      --
+      -- So a set can be VOIDED, and the void is a ROW OF ITS OWN — because
+      -- train_set_results says nothing there is ever updated or deleted, and
+      -- that promise is worth more than the column this would have cost. The
+      -- set stays exactly as it was logged, with who logged it and when; a row
+      -- here says it was taken back, by whom, and when. Every read of what was
+      -- performed filters through this table (NOT_VOIDED, in module.ts), so a
+      -- voided set counts for nothing — not in adherence, not in the week's
+      -- schedule, not on a curve — while still being there to be read.
+      --
+      -- One void per set: taking the same set back twice is the same fact
+      -- twice, so the set's own id is the key and a repeat is a no-op.
+      --
+      -- What a void does NOT undo is the EARNING. Performing an exercise linked
+      -- it to the trainee for ever and ctx.link has no un-link — "yours
+      -- forever" is literal, and taking a set back is not a claim never to have
+      -- met the movement.
+      CREATE TABLE train_set_voids (
+        set_id    TEXT PRIMARY KEY REFERENCES train_set_results(id),
+        voided_by TEXT NOT NULL,
+        voided_at TEXT NOT NULL
+      );
+    `,
+  },
 ];

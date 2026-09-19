@@ -14,6 +14,7 @@ import {
   strideModule,
   templateInput,
   trainMyselfInput,
+  voidSetInput,
 } from './module.js';
 
 // ============================================================================
@@ -156,6 +157,12 @@ export const operations = {
     http: { method: 'POST', path: '/programs/{programId}/sessions' },
   },
   'stride/log-set': { http: { method: 'POST', path: '/sessions/{sessionId}/sets' } },
+  // Taking a set back is addressed BY THE SET, because that is the thing being
+  // taken back — the session it was in is already written on it.
+  'stride/void-set': {
+    http: { method: 'POST', path: '/sets/{setId}/void' },
+    input: voidSetInput,
+  },
   'stride/set-item-sets': { http: { method: 'POST', path: '/items/{itemId}/sets' } },
 
   // --- the body, and the curve ---------------------------------------------

@@ -122,6 +122,7 @@ export const strideManifest = moduleManifest.parse({
       { type: 'stride.onboarded', schemaVersion: 1 },
       { type: 'stride.session-logged', schemaVersion: 1 },
       { type: 'stride.set-logged', schemaVersion: 1 },
+      { type: 'stride.set-voided', schemaVersion: 1 },
       { type: 'stride.exercise-earned', schemaVersion: 1 },
       { type: 'stride.program-completed', schemaVersion: 1 },
       { type: 'stride.measurement-logged', schemaVersion: 1 },

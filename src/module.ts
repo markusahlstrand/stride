@@ -1897,6 +1897,20 @@ const logSessionOp: OperationHandler<z.infer<typeof logSessionInput>, SessionRow
   return ctx.sql.query<SessionRow>('SELECT * FROM train_sessions WHERE id = ?', [id])[0]!;
 };
 
+/**
+ * WHAT WAS ACTUALLY PERFORMED — the filter every read of a set goes through.
+ *
+ * A voided set is still in the table (migration 0010: nothing there is ever
+ * updated or deleted) and counts for NOTHING: not in a session, not in
+ * adherence, not in the week's schedule, not on a curve. Reads say
+ * `AND ${NOT_VOIDED}`; the row being filtered must be aliased `r`.
+ *
+ * The one read that deliberately does NOT use it is the earning check in
+ * `logSetOp`: earning is permanent, so the question "had they performed this
+ * before?" has to see every set they ever logged, taken back or not.
+ */
+const NOT_VOIDED = 'NOT EXISTS (SELECT 1 FROM train_set_voids v WHERE v.set_id = r.id)';
+
 const logSetInput = z.object({
   sessionId: z.string().min(1),
   programItemId: z.string().min(1),
@@ -1954,14 +1968,21 @@ const logSetOp: OperationHandler<
   // Sets are numbered PER SIDE: "set 2, left" — so the left arm's second set
   // and the right arm's second set are both set 2, and the pills line up.
   // `IS ?` rather than `= ?` because a bilateral side is NULL.
+  //
+  // Over LIVE sets only, so taking the last one back and logging it again
+  // gives that number back rather than leaving a hole where it was. A voided
+  // row keeps whatever number it had; nothing reads it again.
   const setNo =
     (ctx.sql.query<{ n: number }>(
-      `SELECT COALESCE(MAX(set_no), 0) AS n FROM train_set_results
-        WHERE session_id = ? AND program_item_id = ? AND side IS ?`,
+      `SELECT COALESCE(MAX(set_no), 0) AS n FROM train_set_results r
+        WHERE r.session_id = ? AND r.program_item_id = ? AND r.side IS ? AND ${NOT_VOIDED}`,
       [session.id, item.id, side],
     )[0]?.n ?? 0) + 1;
 
   // Was this exercise already in the trainee's library before this set?
+  // Voided sets COUNT here, on purpose: the `exercise → trainee` edge they made
+  // has no un-link, so a set taken back leaves the exercise earned. Filtering
+  // them out would announce it as earned a second time.
   const earnedBefore =
     ctx.sql.query<{ n: number }>(
       `SELECT COUNT(*) AS n FROM train_set_results r
@@ -2042,6 +2063,99 @@ const logSetOp: OperationHandler<
   return { set: ctx.sql.query<SetResultRow>('SELECT * FROM train_set_results WHERE id = ?', [id])[0]!, earned };
 };
 
+export const voidSetInput = z.object({ setId: z.string().min(1) });
+
+/**
+ * TAKING A SET BACK — ten on the left arm that were the right arm's.
+ *
+ * A session is append-only and stays that way: this writes a row to
+ * `train_set_voids` and touches the set itself not at all. From then on every
+ * read of what was performed skips it (`NOT_VOIDED`), so the session, the
+ * counter, adherence, the week's schedule and the curves all agree that it
+ * never happened — while the audit spine still holds both the logging and the
+ * taking back, with a principal and a timestamp on each.
+ *
+ * Gated by `result:log` ON THE SESSION — the same key on the same entity as
+ * logging the set. Whoever could write it in is who may take it back, and the
+ * walk session → workorder → trainee → coach is what decides: a trainee cannot
+ * reach into another trainee's session knowing only a set id, and a coach
+ * cannot reach into another coach's trainee's.
+ *
+ * Only while the programme is `in_progress`, for the same reason a completed
+ * one takes no more sets: once adherence is computed, what was performed is
+ * the thing it was computed against.
+ *
+ * What this does NOT undo is the earning. `ctx.link` has no un-link in module
+ * code, so the exercise stays in the trainee's library — which is right. You
+ * did the movement; you just logged it on the wrong arm.
+ */
+const voidSetOp: OperationHandler<
+  z.infer<typeof voidSetInput>,
+  { voided: string; alreadyVoided: boolean }
+> = async (ctx, rawInput) => {
+  const input = voidSetInput.parse(rawInput);
+  const set = ctx.sql.query<SetResultRow>('SELECT * FROM train_set_results WHERE id = ?', [
+    input.setId,
+  ])[0];
+  if (!set) throw new Error(`set not found: ${input.setId}`);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultLog, { entityType: 'session', entityId: set.session_id }),
+  );
+  const session = ctx.sql.query<SessionRow>('SELECT * FROM train_sessions WHERE id = ?', [
+    set.session_id,
+  ])[0];
+  if (!session) throw new Error(`session not found: ${set.session_id}`);
+  const program = programOf(ctx, session.program_id);
+  if (program.status !== 'in_progress') {
+    throw new Error(`invalid transition: a ${program.status} program takes no corrections`);
+  }
+
+  // Taking the same set back twice is the same fact twice. Idempotent rather
+  // than an error: two taps on a phone are one intention.
+  const already =
+    ctx.sql.query<{ n: number }>('SELECT COUNT(*) AS n FROM train_set_voids WHERE set_id = ?', [
+      set.id,
+    ])[0]?.n ?? 0;
+  if (already > 0) return { voided: set.id, alreadyVoided: true };
+
+  const now = ctx.now();
+  ctx.sql.exec('INSERT INTO train_set_voids (set_id, voided_by, voided_at) VALUES (?, ?, ?)', [
+    set.id,
+    ctx.principal,
+    now,
+  ]);
+
+  // Fat: the whole set as it was logged, so a consumer can reverse its own
+  // rollup without reading back a table it does not own.
+  ctx.emit({
+    type: 'stride.set-voided',
+    schemaVersion: 1,
+    entity: { entityType: 'session', entityId: session.id },
+    piiClass: 'pseudonymous',
+    subjectId: dataSubjectId.parse(session.trainee_id),
+    payload: {
+      setId: set.id,
+      sessionId: session.id,
+      programId: session.program_id,
+      traineeId: session.trainee_id,
+      programItemId: set.program_item_id,
+      exerciseId: set.exercise_id,
+      setNo: set.set_no,
+      side: set.side,
+      reps: set.reps,
+      load: set.load,
+      rpe: set.rpe,
+      durationSeconds: set.duration_seconds,
+      avgHr: set.avg_hr,
+      loggedBy: set.logged_by,
+      loggedAt: set.logged_at,
+      voidedAt: now,
+    },
+  });
+
+  return { voided: set.id, alreadyVoided: false };
+};
+
 const completeProgramInput = z.object({ programId: z.string().min(1) });
 
 /**
@@ -2071,7 +2185,7 @@ const completeProgramOp: OperationHandler<
   const results = ctx.sql.query<SetResultRow>(
     `SELECT r.* FROM train_set_results r
        JOIN train_sessions s ON s.id = r.session_id
-      WHERE s.program_id = ?`,
+      WHERE s.program_id = ? AND ${NOT_VOIDED}`,
     [input.programId],
   );
 
@@ -2194,7 +2308,7 @@ const getProgramOp: OperationHandler<z.infer<typeof programDetailInput>, Program
     sessions.push({
       ...row,
       sets: ctx.sql.query<SetResultRow>(
-        'SELECT * FROM train_set_results WHERE session_id = ? ORDER BY id',
+        `SELECT r.* FROM train_set_results r WHERE r.session_id = ? AND ${NOT_VOIDED} ORDER BY r.id`,
         [row.id],
       ),
     });
@@ -2238,7 +2352,7 @@ const myProgramsOp: OperationHandler<undefined, ProgramCard[]> = async (ctx) => 
       ctx.sql.query<{ n: number }>(
         `SELECT COUNT(*) AS n FROM train_set_results r
            JOIN train_sessions s ON s.id = r.session_id
-          WHERE s.program_id = ?`,
+          WHERE s.program_id = ? AND ${NOT_VOIDED}`,
         [program.id],
       )[0]?.n ?? 0;
     visible.push({ ...program, traineeName: trainee?.name ?? null, setsLogged });
@@ -2318,7 +2432,7 @@ const scheduleOp: OperationHandler<z.infer<typeof scheduleInput>, ScheduledItem[
           `SELECT COUNT(DISTINCT substr(s.performed_at, 1, 10)) AS n
              FROM train_set_results r
              JOIN train_sessions s ON s.id = r.session_id
-            WHERE r.program_item_id = ? AND s.performed_at >= ?`,
+            WHERE r.program_item_id = ? AND s.performed_at >= ? AND ${NOT_VOIDED}`,
           [item.id, from],
         )[0]?.n ?? 0;
       const targetThisWeek = item.recur_days
@@ -3161,7 +3275,7 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
       )[0] ?? null;
     const setsToday = sessionToday
       ? (ctx.sql.query<{ n: number }>(
-          'SELECT COUNT(*) AS n FROM train_set_results WHERE session_id = ?',
+          `SELECT COUNT(*) AS n FROM train_set_results r WHERE r.session_id = ? AND ${NOT_VOIDED}`,
           [sessionToday.id],
         )[0]?.n ?? 0)
       : 0;
@@ -3740,7 +3854,9 @@ const progressOp: OperationHandler<z.infer<typeof traineeIdInput>, ProgressView>
       kinds.set(session.program_id, programOf(ctx, session.program_id).kind);
     }
     const sets = ctx.sql.query<SetResultRow>(
-      'SELECT * FROM train_set_results WHERE session_id = ? ORDER BY exercise_id, side, set_no',
+      `SELECT r.* FROM train_set_results r
+        WHERE r.session_id = ? AND ${NOT_VOIDED}
+        ORDER BY r.exercise_id, r.side, r.set_no`,
       [session.id],
     );
     const grouped = new Map<string, SetResultRow[]>();
@@ -3845,6 +3961,7 @@ export const strideModule: ModuleRegistration = {
     'stride/remove-program-item': removeProgramItemOp as never,
     'stride/log-session': logSessionOp as never,
     'stride/log-set': logSetOp as never,
+    'stride/void-set': voidSetOp as never,
     'stride/complete-program': completeProgramOp as never,
     'stride/get-program': getProgramOp as never,
     'stride/my-programs': myProgramsOp as never,
