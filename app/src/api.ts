@@ -246,6 +246,10 @@ export interface ProgramCard {
   title: string;
   kind: string;
   status: 'planned' | 'in_progress' | 'completed' | 'closed';
+  /** The engine's customer — for this vertical, always the trainee the
+   *  programme is FOR. Declared because the screen needs to say whose progress
+   *  to open, and staff opening a trainee's baseline are not that trainee. */
+  customer: { entityType: string; entityId: string };
   traineeName: string | null;
   setsLogged: number;
 }

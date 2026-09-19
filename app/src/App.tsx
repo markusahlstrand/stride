@@ -308,7 +308,12 @@ export function App() {
             me={me}
             run={run}
             onBack={() => navigate({ name: 'workouts' })}
-            onProgress={() => navigate({ name: 'progress', traineeId: null })}
+            // Whose baseline was that? A coach finishing one FOR someone must land on
+            // that person's curves, not their own. No id still means mine, so the
+            // trainee's own route keeps its bare `#/progress`.
+            onProgress={(traineeId) =>
+              navigate({ name: 'progress', traineeId: traineeId === me?.traineeId ? null : traineeId })
+            }
             onExercise={(id) => navigate({ name: 'exercise', id })}
           />
         ) : route.name === 'thread' ? (

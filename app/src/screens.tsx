@@ -871,7 +871,7 @@ export function ProgramDetailScreen({
 }: ScreenProps & {
   programId: string;
   onBack: () => void;
-  onProgress?: () => void;
+  onProgress?: (traineeId: string) => void;
   /** Open one exercise's how-to. Optional, so the screen renders without it. */
   onExercise?: (exerciseId: string) => void;
 }) {
@@ -1245,7 +1245,7 @@ export function ProgramDetailScreen({
                   onClick={async () => {
                     const ok = await run(() => api.completeProgram(program.id), 'Baseline saved');
                     reload();
-                    if (ok) onProgress?.();
+                    if (ok) onProgress?.(program.customer.entityId);
                   }}
                 >
                   Save it and see my numbers
