@@ -345,19 +345,28 @@ mountOperations(app, operations, async (c) => {
     // means anything — `package.json` says `0.0.0`. Reporting an invented one would
     // tell a client something false about which build it reached.
     protectedResource: {
+      /**
+       * NOT wrapped in a catch, and the distinction is the whole point of the
+       * document.
+       *
+       * An empty list is a STATEMENT — "this instance has no authorization
+       * server" — and a client that reads it stops. So it must only ever be said
+       * about an instance that genuinely has no login configured, which is the
+       * one case `authorizationServersOf` already answers without throwing.
+       *
+       * A failure to REACH the config is a different fact entirely: the issuer
+       * may be sitting there perfectly well behind a DO we could not talk to, or
+       * a request that never came through the router. Swallowing that into `[]`
+       * tells a client to give up on a flow that would have worked. Letting it
+       * throw gets the request the 502 or 403 it deserves, which a client
+       * retries — and retrying is exactly right for a transient fault.
+       */
       authorizationServers: async (c) => {
-        try {
-          const { choice } = await authChoiceFor(c.env as Env, c.req.raw);
-          return authorizationServersOf({
-            identity: choice,
-            settings: c.env as unknown as Record<string, string | undefined>,
-          });
-        } catch {
-          // An unrouted or unreachable instance has nothing to advertise. A
-          // discovery document is a description; failing to build one must never
-          // be the reason a request errors.
-          return [];
-        }
+        const { choice } = await authChoiceFor(c.env as Env, c.req.raw);
+        return authorizationServersOf({
+          identity: choice,
+          settings: c.env as unknown as Record<string, string | undefined>,
+        });
       },
     },
   },
