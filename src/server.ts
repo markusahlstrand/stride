@@ -89,10 +89,27 @@ const login = devLogin({
 });
 
 async function stub(c: Context): Promise<ScopeStub> {
-  const caller = await login.caller(c.req.raw.headers);
-  // Not a 500 and not a redirect: the app asks `/api/session` whether anyone is
-  // signed in, and every other route answers a denial as a denial.
-  if (!caller) throw new PermissionDenied('not signed in');
+  const headers = c.req.raw.headers;
+
+  // THE SAME TWO ANSWERS THE WORKER GIVES, and asked in the same order — this is
+  // the deployed `principalOf` in miniature, so a client meets one contract.
+  //
+  // Nobody signed in is a 401: the request carried no identity, re-authenticating
+  // is exactly what would fix it, and `mountMcp` turns this into the
+  // `WWW-Authenticate` challenge that starts a client's authorization flow. It
+  // used to be a `PermissionDenied` — a 403, which says "you may not" to someone
+  // who was never asked who they are, and leaves an MCP client with nowhere to go.
+  const subject = await login.subject(headers);
+  if (!subject) throw new HTTPException(401, { message: 'not signed in' });
+
+  // Signed in but not seated stays a 403: a real identity, genuinely refused.
+  // Sending them back to the issuer would loop.
+  const caller = await login.caller(headers);
+  if (!caller) {
+    throw new PermissionDenied(
+      `signed in as ${subject.email ?? subject.sub}, but that account has no seat in this gym`,
+    );
+  }
   return host.getScope(caller.principal, caller.tenantId, caller.scopeId);
 }
 
@@ -177,6 +194,19 @@ app.get('/api/session', async (c) => {
 const mounted = mountOperations(app, operations, stub, {
   basePath: '/api',
   knownOperations,
+  /**
+   * Discovery locally too, pointing at the dev issuer — and that is the point.
+   *
+   * The deployed worker publishes the same document built from the same helper;
+   * only the issuer differs, exactly as it does for sign-in. So an MCP client
+   * pointed at `http://localhost:8871/api/mcp` runs the real discovery-then-OAuth
+   * dance against a real OpenID Connect provider, and the path exercised all day
+   * is the one a deployment runs. A harness that skipped this would leave the
+   * deployed document untested until somebody's client met it.
+   */
+  mcp: {
+    protectedResource: { authorizationServers: [login.issuer] },
+  },
 });
 console.log(`${mounted.length} routes derived from the model`);
 

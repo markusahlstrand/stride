@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
   api,
+  setOnUnauthorized,
   type CastMember,
   type AuthSession,
 } from './api';
@@ -204,10 +205,10 @@ export function App() {
   // new function every render and restart the clock each time anything moved.
   const dismissNotice = useCallback(() => setNotice(null), [setNotice]);
 
-  useEffect(() => {
-    // Answered while signed out, so a failure here is a broken instance, not a
-    // signed-out one — treat it as signed out either way rather than hanging on
-    // a spinner nobody can get past.
+  // Answered while signed out, so a failure here is a broken instance, not a
+  // signed-out one — treat it as signed out either way rather than hanging on
+  // a spinner nobody can get past.
+  const refreshSession = useCallback(() => {
     api
       .session()
       .then(setSession)
@@ -222,6 +223,23 @@ export function App() {
         }),
       );
   }, []);
+
+  useEffect(refreshSession, [refreshSession]);
+
+  /**
+   * A 401 from ANY call means the session ran out underneath us.
+   *
+   * Re-asking `/api/session` is the whole fix: it comes back signed out, and the
+   * gates below render the sign-in screen instead of leaving somebody tapping at
+   * a screen whose every request now fails. Before the API separated 401 from
+   * 403 this was indistinguishable from a permission denial, so an expired cookie
+   * read as "Denied by the kernel" — the one banner that should only ever mean a
+   * real refusal.
+   */
+  useEffect(() => {
+    setOnUnauthorized(refreshSession);
+    return () => setOnUnauthorized(null);
+  }, [refreshSession]);
 
   useEffect(() => {
     if (!session?.seated) {

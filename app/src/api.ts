@@ -372,9 +372,33 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+  /**
+   * THE KERNEL SAID NO — a decision, and the banner the app exists to show.
+   *
+   * Strictly 403. A 401 is not this: it means nobody asked, which is a session
+   * that ran out rather than a permission you lack, and rendering it as a kernel
+   * denial would put "not signed in" in the place reserved for a real refusal.
+   */
   get denied() {
     return this.status === 403;
   }
+  /** The session is gone. Signing in again is what fixes it — see `onUnauthorized`. */
+  get unauthenticated() {
+    return this.status === 401;
+  }
+}
+
+/**
+ * What to do when the session turns out to be gone.
+ *
+ * The shell registers a re-check of `/api/session` here, so a cookie that expired
+ * mid-session surfaces as the sign-in Gate rather than as an error toast on a
+ * screen the reader can no longer use. It is a callback rather than a redirect
+ * because the app — not this module — owns what "signed out" looks like.
+ */
+let onUnauthorized: (() => void) | null = null;
+export function setOnUnauthorized(fn: (() => void) | null) {
+  onUnauthorized = fn;
 }
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -387,7 +411,10 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new ApiError(data?.error ?? res.statusText, res.status);
+  if (!res.ok) {
+    if (res.status === 401) onUnauthorized?.();
+    throw new ApiError(data?.error ?? res.statusText, res.status);
+  }
   return data as T;
 }
 
