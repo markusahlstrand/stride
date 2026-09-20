@@ -3,7 +3,12 @@ import { HTTPException } from 'hono/http-exception';
 import { CloudflareScopeHost, defineScopeDO } from '@substrat-run/adapter-cloudflare';
 import { mountOperations, mountPlatformSurface } from '@substrat-run/vertical-host';
 import { knownOperations, operations } from './model.js';
-import { oidcRpAuthProvider, type AuthProvider, type IdentityDO } from '@substrat-run/vertical-auth';
+import {
+  authorizationServersOf,
+  oidcRpAuthProvider,
+  type AuthProvider,
+  type IdentityDO,
+} from '@substrat-run/vertical-auth';
 import { PermissionDenied, readRoutedNode } from '@substrat-run/kernel';
 import { z, type PrincipalId, type ScopeId, type TenantId } from '@substrat-run/contracts';
 import { AUTH_CONFIG_KEY, ConfigDO } from './config-do.js';
@@ -92,6 +97,34 @@ const hostFor = (env: Env) =>
   });
 
 /**
+ * This instance's delivered identity choice, or null.
+ *
+ * Extracted so the auth provider and the MCP protected-resource document read
+ * ONE fact rather than two parses of it. They answer different questions of the
+ * same config — "who verifies this request" and "which issuer should a client go
+ * to" — and a second description of the issuer is exactly the thing that drifts.
+ *
+ * Parsed LENIENTLY, as it always was: absent or malformed means "nothing
+ * delivered", never a throw, so a bad delivery looks like an unconfigured
+ * instance the dashboard can fix rather than one locked out of its own login.
+ */
+async function authChoiceFor(
+  env: Env,
+  req: Request,
+): Promise<{ choice: z.infer<typeof authChoice> | null; sessionSecret: string }> {
+  const node = nodeFor(req, env);
+  const { config, sessionSecret } = await identityDo(env, node).authWiring(node.scopeId);
+
+  const raw = config[AUTH_CONFIG_KEY];
+  if (!raw) return { choice: null, sessionSecret };
+  try {
+    return { choice: authChoice.safeParse(JSON.parse(raw)).data ?? null, sessionSecret };
+  } catch {
+    return { choice: null, sessionSecret };
+  }
+}
+
+/**
  * The relying party for THIS instance, built from what the platform delivered.
  *
  * Two halves, from one round trip:
@@ -105,18 +138,7 @@ const hostFor = (env: Env) =>
  *                  tenant's cookie would verify against another's.
  */
 async function authProviderFor(env: Env, req: Request): Promise<AuthProvider> {
-  const node = nodeFor(req, env);
-  const { config, sessionSecret } = await identityDo(env, node).authWiring(node.scopeId);
-
-  const raw = config[AUTH_CONFIG_KEY];
-  let choice: z.infer<typeof authChoice> | null = null;
-  if (raw) {
-    try {
-      choice = authChoice.safeParse(JSON.parse(raw)).data ?? null;
-    } catch {
-      choice = null;
-    }
-  }
+  const { choice, sessionSecret } = await authChoiceFor(env, req);
   if (!choice) {
     throw new HTTPException(503, {
       message:
@@ -167,8 +189,19 @@ async function principalOf(
   // "control plane unavailable: 'readHostname'" on the first live request.
   const node = nodeFor(request, env);
 
+  // NOBODY IS ASKING is a 401, and the distinction is load bearing.
+  //
+  // `PermissionDenied` here would classify as 403 — "you may not" — which is the
+  // wrong sentence for a request that carried no identity at all, and it is the
+  // difference between an MCP client starting its authorization flow and giving
+  // up. `mountMcp` turns a 401 out of this function into a `WWW-Authenticate`
+  // challenge pointing at the protected-resource document below; a 403 carries
+  // nothing and means the client was told "no" by a server it never met.
+  //
+  // `HTTPException` is the seam `mountOperations` documents for exactly this —
+  // "`resolveStub` refusing an anonymous call" keeps its own status.
   const subject = await (await authProviderFor(env, request)).resolve(request.headers);
-  if (!subject) throw new PermissionDenied('not signed in');
+  if (!subject) throw new HTTPException(401, { message: 'not signed in' });
 
   // Step 3, and the one that matters. The identity DO holds this scope's
   // `sub → principal` directory: an UNCLAIMED owner seat is claimed by the first
@@ -176,6 +209,10 @@ async function principalOf(
   // have a seat bound to them. A perfectly valid login with no seat resolves to
   // nothing and is refused — the same answer the cross-tenant attacker gets in
   // the tests, arrived at the same way.
+  //
+  // This one STAYS a `PermissionDenied`, and therefore a 403. It is a genuine
+  // refusal of a genuine identity: re-authenticating would change nothing, so
+  // sending a client back to the issuer would loop it forever.
   const principal = await identityDo(env, node).resolvePrincipal(node.scopeId, subject.sub);
   if (!principal) {
     throw new PermissionDenied(
@@ -281,6 +318,58 @@ app.get('/api/session', async (c) => {
 mountOperations(app, operations, async (c) => {
   const { principal, tenantId, scopeId } = await principalOf(c.req.raw, c.env);
   return hostFor(c.env).getScope(principal, tenantId, scopeId);
-}, { basePath: '/api', knownOperations });
+}, {
+  basePath: '/api',
+  knownOperations,
+  /**
+   * The MCP endpoint is mounted either way — it is the same 54 operations behind
+   * the same auth and the same permission check, and `mountOperations` renders it
+   * without being asked. What it CANNOT derive is the issuer, because on a hosted
+   * install that is per-scope configuration: one serving script, many gyms, many
+   * issuers. So discovery costs this block and nothing else.
+   *
+   * Without it a client meets a 401 carrying a bare `Bearer` challenge and has to
+   * be handed a token by hand. With it, the 401 points at
+   * `/.well-known/oauth-protected-resource/api/mcp`, the client reads which
+   * authorization server mints for this resource, and runs its own flow.
+   *
+   * Resolved PER REQUEST, not at mount: the scope is asserted by the router on
+   * each request, and two gyms on this script have different issuers.
+   * `authorizationServersOf` never throws — an instance nobody has configured a
+   * login for truthfully has no authorization server, and publishes a document
+   * with no `authorization_servers` rather than naming an issuer that is not there.
+   */
+  mcp: {
+    // `serverInfo` is deliberately NOT passed. The name already derives correctly
+    // from the module prefix, and stride trunk-deploys with no version number that
+    // means anything — `package.json` says `0.0.0`. Reporting an invented one would
+    // tell a client something false about which build it reached.
+    protectedResource: {
+      /**
+       * NOT wrapped in a catch, and the distinction is the whole point of the
+       * document.
+       *
+       * An empty list is a STATEMENT — "this instance has no authorization
+       * server" — and a client that reads it stops. So it must only ever be said
+       * about an instance that genuinely has no login configured, which is the
+       * one case `authorizationServersOf` already answers without throwing.
+       *
+       * A failure to REACH the config is a different fact entirely: the issuer
+       * may be sitting there perfectly well behind a DO we could not talk to, or
+       * a request that never came through the router. Swallowing that into `[]`
+       * tells a client to give up on a flow that would have worked. Letting it
+       * throw gets the request the 502 or 403 it deserves, which a client
+       * retries — and retrying is exactly right for a transient fault.
+       */
+      authorizationServers: async (c) => {
+        const { choice } = await authChoiceFor(c.env as Env, c.req.raw);
+        return authorizationServersOf({
+          identity: choice,
+          settings: c.env as unknown as Record<string, string | undefined>,
+        });
+      },
+    },
+  },
+});
 
 export default app;
