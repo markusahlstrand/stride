@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import type { Context } from 'hono';
 import { PermissionDenied, ulid, type ScopeStub } from '@substrat-run/kernel';
@@ -191,6 +192,36 @@ app.get('/api/session', async (c) => {
 // the `http` declarations in `src/model.ts` and builds the table. The deployed
 // worker mounts the same declarations with a different `resolveStub`, so the two
 // runtimes cannot drift — there is only one description to drift from.
+/**
+ * CORS for the MCP endpoint and its discovery document, mirroring `worker.ts`.
+ *
+ * Here for PARITY, and because it is the only place it can be tested: the web app
+ * reaches this harness through Vite's proxy, so it is same-origin and never needed
+ * a preflight. A remote MCP client is cross-origin in both runtimes, and without
+ * this its browser refuses the POST before the server sees it — and, just as
+ * fatally, hides `WWW-Authenticate` from the client so the 401 carries no
+ * discoverable challenge.
+ *
+ * Wildcard origin is safe on exactly these two paths because they authenticate by
+ * bearer and read no cookie. It must not spread to the rest of `/api/*`.
+ */
+const mcpCors = cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  allowHeaders: [
+    'content-type',
+    'authorization',
+    'mcp-protocol-version',
+    'mcp-session-id',
+    'last-event-id',
+  ],
+  exposeHeaders: ['WWW-Authenticate', 'Mcp-Session-Id', 'MCP-Protocol-Version'],
+  maxAge: 86_400,
+});
+app.use('/api/mcp', mcpCors);
+app.use('/.well-known/oauth-protected-resource', mcpCors);
+app.use('/.well-known/oauth-protected-resource/*', mcpCors);
+
 const mounted = mountOperations(app, operations, stub, {
   basePath: '/api',
   knownOperations,
