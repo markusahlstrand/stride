@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { CloudflareScopeHost, defineScopeDO } from '@substrat-run/adapter-cloudflare';
 import { mountOperations, mountPlatformSurface } from '@substrat-run/vertical-host';
@@ -304,6 +305,45 @@ app.get('/api/session', async (c) => {
     name: subject?.name ?? null,
   });
 });
+
+/**
+ * CORS, on THE TWO PATHS AN MCP CLIENT READS AND NOWHERE ELSE.
+ *
+ * A remote MCP client runs in a browser context, so before it may POST here at
+ * all the browser sends an `OPTIONS` preflight. Nothing mounted one, so it
+ * answered 404 and the client stopped at "couldn't reach the server" without
+ * ever seeing the 401 the whole discovery chain hangs off.
+ *
+ * `exposeHeaders` is the half that is easy to miss and just as fatal. A browser
+ * hides every response header from JavaScript except a short safelist, and
+ * `WWW-Authenticate` is not on it — so even once the preflight passes, a client
+ * reading a 401 sees no challenge, cannot find the protected-resource document,
+ * and reports that it could not determine how the server signs in. The header is
+ * useless to a browser client unless it is named here.
+ *
+ * **`origin: '*'` is safe HERE and would not be two lines up.** These two paths
+ * authenticate by bearer token and read nothing from a cookie, so a wildcard
+ * grants a hostile page nothing it could not already do with `curl`. The rest of
+ * `/api/*` is cookie-authenticated, and widening this to cover it — reflecting an
+ * origin with `credentials: true` — would let any page a signed-in member visits
+ * drive this API as them. Keep the list to these paths.
+ */
+const mcpCors = cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  allowHeaders: [
+    'content-type',
+    'authorization',
+    'mcp-protocol-version',
+    'mcp-session-id',
+    'last-event-id',
+  ],
+  exposeHeaders: ['WWW-Authenticate', 'Mcp-Session-Id', 'MCP-Protocol-Version'],
+  maxAge: 86_400,
+});
+app.use('/api/mcp', mcpCors);
+app.use('/.well-known/oauth-protected-resource', mcpCors);
+app.use('/.well-known/oauth-protected-resource/*', mcpCors);
 
 /**
  * The vertical's own surface, DERIVED from the `http` declarations in
