@@ -170,29 +170,29 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.8)
       '@substrat-run/adapter-cloudflare':
-        specifier: ^0.118.0
-        version: 0.118.0(zod@4.6.5)
+        specifier: ^0.119.0
+        version: 0.119.0(zod@4.6.5)
       '@substrat-run/adapter-sqlite':
-        specifier: ^0.118.0
-        version: 0.118.0(zod@4.6.5)
+        specifier: ^0.119.0
+        version: 0.119.0(zod@4.6.5)
       '@substrat-run/contracts':
-        specifier: ^0.118.0
-        version: 0.118.0(zod@4.6.5)
+        specifier: ^0.119.0
+        version: 0.119.0(zod@4.6.5)
       '@substrat-run/engine-invites':
-        specifier: ^0.8.2
-        version: 0.8.2(zod@4.6.5)
+        specifier: ^0.8.3
+        version: 0.8.3(zod@4.6.5)
       '@substrat-run/engine-workorder':
-        specifier: ^0.12.2
-        version: 0.12.2(zod@4.6.5)
+        specifier: ^0.12.3
+        version: 0.12.3(zod@4.6.5)
       '@substrat-run/kernel':
-        specifier: ^0.118.0
-        version: 0.118.0(zod@4.6.5)
+        specifier: ^0.119.0
+        version: 0.119.0(zod@4.6.5)
       '@substrat-run/vertical-auth':
-        specifier: ^0.15.0
-        version: 0.15.0(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)
+        specifier: ^0.15.1
+        version: 0.15.1(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)
       '@substrat-run/vertical-host':
-        specifier: ^0.118.0
-        version: 0.118.0(@ai-sdk/provider@4.0.7)(zod@4.6.5)
+        specifier: ^0.119.0
+        version: 0.119.0(@ai-sdk/provider@4.0.7)(zod@4.6.5)
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3
@@ -210,11 +210,11 @@ importers:
         specifier: ^0.4.2
         version: 0.4.2
       '@substrat-run/cli':
-        specifier: ^0.33.2
-        version: 0.33.2(zod@4.6.5)
+        specifier: ^0.34.0
+        version: 0.34.0(zod@4.6.5)
       '@substrat-run/dev-issuer':
-        specifier: ^0.2.0
-        version: 0.2.0(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)
+        specifier: ^0.2.1
+        version: 0.2.1(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)
       '@types/better-sqlite3':
         specifier: ^9.6.0
         version: 9.6.0
@@ -901,50 +901,54 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@substrat-run/adapter-cloudflare@0.118.0':
-    resolution: {integrity: sha512-0YT7MNNXbAuyh8psRjuxHGNzengwkmGuxR4J26OgPLzLEh9gVo89D9IysYN7c9pZNobelWFoKPE1f/ksEpdeqQ==}
+  '@substrat-run/adapter-cloudflare@0.119.0':
+    resolution: {integrity: sha512-YbMQ7W9nUEYLRSJQ1uVvZaI/n2wdvVVwaw2PuneCasb3KAqdfr1FSnUIkUa7id4aBzV2Lt8xolDQklY9JJTq4A==}
 
-  '@substrat-run/adapter-sqlite@0.118.0':
-    resolution: {integrity: sha512-M8STxDArvMAv0V0rBJBjck+HCiRdyy2Im6K5SS+kHJdWB3+CzFvVOsWn1rC+FfCn5gqkRHHW12RNDPsH5bjr/w==}
+  '@substrat-run/adapter-sqlite@0.119.0':
+    resolution: {integrity: sha512-ABlaDniWj1ikLMnsDcxrCURthbcmOgL8bZ5C6NVGdnvFk/nULSqBkk0bf/Wop5impNOqsErOKmmTd9dc8qK0XQ==}
 
   '@substrat-run/boundary-lint@0.4.2':
     resolution: {integrity: sha512-PUZBVrBu7x7jopWj8EI2+UEqTxHpkL8e4n8zXKkMGLN54LICyqXb7NTCYpV9SG2Lk18mEevK7BLY8dcToyRGOw==}
     hasBin: true
 
-  '@substrat-run/cli@0.33.2':
-    resolution: {integrity: sha512-n4FcNaiaAB2LH1Vw5j2AgljNnQ7+/CTHrke6ZlcxkFoGEjqQMrNGcGpSb8MCQInD56chDwM6mtHA+od6MVdAsA==}
+  '@substrat-run/boundary-lint@0.5.0':
+    resolution: {integrity: sha512-vnKA2v2MZRR/XLL7luHI9U/z8xkjEMvbbhelZC5Int9xIzKwgjMhTz3PNQKTN4/XY6nIOtP/jgHrvbWLNqMpwQ==}
+    hasBin: true
+
+  '@substrat-run/cli@0.34.0':
+    resolution: {integrity: sha512-mJIqzR0qaHXCi2IgKVgLMLHJXVgrJr0+i2O2ugTkK3GR3YSB63Rjf1tke67l77xPFkkcBbDpQYBvVR5fBfBHWQ==}
     engines: {node: '>=20'}
     hasBin: true
 
-  '@substrat-run/contracts@0.118.0':
-    resolution: {integrity: sha512-eL0VRE/aGWT8JLS6i5PrGfcLEVRXDIONRXG2XCXFpsHHCUoWXZT0YXBwrVB2GnPx0Gc/ZJrsq+28Fl2KJTKb8w==}
+  '@substrat-run/contracts@0.119.0':
+    resolution: {integrity: sha512-E+koGlPPfaJ0MVFU7gULevNCWRA7DAgJ1/5CUMtKeDFblf2ivc+yoOQB0qjmXbeZtbVGcPDQY8q4LMbLMgmNVQ==}
     peerDependencies:
       zod: ^4.4.0
 
-  '@substrat-run/dev-issuer@0.2.0':
-    resolution: {integrity: sha512-oyrpUgGEx9LpZLvDYdxZnEe5+6y6KBR4IgoOpLggwzNb11QB8ZNesY4UEv/2mZRmNLjbunslWy5z6W13BQTbCw==}
+  '@substrat-run/dev-issuer@0.2.1':
+    resolution: {integrity: sha512-xacUYRcuUuONYvX1SFC4m+3B/SpqrkA4QSnc091r16Qtwqvlqmdj32MEApwEC4upDHuON6OQZCTVimE5jMENxQ==}
     hasBin: true
     peerDependencies:
       hono: ^4.6.0
 
-  '@substrat-run/engine-invites@0.8.2':
-    resolution: {integrity: sha512-dWw8ZSbfjxMi+wMmPIzoGbEeps/ET3K9u13npWppQIan+YA47/NVyN9jBnkp38HxqsA7GNp6AzjRGkgOEuDU0A==}
+  '@substrat-run/engine-invites@0.8.3':
+    resolution: {integrity: sha512-Lvw97aoOwAXC6ZCL/vH3owPQPqeFruBQC+db2bvM83QLFOSXt3SUV8TsnrXjvE+Yp7cuFg8Dxxpc7erGTm6SCQ==}
     peerDependencies:
       zod: ^4.4.0
 
-  '@substrat-run/engine-workorder@0.12.2':
-    resolution: {integrity: sha512-nETsOmC3+BiLghmru8KrPtc7T8SY7TyGzruhrqrY7tZb5XjrEd5TmhKEFzip7MhPjhYvUWJth/WSnKzOvX8dww==}
+  '@substrat-run/engine-workorder@0.12.3':
+    resolution: {integrity: sha512-+eUnkshpVj1ewA1qJVChUFUXGZ4dMmuSZYyHjBeVqAT4d5WTfmC0e1NB9/8+dXM3rNQS+Mg2vbYMh/p3jnYSrg==}
     peerDependencies:
       zod: ^4.4.0
 
-  '@substrat-run/kernel@0.118.0':
-    resolution: {integrity: sha512-7HzoB2HBbnN5KueZGSLtJM7db/qWf0Co/X+rWAfvHG3p9q8XB+8lNkEsYR0uoGMKYQ+pWPU/1IP0IPS8EduSgw==}
+  '@substrat-run/kernel@0.119.0':
+    resolution: {integrity: sha512-r/EYQaHSSv8aeatwZKFRU64cb37IUaylcQnPBu0SV/KM0zk6v9D327Whih5WjqkxgjJbFgVccj7NfHHnrCn6pQ==}
 
-  '@substrat-run/model-providers@0.5.8':
-    resolution: {integrity: sha512-WMMwnMXCfYc5BIy8+gumHHxIQhBnGO7rkYl8+6sMGPvHQeXOnKo2oOGLGzxNVdDmtnK+VOJhtTqNxNXOUK3JOw==}
+  '@substrat-run/model-providers@0.5.9':
+    resolution: {integrity: sha512-hzQBHPahHcXc8iqjU3MO9NWcNSaT6HArhOw5Asjfx85B3mwVGGMfJX9qcYPCoA8yXn/NaQobgXzGfvRNlms8Og==}
 
-  '@substrat-run/model-view@0.2.19':
-    resolution: {integrity: sha512-4vBxtsdMF0c8GbYRn9xjpQXxm5m+2zb54LofHbPnWJO31HWdvzDloYBvMyAMJo76VTPtdCw//QIymoHVkqf7yw==}
+  '@substrat-run/model-view@0.2.20':
+    resolution: {integrity: sha512-Gz3Xp2t8wJl7PITH8wTyeg25BPgm4TrWwmvoL9jfWwnmHa4oBenx5XFdhnA2QGHQs7O2DW7YQozMC5p1tQ/dgQ==}
     engines: {node: '>=22.5'}
 
   '@substrat-run/oidc-rp@0.9.0':
@@ -955,13 +959,13 @@ packages:
   '@substrat-run/psl@0.2.5':
     resolution: {integrity: sha512-PFbL+it2y675B78nZ5wAd2dOOv+Rb7qh2hyj8a9rfqDGNNxYljgbXD9Am4DlMh5yTT1z3aqiBsrMJ8FYCa+rOw==}
 
-  '@substrat-run/vertical-auth@0.15.0':
-    resolution: {integrity: sha512-6vroWEXUcG55d0pfykwijewVZD7DPjkUSXdmmyVio5ZKmSw8TO8G/AfjaSwPmTSj9D3SyHWmnBol+1l1eQYU6Q==}
+  '@substrat-run/vertical-auth@0.15.1':
+    resolution: {integrity: sha512-PuXQhQ9ZH7UxuzLRXCheIOwBNbKPyvAMvtd25PPFCQwXHy/srx1W88T9/FHHdALq++s880AA4YlzuazmoyGMtg==}
     peerDependencies:
       hono: ^4.6.0
 
-  '@substrat-run/vertical-host@0.118.0':
-    resolution: {integrity: sha512-ObC8UT82BRn6WUfcF9mXu+184HwtAJGaDI+fA90xyGW4tI/3tiB0Y5IOhil8+iRQ1Z/oCps/GGSUr9NQKbA1Og==}
+  '@substrat-run/vertical-host@0.119.0':
+    resolution: {integrity: sha512-wwmVyW7fegH++6FusZad5knaUDzilCOnz3lfWxQXrxlUn3+R320yWWq6FMXYGem28gHNC/ZBphIEjyBXxIJwIw==}
 
   '@types/better-sqlite3@9.6.0':
     resolution: {integrity: sha512-ZEEwBSgMu7GYJOynoagg5X9JbxfL6dTJDsgViJIqh67jV44kyOr9RXfmFjLK5rzC4MWssP06t9hu/JwGDnUbCg==}
@@ -2244,41 +2248,43 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@substrat-run/adapter-cloudflare@0.118.0(zod@4.6.5)':
+  '@substrat-run/adapter-cloudflare@0.119.0(zod@4.6.5)':
     dependencies:
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
-      '@substrat-run/kernel': 0.118.0(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
+      '@substrat-run/kernel': 0.119.0(zod@4.6.5)
     transitivePeerDependencies:
       - zod
 
-  '@substrat-run/adapter-sqlite@0.118.0(zod@4.6.5)':
+  '@substrat-run/adapter-sqlite@0.119.0(zod@4.6.5)':
     dependencies:
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
-      '@substrat-run/kernel': 0.118.0(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
+      '@substrat-run/kernel': 0.119.0(zod@4.6.5)
       better-sqlite3: 13.0.3
     transitivePeerDependencies:
       - zod
 
   '@substrat-run/boundary-lint@0.4.2': {}
 
-  '@substrat-run/cli@0.33.2(zod@4.6.5)':
+  '@substrat-run/boundary-lint@0.5.0': {}
+
+  '@substrat-run/cli@0.34.0(zod@4.6.5)':
     dependencies:
-      '@substrat-run/boundary-lint': 0.4.2
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
-      '@substrat-run/model-view': 0.2.19(zod@4.6.5)
+      '@substrat-run/boundary-lint': 0.5.0
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
+      '@substrat-run/model-view': 0.2.20(zod@4.6.5)
       esbuild: 0.25.12
     transitivePeerDependencies:
       - zod
 
-  '@substrat-run/contracts@0.118.0(zod@4.6.5)':
+  '@substrat-run/contracts@0.119.0(zod@4.6.5)':
     dependencies:
       zod: 4.6.5
 
-  '@substrat-run/dev-issuer@0.2.0(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)':
+  '@substrat-run/dev-issuer@0.2.1(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)':
     dependencies:
       '@hono/node-server': 1.19.17(hono@4.13.8)
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
-      '@substrat-run/vertical-auth': 0.15.0(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
+      '@substrat-run/vertical-auth': 0.15.1(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)
       hono: 4.13.8
       jose: 6.2.12
     transitivePeerDependencies:
@@ -2327,35 +2333,35 @@ snapshots:
       - vue
       - zod
 
-  '@substrat-run/engine-invites@0.8.2(zod@4.6.5)':
+  '@substrat-run/engine-invites@0.8.3(zod@4.6.5)':
     dependencies:
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
-      '@substrat-run/kernel': 0.118.0(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
+      '@substrat-run/kernel': 0.119.0(zod@4.6.5)
       zod: 4.6.5
 
-  '@substrat-run/engine-workorder@0.12.2(zod@4.6.5)':
+  '@substrat-run/engine-workorder@0.12.3(zod@4.6.5)':
     dependencies:
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
-      '@substrat-run/kernel': 0.118.0(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
+      '@substrat-run/kernel': 0.119.0(zod@4.6.5)
       zod: 4.6.5
 
-  '@substrat-run/kernel@0.118.0(zod@4.6.5)':
+  '@substrat-run/kernel@0.119.0(zod@4.6.5)':
     dependencies:
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
     transitivePeerDependencies:
       - zod
 
-  '@substrat-run/model-providers@0.5.8(zod@4.6.5)':
+  '@substrat-run/model-providers@0.5.9(zod@4.6.5)':
     dependencies:
       '@ai-sdk/openai-compatible': 3.0.30(zod@4.6.5)
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
       ai: 7.0.62(zod@4.6.5)
     transitivePeerDependencies:
       - zod
 
-  '@substrat-run/model-view@0.2.19(zod@4.6.5)':
+  '@substrat-run/model-view@0.2.20(zod@4.6.5)':
     dependencies:
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
     transitivePeerDependencies:
       - zod
 
@@ -2366,10 +2372,10 @@ snapshots:
 
   '@substrat-run/psl@0.2.5': {}
 
-  '@substrat-run/vertical-auth@0.15.0(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)':
+  '@substrat-run/vertical-auth@0.15.1(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(hono@4.13.8)(kysely@0.29.6)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))(zod@4.6.5)':
     dependencies:
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
-      '@substrat-run/kernel': 0.118.0(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
+      '@substrat-run/kernel': 0.119.0(zod@4.6.5)
       '@substrat-run/oidc-rp': 0.9.0(hono@4.13.8)
       '@substrat-run/psl': 0.2.5
       better-auth: 1.7.5(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20260921.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(kysely@0.29.6))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vitest@5.0.1(@types/node@26.6.2)(vite@8.3.0(@types/node@26.6.2)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1)))
@@ -2422,11 +2428,11 @@ snapshots:
       - vue
       - zod
 
-  '@substrat-run/vertical-host@0.118.0(@ai-sdk/provider@4.0.7)(zod@4.6.5)':
+  '@substrat-run/vertical-host@0.119.0(@ai-sdk/provider@4.0.7)(zod@4.6.5)':
     dependencies:
-      '@substrat-run/contracts': 0.118.0(zod@4.6.5)
-      '@substrat-run/kernel': 0.118.0(zod@4.6.5)
-      '@substrat-run/model-providers': 0.5.8(zod@4.6.5)
+      '@substrat-run/contracts': 0.119.0(zod@4.6.5)
+      '@substrat-run/kernel': 0.119.0(zod@4.6.5)
+      '@substrat-run/model-providers': 0.5.9(zod@4.6.5)
       ai: 7.0.62(zod@4.6.5)
       hono: 4.13.8
       workers-ai-provider: 4.0.0(@ai-sdk/provider@4.0.7)(ai@7.0.62(zod@4.6.5))
