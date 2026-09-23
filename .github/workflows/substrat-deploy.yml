@@ -17,9 +17,45 @@ on:
     types: [opened, synchronize, reopened, closed]
 
 jobs:
+  # The gates from AGENTS.md, run where a pull request can see them. Nothing else in
+  # this workflow runs a test: `push` runs `boundary-lint` on its way past, and that
+  # is all the checking a deploy does. The MCP surface is why this job exists — every
+  # tool on it published an empty input schema for weeks, which typecheck, the layer
+  # rules and the deploy all waved through because none of them runs the suite.
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+        run: corepack enable && pnpm install --frozen-lockfile
+      - name: The scenario, including the denials
+        run: pnpm test
+      - name: Typecheck both packages
+        run: pnpm typecheck
+      - name: model.json still matches spec/model.ts
+        run: pnpm lint:model --check
+      - name: The layer rules
+        run: pnpm exec substrat-boundary-lint
+      # The gate the deploy runs, locally — the layer rules plus the derived permission
+      # surface, printing the digest promotion compares. No token is in scope for this
+      # job, so even if a future CLI stopped understanding `--check`, it could not push:
+      # `push` has no `--help` and an unknown flag is still a push.
+      - name: The permission surface
+        run: pnpm exec substrat push --check
+
   deploy:
     # Trunk-based: every merge to main releases. A private vertical's push lands admitted
     # and prod is self-serve, so the same run points prod at the new version.
+    #
+    # Which is exactly why it waits for `gates`: there is no staging step and no manual
+    # promotion between this job and production, so this is the only place a red test can
+    # still stop anything.
+    needs: gates
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -61,6 +97,8 @@ jobs:
           npx @substrat-run/cli scope bind ${{ vars.SUBSTRAT_TEST_SCOPE_ID }} --version "$VID" --snapshot
 
   preview:
+    # A preview built from code that does not typecheck is a URL that wastes an afternoon.
+    needs: gates
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     # Never overlap two runs for the same PR — a rapid re-push waits for the first.
