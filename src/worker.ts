@@ -156,10 +156,31 @@ async function authProviderFor(env: Env, req: Request): Promise<AuthProvider> {
   });
 }
 
+/**
+ * HOW THIS WORKER READS THE ROUTER'S ASSERTION — one answer, given to both readers.
+ *
+ * `readRoutedNode` and `invocationLog` read the same assertion from opposite ends: one
+ * decides which scope serves the request, the other writes down which tenant it was for.
+ * The kernel is blunt about what happens when they disagree — "a log that trusts more
+ * than the router does is the forged-tenant hole, and one that trusts less is silently
+ * empty" — so the answers live here once instead of being restated at each call site.
+ *
+ * `allowUnsigned` is what that costs us. `nodeFor` has always accepted an assertion with
+ * no signature when this worker holds no secret to check one against, and a log that did
+ * not would write NOTHING on exactly those requests while the router kept serving them —
+ * an empty Logs view that looks like no traffic rather than like a missing binding. It
+ * cannot make the log trust MORE than the router: it is the same predicate, negated once.
+ */
+const ROUTER_TRUST = {
+  secret: (env: Env) => env.ROUTER_SECRET,
+  allowUnsigned: (env: Env) => !env.ROUTER_SECRET,
+} as const;
+
 /** The (tenant, scope) the router asserted. Not a control-plane lookup. */
 function nodeFor(request: Request, env: Env): { tenantId: TenantId; scopeId: ScopeId } {
+  const expectedSecret = ROUTER_TRUST.secret(env);
   const node = readRoutedNode(request.headers, {
-    ...(env.ROUTER_SECRET ? { expectedSecret: env.ROUTER_SECRET } : {}),
+    ...(expectedSecret ? { expectedSecret } : {}),
   });
   if (!node) throw new PermissionDenied('unrouted request: no node asserted');
   return { tenantId: node.tenantId, scopeId: node.scopeId };
@@ -227,9 +248,18 @@ const app = new Hono<{ Bindings: Env }>();
 
 // One tenant-stamped log line per request — what the dashboard's Logs view reads. It
 // must be the FIRST registration: Hono composes in order, so anything mounted above it
-// answers unlogged, and that silence reads as no traffic. The secret is the same answer
-// `nodeFor` gives `readRoutedNode`; without it nothing is written at all.
-app.use('*', invocationLog<Env>({ routerSecret: (env) => env.ROUTER_SECRET }));
+// answers unlogged, and that silence reads as no traffic.
+//
+// Both knobs come from `ROUTER_TRUST`, so this reads the router's assertion on exactly
+// the terms `nodeFor` does. Passing only the secret would write nothing at all on an
+// instance that holds none — see the note there.
+app.use(
+  '*',
+  invocationLog<Env>({
+    routerSecret: ROUTER_TRUST.secret,
+    allowUnsigned: ROUTER_TRUST.allowUnsigned,
+  }),
+);
 
 // The platform's `/internal/*` contract: provisioning, reconcile, configure.
 // It also installs the error envelope, so a denial reaches a caller as a denial
