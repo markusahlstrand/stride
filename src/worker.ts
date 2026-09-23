@@ -10,7 +10,7 @@ import {
   type AuthProvider,
   type IdentityDO,
 } from '@substrat-run/vertical-auth';
-import { PermissionDenied, readRoutedNode } from '@substrat-run/kernel';
+import { invocationLog, PermissionDenied, readRoutedNode } from '@substrat-run/kernel';
 import { z, type PrincipalId, type ScopeId, type TenantId } from '@substrat-run/contracts';
 import { AUTH_CONFIG_KEY, ConfigDO } from './config-do.js';
 import { MODULES, ROLES } from './modules.js';
@@ -224,6 +224,12 @@ async function principalOf(
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+// One tenant-stamped log line per request — what the dashboard's Logs view reads. It
+// must be the FIRST registration: Hono composes in order, so anything mounted above it
+// answers unlogged, and that silence reads as no traffic. The secret is the same answer
+// `nodeFor` gives `readRoutedNode`; without it nothing is written at all.
+app.use('*', invocationLog<Env>({ routerSecret: (env) => env.ROUTER_SECRET }));
 
 // The platform's `/internal/*` contract: provisioning, reconcile, configure.
 // It also installs the error envelope, so a denial reaches a caller as a denial
