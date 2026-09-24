@@ -2,11 +2,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mcpToolsOf, mcpToolName } from '@substrat-run/vertical-host';
+import { mcpToolsOf, mcpToolName, mountOperations } from '@substrat-run/vertical-host';
+import { Hono } from 'hono';
 import type { ScopeStub } from '@substrat-run/kernel';
 import type { SqliteScopeHost } from '@substrat-run/adapter-sqlite';
 
-import { operations } from '../src/model.js';
+import { knownOperations, operations } from '../src/model.js';
+import type { ProgramCard, ProgramDetail, ProgressView, SessionRow, ItemRow, TraineeRow } from '../src/module.js';
 import { buildStrideHost, seedStride, type StrideWorld } from '../src/seed.js';
 
 // ============================================================================
@@ -176,5 +178,131 @@ describe('every tool can actually be called', () => {
       }
     }
     expect(unreachable).toEqual([]);
+  });
+});
+
+// Exercise the transport itself: never reproduce mountMcp's payload logic here.
+// The resolver supplies a test identity; authentication is the harness's job.
+describe('MCP JSON-RPC reads logged training', () => {
+  let dir: string;
+  let host: SqliteScopeHost;
+  let adminApp: Hono;
+  let strangerApp: Hono;
+  let traineeId: string;
+  let programId: string;
+  let sessionId: string;
+  let exerciseId: string;
+  let requestId = 0;
+
+  async function rpc(app: Hono, method: string, params: object = {}) {
+    const response = await app.request('/api/mcp', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: ++requestId, method, params }),
+    });
+    expect(response.status).toBe(200);
+    const envelope = await response.json() as {
+      error?: unknown;
+      result: { isError?: boolean; content: { text: string }[]; structuredContent: unknown; tools: typeof tools };
+    };
+    expect(envelope.error).toBeUndefined();
+    return envelope.result;
+  }
+
+  async function call(app: Hono, operation: string, args: object = {}) {
+    return rpc(app, 'tools/call', { name: mcpToolName(operation), arguments: args });
+  }
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'stride-mcp-wire-'));
+    host = buildStrideHost(dir);
+    const w = await seedStride(host, dir);
+    const admin = await host.getScope(w.astrid, w.t1, w.s1);
+    const stranger = await host.getScope(w.bjorn, w.t1, w.s1);
+    adminApp = new Hono();
+    strangerApp = new Hono();
+    mountOperations(adminApp, operations, async () => admin, { basePath: '/api', knownOperations });
+    mountOperations(strangerApp, operations, async () => stranger, { basePath: '/api', knownOperations });
+    const trainee = await admin.invoke('stride/train-myself', {}) as TraineeRow;
+    traineeId = trainee.id;
+    const program = await admin.invoke('stride/assign-program', {
+      traineeId, title: 'MCP baseline', kind: 'assessment',
+    }) as { program: ProgramCard };
+    programId = program.program.id;
+    exerciseId = w.squatId;
+    const item = await admin.invoke('stride/add-program-item', {
+      programId, exerciseId, targetSets: 2, targetReps: 10, targetLoad: '20',
+    }) as ItemRow;
+    await admin.invoke('workorder/start', { orderId: programId });
+    const session = await admin.invoke('stride/log-session', { programId }) as SessionRow;
+    sessionId = session.id;
+    for (const reps of [10, 8]) {
+      await admin.invoke('stride/log-set', { sessionId, programItemId: item.id, reps, load: '20' });
+    }
+  });
+
+  afterAll(async () => {
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('publishes typed, required ids at the top level through tools/list', async () => {
+    const listed = await rpc(adminApp, 'tools/list');
+    for (const [operation, field] of [['stride/get-program', 'programId'], ['stride/progress', 'traineeId']]) {
+      const tool = listed.tools.find((t) => t.name === mcpToolName(operation));
+      expect(tool?.inputSchema).toMatchObject({
+        type: 'object', required: [field],
+        properties: { [field]: { type: 'string', minLength: 1, description: expect.any(String) } },
+      });
+    }
+  });
+
+  it('follows whoami → my-programs → get-program → progress using real logged sets', async () => {
+    const me = await call(adminApp, 'stride/whoami');
+    expect(me.structuredContent).toMatchObject({ role: 'admin', traineeId });
+    const list = await call(adminApp, 'stride/my-programs');
+    expect(JSON.parse(list.content[0].text)).toContainEqual(expect.objectContaining({
+      id: programId, status: 'in_progress', setsLogged: 2,
+    }));
+    const detail = await call(adminApp, 'stride/get-program', { programId });
+    expect(detail.isError).not.toBe(true);
+    const workout = detail.structuredContent as ProgramDetail;
+    expect(workout.program.id).toBe(programId);
+    expect(workout.items[0].exercise).toMatchObject({ id: exerciseId, name: expect.any(String) });
+    expect(workout.sessions).toHaveLength(1);
+    expect(workout.sessions[0].sets.map((set) => ({ reps: set.reps, load: set.load })))
+      .toEqual([{ reps: 10, load: '20' }, { reps: 8, load: '20' }]);
+    const progress = await call(adminApp, 'stride/progress', { traineeId });
+    expect(progress.isError).not.toBe(true);
+    const curve = progress.structuredContent as ProgressView;
+    expect(curve.sessionsSeen).toBe(1);
+    expect(curve.exercises).toHaveLength(1);
+    expect(curve.exercises[0]).toMatchObject({ exerciseId, name: workout.items[0].exercise!.name });
+    expect(curve.exercises[0].series[0].points).toEqual([expect.objectContaining({
+      sessionId, programId, sets: 2, bestReps: 10, bestLoad: '20', totalQuantity: 18, volume: '360',
+    })]);
+  });
+
+  it('names the missing field for empty and incorrectly wrapped arguments', async () => {
+    for (const [operation, field, args] of [
+      ['stride/get-program', 'programId', {}],
+      ['stride/get-program', 'programId', { input: { programId } }],
+      ['stride/progress', 'traineeId', {}],
+    ] as const) {
+      const result = await call(adminApp, operation, args);
+      expect(result.isError).toBe(true);
+      const issues = JSON.parse(result.content[0].text) as { path: string[]; message: string }[];
+      expect(issues).toContainEqual(expect.objectContaining({ path: [field], message: expect.any(String) }));
+      expect(issues.every((issue) => issue.path.length > 0)).toBe(true);
+    }
+  });
+
+  it('denies another trainee the workout and excludes its sets from their progress view', async () => {
+    const detail = await call(strangerApp, 'stride/get-program', { programId });
+    expect(detail.isError).toBe(true);
+    expect(detail.content[0].text).toContain('permission denied');
+    const progress = await call(strangerApp, 'stride/progress', { traineeId });
+    expect(progress.isError).not.toBe(true);
+    expect(progress.structuredContent).toMatchObject({ sessionsSeen: 0, exercises: [] });
   });
 });

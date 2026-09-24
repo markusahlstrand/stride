@@ -2279,7 +2279,9 @@ export interface ProgramDetail {
   slots: SlotRow[];
 }
 
-export const programDetailInput = z.object({ programId: z.string().min(1) });
+export const programDetailInput = z.object({
+  programId: z.string().min(1).describe('Workout id from stride/my-programs. Pass programId directly in the tool arguments, without an input wrapper.'),
+});
 
 const getProgramOp: OperationHandler<z.infer<typeof programDetailInput>, ProgramDetail> = async (
   ctx,
@@ -3694,7 +3696,9 @@ const logMeasurementOp: OperationHandler<z.infer<typeof logMeasurementInput>, Me
   return ctx.sql.query<MeasurementRow>('SELECT * FROM train_measurements WHERE id = ?', [id])[0]!;
 };
 
-export const traineeIdInput = z.object({ traineeId: z.string().min(1) });
+export const traineeIdInput = z.object({
+  traineeId: z.string().min(1).describe('Trainee record id: use traineeId from stride/whoami for your own training, or an id from stride/trainees for somebody you may read.'),
+});
 
 /** Every measurement about one person, oldest first. Narrowed `result:read`. */
 const measurementsOp: OperationHandler<z.infer<typeof traineeIdInput>, MeasurementRow[]> = async (

@@ -46,3 +46,13 @@ the sentence above; and a trainee calling `create-trainee` still gets
 `STRIDE_DATA_DIR` points the harness at a different world, so a proof like that one
 runs against a throwaway scope instead of logging test sets into the `.data` you
 have been training in all week.
+
+The regression suite now also sends JSON-RPC `tools/list` and `tools/call` requests
+through the mounted MCP endpoint. An enrolled admin follows `whoami` and
+`my-programs` to a workout with logged sets, reads its exercise and set details,
+and gets progress with the matching quantities and volume. Missing ids and an
+incorrect `input` wrapper produce field-level errors; another trainee cannot read
+the workout or its training history. The id schemas describe where clients obtain
+each id. Arguments are flat: `{ "programId": "…" }` for `stride_get-program` and
+`{ "traineeId": "…" }` for `stride_progress`, using the names returned by
+`tools/list`.
