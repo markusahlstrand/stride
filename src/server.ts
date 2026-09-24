@@ -63,7 +63,12 @@ if (process.env.STRIDE_DEV_AUTH !== '1') {
   process.exit(1);
 }
 
-const dataDir = join(dirname(fileURLToPath(import.meta.url)), '..', '.data');
+// `.data` is the dev world you keep between runs. `STRIDE_DATA_DIR` points a
+// second instance somewhere else — a throwaway world to drive the write paths
+// against (the MCP proof does exactly that) without logging test sets into the
+// one you have been training in all week.
+const dataDir =
+  process.env.STRIDE_DATA_DIR ?? join(dirname(fileURLToPath(import.meta.url)), '..', '.data');
 mkdirSync(dataDir, { recursive: true });
 
 const host = buildStrideHost(dataDir);

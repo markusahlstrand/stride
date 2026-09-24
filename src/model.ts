@@ -1,18 +1,40 @@
 import { z } from '@substrat-run/contracts';
+import { startWorkOrderInput } from '@substrat-run/engine-workorder';
 import {
+  acceptInput,
   assignProgramInput,
+  assignToCoachInput,
+  beginInput,
+  completeProgramInput,
   createCoachInput,
   createTraineeInput,
   describeExerciseInput,
   equipmentInput,
+  exerciseEquipmentInput,
   exerciseInput,
   inviteInput,
+  itemSetsInput,
+  logMeasurementInput,
+  logSessionInput,
+  logSetInput,
   myEquipmentInput,
   onboardInput,
+  postMessageInput,
+  programDetailInput,
+  programItemInput,
   removeProgramItemInput,
+  removeTemplateItemInput,
+  retireExerciseInput,
+  revokeInviteInput,
   setSharingInput,
+  shareTemplateInput,
+  slotsInput,
   strideModule,
   templateInput,
+  templateItemInput,
+  threadInput,
+  timelineInput,
+  traineeIdInput,
   trainMyselfInput,
   voidSetInput,
 } from './module.js';
@@ -89,6 +111,7 @@ export const operations = {
   'stride/assign-to-coach': {
     summary: 'Put a trainee on a coach’s roster. Admin only.',
     http: { method: 'POST', path: '/trainees/{traineeId}/coach' },
+    input: assignToCoachInput,
   },
   'stride/me': {
     summary: 'Your own trainee record, or nothing if you are not enrolled as one.',
@@ -131,10 +154,12 @@ export const operations = {
   'stride/revoke-invite': {
     summary: 'Withdraw an invitation that has not been accepted yet.',
     http: { method: 'POST', path: '/invitations/{invitationId}/revoke' },
+    input: revokeInviteInput,
   },
   'stride/accept-invite': {
     summary: 'Accept an invitation and take your seat in the gym.',
     http: { method: 'POST', path: '/invitations/{invitationId}/accept' },
+    input: acceptInput,
   },
 
   // --- the conversation ----------------------------------------------------
@@ -146,10 +171,12 @@ export const operations = {
     summary:
       'Read the conversation between one trainee and one coach. Two people have exactly one.',
     http: { method: 'GET', path: '/threads/{traineeId}/{coachId}' },
+    input: threadInput,
   },
   'stride/post-message': {
     summary: 'Send a message in the conversation between a trainee and a coach.',
     http: { method: 'POST', path: '/threads/{traineeId}/{coachId}' },
+    input: postMessageInput,
   },
 
   // --- sharing -------------------------------------------------------------
@@ -206,11 +233,13 @@ export const operations = {
   'stride/set-exercise-equipment': {
     summary: 'Say which equipment an exercise needs.',
     http: { method: 'POST', path: '/exercises/{exerciseId}/equipment' },
+    input: exerciseEquipmentInput,
   },
   'stride/retire-exercise': {
     summary:
       'Take an exercise out of the catalogue. Anybody who has performed it keeps it for ever.',
     http: { method: 'POST', path: '/exercises/{exerciseId}/retire' },
+    input: retireExerciseInput,
   },
   // `description` rides in the BODY, so the input has to be declared or the
   // mount invokes with no argument at all and the body is silently dropped.
@@ -245,18 +274,21 @@ export const operations = {
   'stride/add-template-item': {
     summary: 'Add an exercise to a plan you own.',
     http: { method: 'POST', path: '/templates/{templateId}/items' },
+    input: templateItemInput,
   },
   /** Put a plan you made in front of the whole gym, or take it back. */
   'stride/share-template': {
     summary:
       'Put a plan you wrote in front of the whole gym, or withdraw it again. It stays yours to edit either way.',
     http: { method: 'POST', path: '/templates/{templateId}/share' },
+    input: shareTemplateInput,
   },
   // Its own prefix rather than `/items/{itemId}/remove`: that path is a PROGRAMME
   // item, and two operations that dispatch identically are refused at mount.
   'stride/remove-template-item': {
     summary: 'Take an exercise out of a plan you own.',
     http: { method: 'POST', path: '/template-items/{itemId}/remove' },
+    input: removeTemplateItemInput,
   },
 
   // --- programmes ----------------------------------------------------------
@@ -273,6 +305,7 @@ export const operations = {
   'stride/get-program': {
     summary: 'One workout in full: what it prescribes, when it is trained, and its sessions.',
     http: { method: 'GET', path: '/programs/{programId}' },
+    input: programDetailInput,
   },
   'stride/remove-program-item': {
     summary:
@@ -284,30 +317,36 @@ export const operations = {
     summary:
       'Add an exercise to a workout, while it is still planned or in progress. The prescription is a snapshot, never a reference.',
     http: { method: 'POST', path: '/programs/{programId}/items' },
+    input: programItemInput,
   },
   'stride/set-program-slots': {
     summary: 'Book which weekdays and times this workout is trained — "Wednesdays at 11".',
     http: { method: 'POST', path: '/programs/{programId}/slots' },
+    input: slotsInput,
   },
   'stride/begin': {
     summary:
       'Open today’s session on a workout, or resume the one already open. It does NOT start the workout — use workorder/start first.',
     http: { method: 'POST', path: '/programs/{programId}/begin' },
+    input: beginInput,
   },
   'stride/complete-program': {
     summary:
       'Finish a block and compute its adherence, prescribed against performed. Optional: a standing workout is never finished, and that is normal.',
     http: { method: 'POST', path: '/programs/{programId}/complete' },
+    input: completeProgramInput,
   },
   'stride/log-session': {
     summary:
       'Record a new session on a workout that is under way. Use stride/begin instead to open or resume today’s.',
     http: { method: 'POST', path: '/programs/{programId}/sessions' },
+    input: logSessionInput,
   },
   'stride/log-set': {
     summary:
       'Log one set that was performed. The count is in the exercise’s own unit — reps, seconds or metres — and a unilateral exercise must name a side.',
     http: { method: 'POST', path: '/sessions/{sessionId}/sets' },
+    input: logSetInput,
   },
   // Taking a set back is addressed BY THE SET, because that is the thing being
   // taken back — the session it was in is already written on it.
@@ -321,6 +360,7 @@ export const operations = {
     summary:
       'Rewrite what one exercise in a workout prescribes, as an explicit list of sets.',
     http: { method: 'POST', path: '/items/{itemId}/sets' },
+    input: itemSetsInput,
   },
 
   // --- the body, and the curve ---------------------------------------------
@@ -330,16 +370,19 @@ export const operations = {
     summary:
       'A person’s measurements over time: weight, girths, grip, shoulder range. Append-only.',
     http: { method: 'GET', path: '/trainees/{traineeId}/measurements' },
+    input: traineeIdInput,
   },
   'stride/log-measurement': {
     summary: 'Record a measurement of a body. A correction is a new row, never an edit.',
     http: { method: 'POST', path: '/trainees/{traineeId}/measurements' },
+    input: logMeasurementInput,
   },
   /** Every exercise this person has performed, folded per session and per side. */
   'stride/progress': {
     summary:
       'A person’s training curves: best set, volume and pace per exercise over time, plus left-right symmetry.',
     http: { method: 'GET', path: '/trainees/{traineeId}/progress' },
+    input: traineeIdInput,
   },
 
   // --- reads that carry a query --------------------------------------------
@@ -363,6 +406,7 @@ export const operations = {
     summary:
       'Everything that has happened to one entity, in order, with who did it and when. The audit spine.',
     http: { method: 'GET', path: '/timeline/{entityType}/{entityId}' },
+    input: timelineInput,
   },
 
   // --- a composed engine's operation ---------------------------------------
@@ -374,6 +418,7 @@ export const operations = {
     summary:
       'Start a planned workout, moving it to in progress. The separate, deliberate call that carries the permission guard — then use stride/begin to open a session.',
     http: { method: 'POST', path: '/programs/{orderId}/start' },
+    input: startWorkOrderInput,
   },
 } as const;
 

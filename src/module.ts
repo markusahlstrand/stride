@@ -524,7 +524,7 @@ const setMyEquipmentOp: OperationHandler<
   return { owner: me, equipment: input.equipment };
 };
 
-const exerciseEquipmentInput = z.object({
+export const exerciseEquipmentInput = z.object({
   exerciseId: z.string().min(1),
   equipment: z.array(z.string().min(1)),
 });
@@ -662,7 +662,7 @@ const createTraineeOp: OperationHandler<z.infer<typeof createTraineeInput>, Trai
   return ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [id])[0]!;
 };
 
-const assignToCoachInput = z.object({ traineeId: z.string().min(1), coachId: z.string().min(1) });
+export const assignToCoachInput = z.object({ traineeId: z.string().min(1), coachId: z.string().min(1) });
 
 /**
  * Move a trainee to a coach. The `coach_id` column is the CURRENT coach, for
@@ -807,7 +807,7 @@ const authorExerciseOp: OperationHandler<z.infer<typeof exerciseInput>, Exercise
   return exercise;
 };
 
-const retireExerciseInput = z.object({ exerciseId: z.string().min(1) });
+export const retireExerciseInput = z.object({ exerciseId: z.string().min(1) });
 
 /**
  * Retire an exercise: it leaves the shared catalogue for everyone. It does NOT
@@ -1025,7 +1025,7 @@ const authorTemplateOp: OperationHandler<z.infer<typeof templateInput>, Template
   return template;
 };
 
-const templateItemInput = z.object({
+export const templateItemInput = z.object({
   templateId: z.string().min(1),
   exerciseId: z.string().min(1),
   targetSets: z.number().int().positive(),
@@ -1214,7 +1214,7 @@ const shareTemplateOp: OperationHandler<z.infer<typeof shareTemplateInput>, Temp
   return ctx.sql.query<TemplateRow>('SELECT * FROM train_templates WHERE id = ?', [template.id])[0]!;
 };
 
-const removeTemplateItemInput = z.object({ itemId: z.string().min(1) });
+export const removeTemplateItemInput = z.object({ itemId: z.string().min(1) });
 
 /**
  * Drop an exercise from a plan. The same two gates as adding one. Workouts
@@ -1695,7 +1695,7 @@ const assignProgramOp: OperationHandler<
   return { program, items };
 };
 
-const programItemInput = z.object({
+export const programItemInput = z.object({
   programId: z.string().min(1),
   exerciseId: z.string().min(1),
   targetSets: z.number().int().positive(),
@@ -1788,7 +1788,7 @@ const addProgramItemOp: OperationHandler<z.infer<typeof programItemInput>, ItemR
   return ctx.sql.query<ItemRow>('SELECT * FROM train_program_items WHERE id = ?', [id])[0]!;
 };
 
-const logSessionInput = z.object({
+export const logSessionInput = z.object({
   programId: z.string().min(1),
   performedAt: z.string().optional(),
   note: z.string().optional(),
@@ -1911,18 +1911,39 @@ const logSessionOp: OperationHandler<z.infer<typeof logSessionInput>, SessionRow
  */
 const NOT_VOIDED = 'NOT EXISTS (SELECT 1 FROM train_set_voids v WHERE v.set_id = r.id)';
 
-const logSetInput = z.object({
+export const logSetInput = z.object({
   sessionId: z.string().min(1),
   programItemId: z.string().min(1),
   /** The quantity, in the exercise's own unit — reps, seconds or metres. */
-  reps: z.number().int().positive(),
-  load: decimalString.optional(),
-  rpe: decimalString.optional(),
+  reps: z
+    .number()
+    .int()
+    .positive()
+    .describe(
+      "How many, in the exercise's OWN unit — reps, seconds or metres. Rowing 5000 is 5000 metres; a 90-second plank is 90.",
+    ),
+  load: decimalString
+    .optional()
+    .describe(
+      'The weight moved, as a decimal string. On a bodyweight movement it is the ADDED weight only; blank means bodyweight.',
+    ),
+  rpe: decimalString.optional().describe('Rate of perceived exertion, 1–10.'),
   /** Optional second number: how long the set took. */
-  durationSeconds: z.number().int().positive().max(86_400).optional(),
-  avgHr: z.number().int().min(20).max(240).optional(),
+  durationSeconds: z
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .optional()
+    .describe('How long the set took. A distance row can carry a duration too.'),
+  avgHr: z.number().int().min(20).max(240).optional().describe('Average heart rate over the set.'),
   /** Which side. Required on a unilateral exercise, refused on a bilateral one. */
-  side: z.enum(SIDES).optional(),
+  side: z
+    .enum(SIDES)
+    .describe(
+      'Which side. REQUIRED on a unilateral exercise and refused on a bilateral one — optional here because only the exercise knows which it is.',
+    )
+    .optional(),
 });
 
 /**
@@ -2156,7 +2177,7 @@ const voidSetOp: OperationHandler<
   return { voided: set.id, alreadyVoided: false };
 };
 
-const completeProgramInput = z.object({ programId: z.string().min(1) });
+export const completeProgramInput = z.object({ programId: z.string().min(1) });
 
 /**
  * THE ADHERENCE MOMENT — this vertical's analogue of the reference's pricing
@@ -2258,7 +2279,9 @@ export interface ProgramDetail {
   slots: SlotRow[];
 }
 
-const programDetailInput = z.object({ programId: z.string().min(1) });
+export const programDetailInput = z.object({
+  programId: z.string().min(1).describe('Workout id from stride/my-programs. Pass programId directly in the tool arguments, without an input wrapper.'),
+});
 
 const getProgramOp: OperationHandler<z.infer<typeof programDetailInput>, ProgramDetail> = async (
   ctx,
@@ -2715,7 +2738,7 @@ const invitationsOp: OperationHandler<undefined, Invitation[]> = async (ctx) => 
   return listInvites(ctx, orgOf(ctx));
 };
 
-const revokeInviteInput = z.object({ invitationId: z.string().min(1) });
+export const revokeInviteInput = z.object({ invitationId: z.string().min(1) });
 
 const revokeInviteOp: OperationHandler<z.infer<typeof revokeInviteInput>, { ok: true }> = async (
   ctx,
@@ -2726,7 +2749,7 @@ const revokeInviteOp: OperationHandler<z.infer<typeof revokeInviteInput>, { ok: 
   return { ok: true };
 };
 
-const acceptInput = z.object({
+export const acceptInput = z.object({
   invitationId: z.string().min(1),
   /** Re-presented and re-hashed: an invitation id alone must not be a bearer token. */
   identifier: z.string().min(3),
@@ -2853,7 +2876,7 @@ const acceptInviteOp: OperationHandler<
 // PER-SET TARGETS — for when the sets differ from one another.
 // ---------------------------------------------------------------------------
 
-const itemSetsInput = z.object({
+export const itemSetsInput = z.object({
   itemId: z.string().min(1),
   sets: z
     .array(
@@ -3154,7 +3177,7 @@ export interface SlotRow {
   created_at: string;
 }
 
-const slotsInput = z.object({
+export const slotsInput = z.object({
   programId: z.string().min(1),
   slots: z
     .array(
@@ -3308,7 +3331,7 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
   );
 };
 
-const beginInput = z.object({ programId: z.string().min(1) });
+export const beginInput = z.object({ programId: z.string().min(1) });
 
 /**
  * BEGIN — one tap from "it is Wednesday at 11" to logging a set.
@@ -3384,7 +3407,7 @@ export interface ThreadView {
   unread: number;
 }
 
-const threadInput = z.object({
+export const threadInput = z.object({
   traineeId: z.string().min(1),
   coachId: z.string().min(1),
 });
@@ -3403,7 +3426,7 @@ function threadPeople(
   return { trainee, coach };
 }
 
-const postMessageInput = threadInput.extend({ body: z.string().min(1).max(4000) });
+export const postMessageInput = threadInput.extend({ body: z.string().min(1).max(4000) });
 
 const postMessageOp: OperationHandler<z.infer<typeof postMessageInput>, MessageRow> = async (
   ctx,
@@ -3523,7 +3546,7 @@ const threadsOp: OperationHandler<undefined, ThreadView[]> = async (ctx) => {
   return out.sort((a, b) => (b.lastAt ?? '').localeCompare(a.lastAt ?? ''));
 };
 
-const timelineInput = z.object({
+export const timelineInput = z.object({
   entityType: z.string().min(1),
   entityId: z.string().min(1),
 });
@@ -3673,7 +3696,9 @@ const logMeasurementOp: OperationHandler<z.infer<typeof logMeasurementInput>, Me
   return ctx.sql.query<MeasurementRow>('SELECT * FROM train_measurements WHERE id = ?', [id])[0]!;
 };
 
-const traineeIdInput = z.object({ traineeId: z.string().min(1) });
+export const traineeIdInput = z.object({
+  traineeId: z.string().min(1).describe('Trainee record id: use traineeId from stride/whoami for your own training, or an id from stride/trainees for somebody you may read.'),
+});
 
 /** Every measurement about one person, oldest first. Narrowed `result:read`. */
 const measurementsOp: OperationHandler<z.infer<typeof traineeIdInput>, MeasurementRow[]> = async (
