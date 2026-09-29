@@ -20,6 +20,10 @@ import { Figure } from './figures';
 
 export interface ActiveSession {
   programId: string;
+  /** WHICH session is running — the id `begin` answered with. The screen logs
+   *  into this one, never "the latest one today": two runs on one day are two
+   *  sessions. Optional only for a clock persisted before it was recorded. */
+  sessionId?: string;
   name: string;
   /** ISO — when the CURRENT run of the clock began (moves on resume). */
   startedAt: string;
@@ -74,10 +78,15 @@ export function useCountingDown(): boolean {
   return useSyncExternalStore(subscribe, () => countingDown, () => false);
 }
 
-export function startSession(programId: string, name: string, resumed = false): void {
+export function startSession(
+  programId: string,
+  sessionId: string,
+  name: string,
+  resumed = false,
+): void {
   // Tapping into a session you are already in must not restart its clock, and
   // resuming is not a start — the countdown belongs to the moment you begin.
-  if (current?.programId === programId) {
+  if (current?.programId === programId && current.sessionId === sessionId) {
     countingDown = false;
     listeners.forEach((l) => l());
     return;
@@ -85,6 +94,7 @@ export function startSession(programId: string, name: string, resumed = false): 
   countingDown = !resumed && !prefersReducedMotion();
   commit({
     programId,
+    sessionId,
     name,
     startedAt: new Date().toISOString(),
     pausedAt: null,

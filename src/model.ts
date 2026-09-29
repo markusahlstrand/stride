@@ -326,7 +326,7 @@ export const operations = {
   },
   'stride/begin': {
     summary:
-      'Open today’s session on a workout, or resume the one already open. It does NOT start the workout — use workorder/start first.',
+      'Open a new session on a workout — or, given a sessionId, resume that one. Each start is its own session, so a morning and an evening run are two. It does NOT start the workout — use workorder/start first.',
     http: { method: 'POST', path: '/programs/{programId}/begin' },
     input: beginInput,
   },
@@ -338,7 +338,7 @@ export const operations = {
   },
   'stride/log-session': {
     summary:
-      'Record a new session on a workout that is under way. Use stride/begin instead to open or resume today’s.',
+      'Record a new session on a workout that is under way. Use stride/begin instead to open one, or to resume one by its sessionId.',
     http: { method: 'POST', path: '/programs/{programId}/sessions' },
     input: logSessionInput,
   },
