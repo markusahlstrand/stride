@@ -3249,7 +3249,8 @@ export interface AgendaEntry {
   weekday: number;
   time: string;
   dueToday: boolean;
-  /** An open session for this programme TODAY, if one has been started. */
+  /** THIS slot's session today, if it has been started. Two slots on one day
+   *  are two sessions: today's sessions are matched to today's slots in order. */
   sessionToday: string | null;
   setsToday: number;
   exercises: number;
@@ -3289,19 +3290,29 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
     );
     if (slots.length === 0) continue;
 
-    const sessionToday =
-      ctx.sql.query<SessionRow>(
-        `SELECT * FROM train_sessions
-          WHERE program_id = ? AND substr(performed_at, 1, 10) = ?
-          ORDER BY performed_at DESC LIMIT 1`,
-        [program.id, dayStart],
-      )[0] ?? null;
-    const setsToday = sessionToday
-      ? (ctx.sql.query<{ n: number }>(
-          `SELECT COUNT(*) AS n FROM train_set_results r WHERE r.session_id = ? AND ${NOT_VOIDED}`,
-          [sessionToday.id],
-        )[0]?.n ?? 0)
-      : 0;
+    // Today's sessions in the order they were opened. Two slots on one day are
+    // two workouts, so they are matched up in order — the first session belongs
+    // to the first slot due today, the second to the second — rather than every
+    // slot pointing at whichever session happens to be latest. A session beyond
+    // the last slot (an extra run) stays with the last slot.
+    const todays = ctx.sql.query<SessionRow>(
+      `SELECT * FROM train_sessions
+        WHERE program_id = ? AND substr(performed_at, 1, 10) = ?
+        ORDER BY performed_at, id`,
+      [program.id, dayStart],
+    );
+    const setsIn = (sessionId: string) =>
+      ctx.sql.query<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM train_set_results r WHERE r.session_id = ? AND ${NOT_VOIDED}`,
+        [sessionId],
+      )[0]?.n ?? 0;
+    const dueSlots = slots.filter((s) => s.weekday === weekday);
+    const sessionForSlot = (slot: SlotRow): SessionRow | null => {
+      const k = dueSlots.indexOf(slot);
+      if (k < 0) return null;
+      if (k >= todays.length) return null;
+      return k === dueSlots.length - 1 ? todays[todays.length - 1]! : todays[k]!;
+    };
     const exercises =
       ctx.sql.query<{ n: number }>(
         'SELECT COUNT(*) AS n FROM train_program_items WHERE program_id = ?',
@@ -3312,6 +3323,7 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
     ])[0];
 
     for (const slot of slots) {
+      const sessionToday = sessionForSlot(slot);
       out.push({
         programId: program.id,
         programTitle: program.title,
@@ -3321,7 +3333,7 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
         time: slot.time_of_day,
         dueToday: slot.weekday === weekday,
         sessionToday: sessionToday?.id ?? null,
-        setsToday,
+        setsToday: sessionToday ? setsIn(sessionToday.id) : 0,
         exercises,
       });
     }
@@ -3331,21 +3343,31 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
   );
 };
 
-export const beginInput = z.object({ programId: z.string().min(1) });
+export const beginInput = z.object({
+  programId: z.string().min(1),
+  /**
+   * The session to go back to. Omit it to open a NEW session — every press of
+   * "start" is its own workout, so a morning and an evening run on the same
+   * programme are two sessions, not one.
+   */
+  sessionId: z.string().min(1).optional(),
+});
 
 /**
  * BEGIN — one tap from "it is Wednesday at 11" to logging a set.
  *
- * The three steps a trainee had to do by hand: start the programme if it has not
- * started, reuse today's session if there is one, open a new one if there is not.
- * Each step still runs its own check — this composes the operations, it does not
- * bypass them — and it is idempotent, so pressing it twice on the same day
- * returns the same session rather than fragmenting a workout into two.
+ * A session is named by its id, never guessed from the date. Without a
+ * `sessionId` this opens a new session; with one it resumes that session, after
+ * checking it belongs to this programme. It used to resume "today's session"
+ * whenever there was one, which folded two booked runs on the same day — 08:00
+ * and 19:00 — into a single workout. Guarding against a double tap is the
+ * button's job (it is disabled while the request is in flight), not the date's.
  *
- * The programme's own `workorder/start` is NOT reachable from here: that
- * operation carries the manifest guard, and an in-scope shortcut around it would
- * be exactly the hole the guard exists to close. So a `planned` programme is
- * refused with a message telling the caller to start it, rather than quietly
+ * Each step still runs its own check — this composes the operations, it does not
+ * bypass them. The programme's own `workorder/start` is NOT reachable from here:
+ * that operation carries the manifest guard, and an in-scope shortcut around it
+ * would be exactly the hole the guard exists to close. So a `planned` programme
+ * is refused with a message telling the caller to start it, rather than quietly
  * started on their behalf.
  */
 const beginOp: OperationHandler<
@@ -3362,14 +3384,16 @@ const beginOp: OperationHandler<
       `invalid transition: a ${program.status} programme cannot be trained — start it first`,
     );
   }
-  const today = ctx.now().slice(0, 10);
-  const existing = ctx.sql.query<SessionRow>(
-    `SELECT * FROM train_sessions
-      WHERE program_id = ? AND substr(performed_at, 1, 10) = ?
-      ORDER BY performed_at DESC LIMIT 1`,
-    [program.id, today],
-  )[0];
-  if (existing) return { session: existing, resumed: true };
+  if (input.sessionId) {
+    // The check above was on THIS programme, so the session must be one of its
+    // own — otherwise an id from somebody else's workout would ride it.
+    const existing = ctx.sql.query<SessionRow>(
+      'SELECT * FROM train_sessions WHERE id = ? AND program_id = ?',
+      [input.sessionId, program.id],
+    )[0];
+    if (!existing) throw new Error(`session not found on this programme: ${input.sessionId}`);
+    return { session: existing, resumed: true };
+  }
 
   const session = (await (logSessionOp as OperationHandler<{ programId: string }, SessionRow>)(
     ctx,
