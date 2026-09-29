@@ -136,6 +136,8 @@ describe('phased programmes: snapshots, calendar, achievements and isolation', (
     expect(coach.goal!.value).toBe(0); expect(coach.recommendation).toBeNull();
     await expect(invoke(nina, 'complete-program', { programId })).rejects.toThrow(/permission denied/);
     expect(coach.days[0]).toMatchObject({ sessionId: null, itemIds: [], status: 'scheduled' });
+    // Resuming the older occurrence must not hand back the ids the view just masked.
+    await expect(invoke(nina, 'begin-phased-session', { programId, occurrenceId: coach.days[0].id })).rejects.toThrow(/result:read/);
     const detail = await invoke<ProgramDetail>(nina, 'get-program', { programId });
     expect(detail.sessions).toHaveLength(1); expect(detail.items).toHaveLength(1);
     const cards = await invoke<{ id: string; setsLogged: number }[]>(nina, 'my-programs');
@@ -165,5 +167,15 @@ describe('phased programmes: snapshots, calendar, achievements and isolation', (
     const done = await invoke<{ summary: ProgramSummaryRow }>(vera, 'complete-program', { programId });
     expect(done.summary.prescribed_sets).toBe(expected); expect(done.summary.performed_sets).toBe(1);
     await expect(change('pause')).rejects.toThrow(/finished programme/);
+  });
+  it('leaves a library plan the gym turned phased alone when the starter library is re-installed', async () => {
+    const astrid = await host.getScope(w.astrid, w.t1, w.s1);
+    const name = 'Running — base week';
+    const lib = (await invoke<{ id: string; name: string; items: { id: string }[] }[]>(astrid, 'templates')).find((t) => t.name === name)!;
+    for (const item of lib.items) await invoke(astrid, 'remove-template-item', { itemId: item.id });
+    await invoke(astrid, 'save-phased-plan', { templateId: lib.id, plan: { ...plan, name } });
+    const report = await invoke<{ templates: number; templateItems: number }>(astrid, 'install-starter-library');
+    expect(report).toMatchObject({ templates: 0, templateItems: 0 });
+    expect((await invoke<{ id: string; items: unknown[] }[]>(astrid, 'templates')).find((t) => t.id === lib.id)!.items).toHaveLength(0);
   });
 });

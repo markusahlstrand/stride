@@ -1382,9 +1382,12 @@ const installStarterLibraryOp: OperationHandler<undefined, StarterReport> = asyn
     // with any seed rows it lacks — matched by exercise, counted, so a plan that
     // names the same run twice gets both. A member's plan of the same name is
     // theirs and is never touched. Rows already present are left exactly as the
-    // gym has them, edits included.
+    // gym has them, edits included. A library copy the gym has since turned into
+    // a phased plan is theirs too: it holds phases, not rows, and topping it up
+    // would trip `requireOrdinaryTemplate` and abort the whole install.
     if (existing) {
       if (existing.owner_coach_id || existing.owner_trainee_id) continue;
+      if (ctx.sql.query('SELECT template_id FROM train_plan_sequences WHERE template_id = ?', [existing.id]).length) continue;
       const have = new Map<string, number>();
       for (const row of ctx.sql.query<ItemRow>(
         'SELECT * FROM train_template_items WHERE template_id = ?',

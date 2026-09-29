@@ -200,7 +200,13 @@ export function phasedOperations(deps: Dependencies) {
     const s = needSequence(ctx, input.programId); const p = planOf(s);
     const day = daysOf(ctx, s.program_id).find((d) => d.id === input.occurrenceId);
     if (!day) throw new Error('Scheduled workout not found');
-    if (day.session_id) return { sessionId: day.session_id, itemIds: JSON.parse(day.item_ids_json) as string[] };
+    // Resuming hands back the session's ids, which the programme view masks
+    // behind `result:read` on the session — so resuming is gated the same way,
+    // or a coach downgraded by sharing could recover what the view hides.
+    if (day.session_id) {
+      assertAllowed(await ctx.check(P.resultRead, { entityType: 'session', entityId: day.session_id }));
+      return { sessionId: day.session_id, itemIds: JSON.parse(day.item_ids_json) as string[] };
+    }
     if (getWorkOrder(ctx, s.program_id).status !== 'in_progress') throw new Error('Start the programme first with workorder/start');
     if (s.paused_on) throw new Error('Resume this programme before training');
     if (day.status !== 'pending') throw new Error('This is not an available training day');
