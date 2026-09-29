@@ -104,6 +104,8 @@ export const strideManifest = moduleManifest.parse({
   // cross-module read to understand one.
   events: {
     emits: [
+      { type: 'stride.sequence-plan-saved', schemaVersion: 1 },
+      { type: 'stride.sequence-changed', schemaVersion: 1 },
       { type: 'stride.coach-registered', schemaVersion: 1 },
       { type: 'stride.trainee-registered', schemaVersion: 1 },
       { type: 'stride.trainee-assigned', schemaVersion: 1 },

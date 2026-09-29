@@ -1,5 +1,7 @@
 # Stride — design (rev 12, as built)
 
+Proposed extension (not yet approved or implemented): [phased programmes and challenges](phased-programmes.md).
+
 A multi-tenant training app for a gym or physio clinic. An **admin** curates a shared
 library of exercises and program templates for the whole organisation. A **coach** authors
 their own private exercises and templates, and works **only with the trainees assigned to

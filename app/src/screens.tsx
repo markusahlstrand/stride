@@ -1,3 +1,4 @@
+import { SequenceLibrary, PhasedProgram, PhasedToday } from './phased';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { SessionSummary } from './session';
 import {
@@ -219,6 +220,7 @@ export function TodayScreen({
   return (
     <>
       <h1>Today</h1>
+      <PhasedToday key={me?.key} onOpen={onOpen} />
       {/* Top and bottom only, here and under every other title: a `margin`
           shorthand zeroes the auto side margins that centre the column on
           desktop, and strands the line in the gutter. */}
@@ -593,7 +595,7 @@ function NewWorkout({
         }}
       >
         <option value="">empty — add exercises after</option>
-        {templates.map((t) => (
+        {templates.filter((t) => !t.phased).map((t) => (
           <option key={t.id} value={t.id}>
             {t.name} ({t.items.length} exercises{t.mine ? ', yours' : t.ownerName ? `, by ${t.ownerName}` : ''})
           </option>
@@ -930,7 +932,7 @@ export function ProgramDetailScreen({
   const active = useActiveSession();
   const live = active?.programId === programId ? active : null;
   useEffect(() => {
-    if (!detail) return;
+    if (!detail || detail.phased) return;
     const open =
       detail.program.status === 'in_progress' ? detail.sessions[detail.sessions.length - 1] : undefined;
     const logged = new Set((open?.sets ?? []).map((x) => x.program_item_id));
@@ -942,7 +944,7 @@ export function ProgramDetailScreen({
   // Firing needs a live session, and finishing clears it — so this runs exactly
   // once, and reopening a finished workout later does not replay the confetti.
   useEffect(() => {
-    if (!detail || !live) return;
+    if (!detail || detail.phased || !live) return;
     if (isSessionComplete(detail)) finishSession(summaryOf(detail, earned, elapsedMs(live)));
   }, [detail, live, earned]);
 
@@ -960,6 +962,8 @@ export function ProgramDetailScreen({
 
   if (!detail) return <div className="empty">
           <Figure pose="rest" size={132} />Not visible to {me?.name ?? 'you'}.</div>;
+
+  if (detail.phased) return <PhasedProgram detail={detail} run={run} onBack={onBack} onProgress={onProgress} reloadDetail={reload} />;
 
   const { program, items, sessions, summary, slots } = detail;
   const openSession = program.status === 'in_progress' ? sessions[sessions.length - 1] : undefined;
@@ -1814,7 +1818,7 @@ function formatPace(secondsPerKm: number): string {
  * number it actually needs: how long it took, and what the heart was doing.
  * Load is hidden where it means nothing.
  */
-function SetLogger({
+export function SetLogger({
   unit,
   modality,
   loadNote,
@@ -2720,7 +2724,7 @@ function RoutineSetup({ me, run, onOpen }: ScreenProps & { onOpen: (id: string) 
           <label>start from a plan?</label>
           <select value={from} onChange={(e) => setFrom(e.target.value)}>
             <option value="">empty — I&apos;ll add my own exercises</option>
-            {templates.map((t) => (
+            {templates.filter((t) => !t.phased).map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name} ({t.items.length} exercises{t.mine ? ', yours' : t.ownerName ? `, by ${t.ownerName}` : ''})
               </option>
@@ -4455,8 +4459,8 @@ export function PlansScreen({
   const [plans, reload] = useList<Template>(() => api.templates(), [me?.key]);
   const [exercises] = useList<Exercise>(() => api.exercises(), [me?.key]);
   const exercisesById = new Map(exercises.map((e) => [e.id, e] as const));
-  const mine = plans.filter((p) => p.mine);
-  const others = plans.filter((p) => !p.mine);
+  const mine = plans.filter((p) => p.mine && !p.phased);
+  const others = plans.filter((p) => !p.mine && !p.phased);
   const canTrainMyself = Boolean(me?.traineeId) || me?.role === 'admin';
 
   /** One tap: a workout of your own from this plan — planned, and opened. */
@@ -4484,6 +4488,8 @@ export function PlansScreen({
       <div className="sub" style={{ marginTop: -6, marginBottom: 16, paddingLeft: 2 }}>
         Reusable workout plans. Follow one from the gym, or build your own and share it.
       </div>
+      <SequenceLibrary plans={plans} exercises={exercises} me={me} run={run} onChanged={reload} onOpen={onOpen} />
+      <h2>Single-workout plans</h2>
       <NewPlan run={run} onCreated={reload} />
 
       <h2>My plans</h2>

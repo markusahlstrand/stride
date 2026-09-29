@@ -1,3 +1,5 @@
+import type { PhasedProgramView } from '../../src/phased.js';
+import type { SequencePlan } from '../../src/phased-plan.js';
 // ============================================================================
 // Typed wrappers over the thin HTTP API.
 //
@@ -201,6 +203,7 @@ export interface ScheduledItem {
  * run of a plan, snapshot from it at creation.
  */
 export interface Template {
+  phased?: boolean;
   id: string;
   name: string;
   description: string | null;
@@ -264,6 +267,7 @@ export interface Summary {
 }
 
 export interface ProgramDetail {
+  phased?: boolean;
   program: ProgramCard;
   items: (Item & { exercise: Exercise | null; sets: ItemSet[] })[];
   slots: Slot[];
@@ -423,6 +427,13 @@ const post = <T,>(path: string, body?: unknown) =>
   call<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) });
 
 export const api = {
+  phasedPlan: (id: string) => get<{ templateId: string; revision: number; plan: SequencePlan; canEdit: boolean }>(`/phased-plans/${id}`),
+  savePhasedPlan: (body: unknown) => post<{ templateId: string; revision: number; plan: SequencePlan }>('/phased-plans', body),
+  assignPhasedPlan: (body: unknown) => post<{ programId: string }>('/phased-programs', body),
+  phasedProgram: (id: string) => get<PhasedProgramView>(`/phased-programs/${id}`),
+  beginPhasedSession: (programId: string, occurrenceId: string) => post<{ sessionId: string }>(`/phased-programs/${programId}/begin`, { occurrenceId }),
+  controlPhasedProgram: (programId: string, body: unknown) => post(`/phased-programs/${programId}/control`, body),
+  phasedToday: () => get<{ programId: string; title: string; timezone: string; pausedOn: string | null; days: PhasedProgramView['days'] }[]>('/phased-today'),
   /** Signed in? Seated? Unclaimed gym? Answers while signed out, never 403s. */
   session: () => get<AuthSession>('/session'),
   /** Who I am in this gym — an operation, so the kernel decides whether to answer. */
