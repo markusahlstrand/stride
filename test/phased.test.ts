@@ -107,6 +107,8 @@ describe('phased programmes: snapshots, calendar, achievements and isolation', (
   it('pauses across daylight saving, shifts only future days, records skips and rejects duplicate edits', async () => {
     await change('pause'); clock.set('2026-03-30T10:00:00Z');
     const old = await view(); expect(old.today).toBe('2026-03-30');
+    await expect(change('reschedule', { occurrenceId: old.days.find((d) => d.phaseIndex === 1)!.id, date: '2026-04-02' })).rejects.toThrow(/Resume this programme/);
+    await expect(change('repeat-phase', { phaseIndex: 0, date: '2026-04-02' })).rejects.toThrow(/Resume this programme/);
     await change('resume'); const v = await view();
     expect(v.days.find((d) => d.phaseIndex === 1)!.date).toBe('2026-04-01');
     expect(v.days[0].date).toBe('2026-03-28');

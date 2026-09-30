@@ -178,7 +178,7 @@ export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail }:
     {manageable && <details><summary>Choose a different track</summary>{view.plan.tracks.map((t) => <button className="ghost small" key={t.key} disabled={busy || t.key === view.trackKey} onClick={() => { if (confirm(`Change unstarted future days to ${t.name}?`)) void control('change-track', { trackKey: t.key }); }}>{t.name}</button>)}</details>}
     <div className="card"><h2>Schedule</h2>{view.plan.phases.map((phase, ph) => <details key={ph} open={day?.phaseIndex === ph}><summary>{ph + 1}. {phase.name}</summary><p>{phase.notes}</p>
       {view.milestones[ph] && <p>Milestone: {view.milestones[ph]!.value} / {view.milestones[ph]!.target} {ph < view.unlockedPhase ? '· advancement confirmed' : ''}</p>}
-      {manageable && phase.progression === 'milestone' && ph >= view.unlockedPhase && <button className="ghost" disabled={busy || !view.milestones[ph]?.achieved} onClick={() => control('advance', { phaseIndex: ph })}>Confirm milestone & advance</button>}
+      {manageable && phase.progression === 'milestone' && ph >= view.unlockedPhase && <button className="ghost" disabled={busy || !!view.pausedOn || !view.milestones[ph]?.achieved} onClick={() => control('advance', { phaseIndex: ph })}>Confirm milestone & advance</button>}
       {view.days.filter((d) => d.phaseIndex === ph).map((d) => <button className={`rowbtn wide ${day?.id === d.id ? 'on' : ''}`} key={d.id} onClick={() => { setSelected(d.id); setEdit(null); setDate(d.date < view.today ? view.today : d.date); }}><span><b>{d.date} · {d.prescription.day}</b><span className="sub">{d.prescription.name} · {d.missed ? 'missed' : d.status}{d.locked ? ' · locked by milestone' : ''}</span></span></button>)}
     </details>)}</div>
     {day && <div className="card"><h2>{day.prescription.name}</h2><p>{day.prescription.phase} · {day.prescription.day} · {day.date}</p>
@@ -190,8 +190,8 @@ export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail }:
         {['pending', 'rest'].includes(day.status) && <button className="ghost" disabled={busy} onClick={() => control('skip')}>Skip day</button>}
         {day.status === 'pending' && <button className="ghost" onClick={() => setEdit(clone(day.prescription.workout!))}>Edit this workout</button>}
       </div><label>Date for rescheduling / repeats<input type="date" min={view.today} value={date} onChange={(e) => setDate(e.target.value)} /></label><div className="actions">
-        {['pending', 'rest'].includes(day.status) && <button className="ghost" disabled={busy} onClick={() => control('reschedule', { date })}>Move to this date</button>}
-        <button className="ghost" disabled={busy} onClick={() => control('repeat-day', { date })}>Repeat day on this date</button><button className="ghost" disabled={busy} onClick={() => control('repeat-phase', { date, phaseIndex: day.phaseIndex })}>Repeat phase from this date</button>
+        {['pending', 'rest'].includes(day.status) && <button className="ghost" disabled={busy || !!view.pausedOn} onClick={() => control('reschedule', { date })}>Move to this date</button>}
+        <button className="ghost" disabled={busy || !!view.pausedOn} onClick={() => control('repeat-day', { date })}>Repeat day on this date</button><button className="ghost" disabled={busy || !!view.pausedOn} onClick={() => control('repeat-phase', { date, phaseIndex: day.phaseIndex })}>Repeat phase from this date</button>
       </div></>}
       {edit && <><WorkoutEditor workout={edit} exercises={exercises} onChange={setEdit} /><div className="actions"><button className="primary" disabled={busy} onClick={async () => { if (await control('edit-future', { workout: edit })) setEdit(null); }}>Save future prescription</button><button className="ghost" onClick={() => setEdit(null)}>Cancel edit</button></div></>}
       {!edit && day.prescription.workout?.items.map((item, i) => {

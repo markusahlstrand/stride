@@ -244,6 +244,9 @@ export function phasedOperations(deps: Dependencies) {
     const pending = (d: DayRow) => !d.session_id && ['pending', 'rest'].includes(d.status);
     const date = () => { if (!input.date || input.date < today) throw new Error('Choose today or a future date'); return input.date; };
     const requireDay = () => { if (!day) throw new Error('occurrenceId: choose a scheduled workout'); return day; };
+    // Resume shifts every pending day on or after paused_on, so a date chosen while paused would be moved twice.
+    if (s.paused_on && ['reschedule', 'repeat-day', 'repeat-phase', 'advance'].includes(input.action))
+      throw new Error('Resume this programme before changing its schedule');
     if (input.action === 'pause') {
       if (s.paused_on) throw new Error('Programme is already paused');
       ctx.sql.exec('UPDATE train_program_sequences SET paused_on = ? WHERE program_id = ?', [today, s.program_id]);
