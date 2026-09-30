@@ -1121,13 +1121,54 @@ describe('training scenario', () => {
       programId: wed.programId,
     });
     expect(first.resumed).toBe(false);
-    // …and pressing it again the same day RESUMES rather than fragmenting the
-    // workout into two sessions.
+    // …and going back to it is BY NAME: the session id, not "today's".
     const again = await vera.invoke<{ session: SessionRow; resumed: boolean }>('stride/begin', {
       programId: wed.programId,
+      sessionId: first.session.id,
     });
     expect(again.resumed).toBe(true);
     expect(again.session.id).toBe(first.session.id);
+
+    // TWO RUNS ON ONE DAY ARE TWO SESSIONS. Booked at 08:00 and 19:00, the
+    // evening's start used to resume the morning's session and pour its sets into
+    // it. The slots go on the weekday the session was actually dated, since the
+    // scenario runs on the real clock.
+    const day = first.session.performed_at.slice(0, 10);
+    const weekday = ((new Date(day).getUTCDay() + 6) % 7) + 1;
+    await vera.invoke('stride/set-program-slots', {
+      programId: wed.programId,
+      slots: [
+        { weekday, time: '19:00' },
+        { weekday, time: '08:00' },
+      ],
+    });
+    // Starting without an id is always a new workout…
+    const evening = await vera.invoke<{ session: SessionRow; resumed: boolean }>('stride/begin', {
+      programId: wed.programId,
+    });
+    expect(evening.resumed).toBe(false);
+    expect(evening.session.id).not.toBe(first.session.id);
+    // …and the agenda pairs each slot with its own, in order: the first session
+    // opened that day is the 08:00 run, the second the 19:00 one. It used to hand
+    // both slots the latest session, which is what "logged on both" looked like.
+    const booked = (await vera.invoke<AgendaEntry[]>('stride/agenda', { on: day })).filter(
+      (a) => a.programId === wed.programId && a.dueToday,
+    );
+    expect(booked.map((a) => [a.time, a.sessionToday])).toEqual([
+      ['08:00', first.session.id],
+      ['19:00', evening.session.id],
+    ]);
+
+    // A session id is only good on its own programme: the check was on THIS
+    // one, so a session from another cannot ride it.
+    const other = await vera.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Another',
+      kind: 'strength',
+    });
+    await vera.invoke('workorder/start', { orderId: other.program.id });
+    await expect(
+      vera.invoke('stride/begin', { programId: other.program.id, sessionId: first.session.id }),
+    ).rejects.toThrow(/session not found on this programme/);
 
     // It composes the operations rather than bypassing them: a programme that
     // has not started is refused, not quietly started — `workorder/start` carries

@@ -476,8 +476,12 @@ export const api = {
   agenda: () => get<AgendaEntry[]>('/agenda'),
   setSlots: (programId: string, slots: { weekday: number; time: string }[]) =>
     post<{ slots: Slot[] }>(`/programs/${programId}/slots`, { slots }),
-  begin: (programId: string) =>
-    post<{ session: Session; resumed: boolean }>(`/programs/${programId}/begin`),
+  /** No `sessionId` opens a new session; with one, resumes that session. */
+  begin: (programId: string, sessionId?: string) =>
+    post<{ session: Session; resumed: boolean }>(
+      `/programs/${programId}/begin`,
+      sessionId ? { sessionId } : {},
+    ),
 
   exercises: () => get<Exercise[]>('/exercises'),
   myExercises: () => get<Exercise[]>('/my-exercises'),

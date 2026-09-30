@@ -1,6 +1,6 @@
 import { SequenceLibrary, PhasedProgram, PhasedToday } from './phased';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import type { SessionSummary } from './session';
+import type { ActiveSession, SessionSummary } from './session';
 import {
   elapsedMs,
   finishSession,
@@ -166,17 +166,27 @@ export function TodayScreen({
   const booked = agenda.filter((a) => a.dueToday);
   const upcoming = agenda.filter((a) => !a.dueToday);
 
-  /** One tap: reuse today's session if there is one, open one if not, go log. */
+  /** Held while `begin` is in flight: a double tap must not open two sessions. */
+  const [starting, setStarting] = useState(false);
+
+  /**
+   * One tap: THIS slot's session if it has one, a new one if not, go log. Two
+   * slots on one day are two sessions — the agenda pairs each with its own.
+   */
   const begin = async (entry: AgendaEntry) => {
-    const ok = await run(
-      () => api.begin(entry.programId),
-      entry.sessionToday ? 'Back to it' : 'Session started',
-    );
+    if (starting) return;
+    setStarting(true);
+    let sessionId: string | null = null;
+    const ok = await run(async () => {
+      const r = await api.begin(entry.programId, entry.sessionToday ?? undefined);
+      sessionId = r.session.id;
+    }, entry.sessionToday ? 'Back to it' : 'Session started');
+    setStarting(false);
     reloadAgenda();
-    if (ok) {
+    if (ok && sessionId) {
       // The clock is device-local: the server opened (or reused) the session,
       // this starts the one on your phone. Resuming skips the countdown.
-      startSession(entry.programId, entry.programTitle, Boolean(entry.sessionToday));
+      startSession(entry.programId, sessionId, entry.programTitle, Boolean(entry.sessionToday));
       onOpen(entry.programId);
     }
   };
@@ -279,7 +289,7 @@ export function TodayScreen({
             </div>
           </div>
           <div className="actions">
-            <button className="primary wide" onClick={() => begin(a)}>
+            <button className="primary wide" disabled={starting} onClick={() => begin(a)}>
               {a.sessionToday ? 'Continue' : a.status === 'planned' ? 'Start programme first' : 'Start training'}
             </button>
           </div>
@@ -837,11 +847,18 @@ function sideSummary(sets: SetResult[], unit: string): string {
   return [part('left'), part('right'), part(null)].filter(Boolean).join(' · ');
 }
 
-/** The open session on a programme, if it has one. */
-function openSessionOf(detail: ProgramDetail) {
-  return detail.program.status === 'in_progress'
-    ? detail.sessions[detail.sessions.length - 1]
-    : undefined;
+/**
+ * The session THIS DEVICE is running on a programme — named by id, never
+ * guessed from the date. Two runs on one day are two sessions, and "the latest
+ * one today" would pour the evening's sets into the morning's.
+ */
+function openSessionOf(detail: ProgramDetail, live: ActiveSession | null) {
+  if (detail.program.status !== 'in_progress' || !live) return undefined;
+  // A clock persisted before sessions were named by id: the latest is the best
+  // guess, and the one it would have meant.
+  return live.sessionId
+    ? detail.sessions.find((s) => s.id === live.sessionId)
+    : detail.sessions[detail.sessions.length - 1];
 }
 
 /**
@@ -851,8 +868,8 @@ function openSessionOf(detail: ProgramDetail) {
  * projection of two things that already exist. A stored flag would be a third
  * source of truth that could disagree with both.
  */
-function isSessionComplete(detail: ProgramDetail): boolean {
-  const sets = openSessionOf(detail)?.sets ?? [];
+function isSessionComplete(detail: ProgramDetail, live: ActiveSession | null): boolean {
+  const sets = openSessionOf(detail, live)?.sets ?? [];
   if (detail.items.length === 0 || sets.length === 0) return false;
   return detail.items.every(
     (i) => sets.filter((s) => s.program_item_id === i.id).length >= prescribedTotal(i),
@@ -865,8 +882,13 @@ function isSessionComplete(detail: ProgramDetail): boolean {
  * clock, so it reads the same on every device and survives a reload. The device
  * clock is only the fallback for a session that ended with nothing logged.
  */
-function summaryOf(detail: ProgramDetail, earned: string | null, fallbackMs: number): SessionSummary {
-  const open = openSessionOf(detail);
+function summaryOf(
+  detail: ProgramDetail,
+  live: ActiveSession | null,
+  earned: string | null,
+  fallbackMs: number,
+): SessionSummary {
+  const open = openSessionOf(detail, live);
   const sets = open?.sets ?? [];
   const volume = sets.reduce(
     (n, x) => n + (x.load ? Number.parseFloat(x.load) || 0 : 0) * x.reps,
@@ -915,6 +937,8 @@ export function ProgramDetailScreen({
   const [view, setView] = useState<'session' | 'manage'>('session');
   /** The exercise on screen. Null means "the first one not finished yet". */
   const [cursor, setCursor] = useState<string | null>(null);
+  /** Held while `begin` is in flight: a double tap must not open two sessions. */
+  const [starting, setStarting] = useState(false);
   /** The row a set was just logged on — so finishing it moves you along. */
   const advance = useRef<string | null>(null);
 
@@ -933,11 +957,9 @@ export function ProgramDetailScreen({
   const live = active?.programId === programId ? active : null;
   useEffect(() => {
     if (!detail || detail.phased) return;
-    const open =
-      detail.program.status === 'in_progress' ? detail.sessions[detail.sessions.length - 1] : undefined;
-    const logged = new Set((open?.sets ?? []).map((x) => x.program_item_id));
+    const logged = new Set((openSessionOf(detail, live)?.sets ?? []).map((x) => x.program_item_id));
     reportProgress(programId, logged.size, detail.items.length);
-  }, [detail, programId]);
+  }, [detail, programId, live]);
 
   // THE NATURAL END. A session is over when the last prescribed set is logged,
   // so the finish moment arrives on its own rather than waiting to be asked for.
@@ -945,7 +967,7 @@ export function ProgramDetailScreen({
   // once, and reopening a finished workout later does not replay the confetti.
   useEffect(() => {
     if (!detail || detail.phased || !live) return;
-    if (isSessionComplete(detail)) finishSession(summaryOf(detail, earned, elapsedMs(live)));
+    if (isSessionComplete(detail, live)) finishSession(summaryOf(detail, live, earned, elapsedMs(live)));
   }, [detail, live, earned]);
 
   // MOVE ALONG. When the set just logged completes its row, let go of the
@@ -956,9 +978,9 @@ export function ProgramDetailScreen({
     const id = advance.current;
     advance.current = null;
     const item = detail.items.find((i) => i.id === id);
-    const logged = (openSessionOf(detail)?.sets ?? []).filter((x) => x.program_item_id === id).length;
+    const logged = (openSessionOf(detail, live)?.sets ?? []).filter((x) => x.program_item_id === id).length;
     if (item && logged >= prescribedTotal(item)) setCursor(null);
-  }, [detail]);
+  }, [detail, live]);
 
   if (!detail) return <div className="empty">
           <Figure pose="rest" size={132} />Not visible to {me?.name ?? 'you'}.</div>;
@@ -966,15 +988,24 @@ export function ProgramDetailScreen({
   if (detail.phased) return <PhasedProgram detail={detail} run={run} onBack={onBack} onProgress={onProgress} reloadDetail={reload} />;
 
   const { program, items, sessions, summary, slots } = detail;
-  const openSession = program.status === 'in_progress' ? sessions[sessions.length - 1] : undefined;
+  const openSession = openSessionOf(detail, live);
 
   const setsFor = (itemId: string) => openSession?.sets.filter((s) => s.program_item_id === itemId) ?? [];
 
-  // A session is ON when the clock is running here, or the latest session is
-  // today's. Last week's session is history, not something you are in.
-  const inSession =
-    Boolean(openSession) &&
-    (Boolean(live) || new Date(openSession!.performed_at).toDateString() === new Date().toDateString());
+  // A session is ON when this device is running it. Being dated today is not
+  // enough: this morning's session is not the one you are in tonight.
+  const inSession = Boolean(openSession);
+  // …but it can be gone back to, by name. Offered beside "start a new one"
+  // rather than instead of it, because only the person knows which they meant:
+  // the phone died mid-set, or it is 19:00 and this is the second run of the day.
+  const latest = sessions[sessions.length - 1];
+  const resumable =
+    program.status === 'in_progress' &&
+    !openSession &&
+    latest &&
+    new Date(latest.performed_at).toDateString() === new Date().toDateString()
+      ? latest
+      : undefined;
   const assessment = program.kind === 'assessment';
   const isDone = (item: ProgramDetail['items'][number]) => setsFor(item.id).length >= prescribedTotal(item);
   const firstOpen = items.find((i) => !isDone(i));
@@ -988,13 +1019,18 @@ export function ProgramDetailScreen({
    * carries the manifest guard and stays its own deliberate request; `begin`
    * then opens (or resumes) today's session. Neither is folded into the other.
    */
-  const startTraining = async () => {
+  /** `resume` names the session to go back to; without it a new one opens. */
+  const startTraining = async (resume?: string) => {
+    if (starting) return;
+    setStarting(true);
+    let sessionId: string | null = null;
     const ok = await run(async () => {
       if (program.status === 'planned') await api.startProgram(program.id);
-      await api.begin(program.id);
-    }, assessment ? 'Baseline started' : 'Session started');
-    if (ok) {
-      startSession(program.id, program.title, false);
+      sessionId = (await api.begin(program.id, resume)).session.id;
+    }, resume ? 'Back to it' : assessment ? 'Baseline started' : 'Session started');
+    setStarting(false);
+    if (ok && sessionId) {
+      startSession(program.id, sessionId, program.title, Boolean(resume));
       setView('session');
       setCursor(null);
     }
@@ -1009,7 +1045,7 @@ export function ProgramDetailScreen({
    * Either way this writes NOTHING. Every set was logged when it happened, so
    * the card is a receipt for rows that are already durable.
    */
-  const endNow = () => finishSession(summaryOf(detail, earned, live ? elapsedMs(live) : 0));
+  const endNow = () => finishSession(summaryOf(detail, live, earned, live ? elapsedMs(live) : 0));
 
   /** One prescription row. `tag` is the superset position (A1, A2) or null. */
   const itemCard = (
@@ -1424,13 +1460,18 @@ export function ProgramDetailScreen({
               supposed to avoid. Let the kernel decide; a refusal lands in the
               banner like any other. */}
           {program.status === 'planned' && (
-            <button className="primary" onClick={startTraining}>
+            <button className="primary" disabled={starting} onClick={() => startTraining()}>
               {assessment ? 'Start the baseline' : 'Start training'}
             </button>
           )}
+          {resumable && (
+            <button className="primary" disabled={starting} onClick={() => startTraining(resumable.id)}>
+              Continue the {new Date(resumable.performed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} session
+            </button>
+          )}
           {program.status === 'in_progress' && !inSession && (
-            <button className="primary" onClick={startTraining}>
-              {assessment ? 'Continue the baseline' : "Start today's session"}
+            <button className={resumable ? undefined : 'primary'} disabled={starting} onClick={() => startTraining()}>
+              {assessment ? 'Continue the baseline' : resumable ? 'Start a new session' : "Start today's session"}
             </button>
           )}
           {program.status === 'in_progress' && (
