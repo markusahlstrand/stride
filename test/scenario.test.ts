@@ -1631,10 +1631,12 @@ describe('training scenario', () => {
 
     await vera.invoke('workorder/start', { orderId: programId });
     // Dated after everything the seed and test 31 logged: symmetry is read off
-    // the LATEST session both arms appear in, so this has to be that one.
+    // the LATEST session both arms appear in, so this has to be that one. Test 31
+    // logs on the real clock, so this is a minute past it — a fixed date here
+    // passed until the day the calendar caught up with it.
     const session = await vera.invoke<SessionRow>('stride/log-session', {
       programId,
-      performedAt: '2026-09-30T09:00:00.000Z',
+      performedAt: new Date(Date.now() + 60_000).toISOString(),
     });
     await vera.invoke('stride/log-set', {
       sessionId: session.id,

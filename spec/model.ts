@@ -329,4 +329,20 @@ export const strideEntities = defineEntities({
     }),
     erasable: ['note'],
   },
+  planSequence: {
+    table: 'train_plan_sequences', primaryKey: ['template_id'],
+    fields: z.object({ template_id: z.string(), plan_json: z.string(), revision: z.number(), updated_at: z.string() }),
+  },
+  programSequence: {
+    table: 'train_program_sequences', primaryKey: ['program_id'],
+    fields: z.object({ program_id: z.string(), plan_json: z.string(), timezone: z.string(), start_date: z.string(),
+      track_key: z.string(), unlocked_phase: z.number(), paused_on: z.string().nullable(), revision: z.number(), updated_at: z.string() }),
+  },
+  programDay: {
+    table: 'train_program_days',
+    fields: z.object({ id: z.string(), program_id: z.string(), phase_index: z.number(), day_index: z.number(),
+      workout_index: z.number(), track_key: z.string(), scheduled_date: z.string(), status: z.string(),
+      session_id: z.string().nullable(), prescription_json: z.string(), item_ids_json: z.string(), created_at: z.string() }),
+  },
+
 });

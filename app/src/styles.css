@@ -1554,3 +1554,25 @@ nav.tabs button.rail-user { display: none; }
 .step.done { background: var(--accent); color: var(--on-accent); }
 .step svg { width: 14px; height: 14px; }
 .list .rowbtn.current { box-shadow: inset 3px 0 0 var(--accent); background: var(--tint); }
+
+/* Phased plans: native labelled controls, paper panels and the existing ink/mint tokens. */
+.phase-editor fieldset, .phase-workout fieldset { border: 2px solid var(--ink); border-radius: 10px; padding: 12px; margin: 16px 0; min-width: 0; }
+.phase-editor legend, .phase-workout legend { font-weight: 800; padding: 0 6px; }
+.phase-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 12px; }
+.phase-grid label, .phase-editor > label, .phase-workout > label { display: flex; flex-direction: column; gap: 5px; }
+.phase-editor input, .phase-editor select, .phase-editor textarea, .phase-workout input, .phase-workout select { max-width: 100%; min-width: 0; box-sizing: border-box; }
+.phase-editor input[type=checkbox] { width: auto; }
+.phase-set { padding: 12px 0; border-bottom: 1px dashed var(--ink); }
+.phase-preview details, .phase-editor details { margin: 14px 0; }
+.phase-preview summary, .phase-editor summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+.phase-preview-day { padding: 12px; border-left: 3px solid var(--ink); margin: 12px 0; }
+.phase-session-item { border-top: 2px solid var(--ink); padding: 16px 0; }
+.phase-session-item li { margin-bottom: 6px; }
+.phase-editor .actions, .phase-session-item .row { flex-wrap: wrap; }
+.phase-program .rowbtn { text-align: left; margin: 6px 0; }
+.phase-program .rowbtn .sub, .phase-program .rowbtn b { display: block; }
+.phase-program .rowbtn.on { background: var(--accent); color: var(--on-accent); }
+.phase-program .rowbtn.on .sub { color: var(--on-accent); }
+.phase-program > details { margin: 16px 0; }
+.phase-program .actions { flex-wrap: wrap; }
+.phase-program .card { margin: 16px 0; }

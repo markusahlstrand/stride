@@ -1,3 +1,4 @@
+import { saveSequenceInput, readSequenceInput, assignSequenceInput, readSequenceProgramInput, beginSequenceInput, controlSequenceInput, sequenceTodayInput } from './phased-plan.js';
 import { z } from '@substrat-run/contracts';
 import { startWorkOrderInput } from '@substrat-run/engine-workorder';
 import {
@@ -88,6 +89,34 @@ const onDate = z.object({ on: z.string().optional() });
  * belong in a model.
  */
 export const operations = {
+  'stride/save-phased-plan': {
+    summary: 'Create or edit a reusable phased plan with tracks, training/rest days, AMRAP sets and milestones. Existing copies stay unchanged.',
+    http: { method: 'POST', path: '/phased-plans' }, input: saveSequenceInput,
+  },
+  'stride/phased-plan': {
+    summary: 'Preview a phased plan and its ability tracks before assigning a personal copy.',
+    http: { method: 'GET', path: '/phased-plans/{templateId}' }, input: readSequenceInput,
+  },
+  'stride/assign-phased-plan': {
+    summary: 'Create a personal copy of a phased plan with a start date, timezone and confirmed ability track. Left planned; use workorder/start separately.',
+    http: { method: 'POST', path: '/phased-programs' }, input: assignSequenceInput,
+  },
+  'stride/phased-program': {
+    summary: 'Read a phased programme schedule, session prescriptions, goal progress and assessment recommendation from visible logged sets.',
+    http: { method: 'GET', path: '/phased-programs/{programId}' }, input: readSequenceProgramInput,
+  },
+  'stride/begin-phased-session': {
+    summary: 'Open or resume one scheduled workout today. Freezes its prescription. Start the programme with workorder/start first.',
+    http: { method: 'POST', path: '/phased-programs/{programId}/begin' }, input: beginSequenceInput,
+  },
+  'stride/control-phased-program': {
+    summary: 'Pause/resume, reschedule/skip/repeat, edit an unstarted workout, finish a session, or confirm a milestone/track change. Supply the current revision.',
+    http: { method: 'POST', path: '/phased-programs/{programId}/control' }, input: controlSequenceInput,
+  },
+  'stride/phased-today': {
+    summary: 'Today’s workouts and rest days for visible phased programmes, in each programme’s timezone.',
+    http: { method: 'GET', path: '/phased-today' }, input: sequenceTodayInput,
+  },
   // --- people --------------------------------------------------------------
   'stride/coaches': {
     summary: 'List the coaches in this gym.',

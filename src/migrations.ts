@@ -445,4 +445,42 @@ export const strideMigrations: SqlMigration[] = [
       );
     `,
   },
+  {
+    version: '0011-phased-programmes',
+    sql: `
+      CREATE TABLE train_plan_sequences (
+        template_id TEXT PRIMARY KEY REFERENCES train_templates(id),
+        plan_json TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE train_program_sequences (
+        program_id TEXT PRIMARY KEY,
+        plan_json TEXT NOT NULL,
+        timezone TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        track_key TEXT NOT NULL,
+        unlocked_phase INTEGER NOT NULL,
+        paused_on TEXT,
+        revision INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE train_program_days (
+        id TEXT PRIMARY KEY,
+        program_id TEXT NOT NULL REFERENCES train_program_sequences(program_id),
+        phase_index INTEGER NOT NULL,
+        day_index INTEGER NOT NULL,
+        workout_index INTEGER NOT NULL,
+        track_key TEXT NOT NULL,
+        scheduled_date TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'rest', 'skipped', 'started', 'done')),
+        session_id TEXT UNIQUE REFERENCES train_sessions(id),
+        prescription_json TEXT NOT NULL,
+        item_ids_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX train_program_days_schedule ON train_program_days(program_id, scheduled_date);
+    `,
+  },
+
 ];

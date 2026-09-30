@@ -1,3 +1,4 @@
+import { phasedOperations, sequenceOf, requireOrdinaryProgram, requireOrdinaryTemplate, phasedPrescribedSets, assertPhaseSet } from './phased.js';
 import {
   addDecimal,
   compareDecimal,
@@ -1057,6 +1058,7 @@ const addTemplateItemOp: OperationHandler<z.infer<typeof templateItemInput>, Ite
       entityId: input.templateId,
     }),
   );
+  requireOrdinaryTemplate(ctx, input.templateId);
   const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
     input.exerciseId,
   ])[0];
@@ -1111,6 +1113,7 @@ const addTemplateItemOp: OperationHandler<z.infer<typeof templateItemInput>, Ite
 };
 
 export type TemplateView = TemplateRow & {
+  phased: boolean;
   items: ItemRow[];
   /** Who made it, when a MEMBER did. NULL on the gym's own library rows. */
   ownerName: string | null;
@@ -1148,6 +1151,7 @@ const templatesOp: OperationHandler<undefined, TemplateView[]> = async (ctx) => 
       ),
       ownerName,
       mine,
+      phased: ctx.sql.query('SELECT template_id FROM train_plan_sequences WHERE template_id = ?', [tpl.id]).length > 0,
     });
   }
   return out;
@@ -1378,9 +1382,12 @@ const installStarterLibraryOp: OperationHandler<undefined, StarterReport> = asyn
     // with any seed rows it lacks — matched by exercise, counted, so a plan that
     // names the same run twice gets both. A member's plan of the same name is
     // theirs and is never touched. Rows already present are left exactly as the
-    // gym has them, edits included.
+    // gym has them, edits included. A library copy the gym has since turned into
+    // a phased plan is theirs too: it holds phases, not rows, and topping it up
+    // would trip `requireOrdinaryTemplate` and abort the whole install.
     if (existing) {
       if (existing.owner_coach_id || existing.owner_trainee_id) continue;
+      if (ctx.sql.query('SELECT template_id FROM train_plan_sequences WHERE template_id = ?', [existing.id]).length) continue;
       const have = new Map<string, number>();
       for (const row of ctx.sql.query<ItemRow>(
         'SELECT * FROM train_template_items WHERE template_id = ?',
@@ -1582,6 +1589,7 @@ const assignProgramOp: OperationHandler<
       input.templateId,
     ])[0];
     if (!template) throw new Error(`template not found: ${input.templateId}`);
+    requireOrdinaryTemplate(ctx, input.templateId);
     // Either door: the shared library by key, or your own by the entity walk.
     // Asserting only the narrowed key here would stop a coach from assigning the
     // organisation's own shared template.
@@ -1728,6 +1736,7 @@ const addProgramItemOp: OperationHandler<z.infer<typeof programItemInput>, ItemR
   assertAllowed(
     await ctx.check(TRAIN_PERM.resultLog, { entityType: 'workorder', entityId: input.programId }),
   );
+  requireOrdinaryProgram(ctx, input.programId);
   const program = programOf(ctx, input.programId);
   if (program.status !== 'planned' && program.status !== 'in_progress') {
     throw new Error(`invalid transition: a ${program.status} program takes no new exercises`);
@@ -1819,6 +1828,7 @@ const removeProgramItemOp: OperationHandler<
   assertAllowed(
     await ctx.check(TRAIN_PERM.resultLog, { entityType: 'workorder', entityId: item.program_id! }),
   );
+  requireOrdinaryProgram(ctx, item.program_id!);
   const program = programOf(ctx, item.program_id!);
   if (program.status !== 'planned' && program.status !== 'in_progress') {
     throw new Error(`invalid transition: a ${program.status} programme cannot be reshaped`);
@@ -1845,7 +1855,14 @@ const removeProgramItemOp: OperationHandler<
   return { removed: item.id };
 };
 
-const logSessionOp: OperationHandler<z.infer<typeof logSessionInput>, SessionRow> = async (
+const logSessionOp: OperationHandler<z.infer<typeof logSessionInput>, SessionRow> = async (ctx, raw) => {
+  const input = logSessionInput.parse(raw);
+  assertAllowed(await ctx.check(TRAIN_PERM.resultLog, { entityType: 'workorder', entityId: input.programId }));
+  requireOrdinaryProgram(ctx, input.programId);
+  return recordSession(ctx, input);
+};
+
+const recordSession: OperationHandler<z.infer<typeof logSessionInput>, SessionRow> = async (
   ctx,
   rawInput,
 ) => {
@@ -1984,6 +2001,7 @@ const logSetOp: OperationHandler<
     item.exercise_id,
   ])[0];
   if (!exercise) throw new Error(`exercise not found: ${item.exercise_id}`);
+  assertPhaseSet(ctx, session.id, item.id, session.program_id);
   const side = sideFor(exercise, input.side);
 
   // Sets are numbered PER SIDE: "set 2, left" — so the left arm's second set
@@ -2200,6 +2218,12 @@ const completeProgramOp: OperationHandler<
   );
 
   const program = programOf(ctx, input.programId);
+  // A phased summary must not reveal earlier sessions withheld by sharing.
+  if (sequenceOf(ctx, input.programId)) {
+    for (const session of ctx.sql.query<SessionRow>('SELECT * FROM train_sessions WHERE program_id = ?', [input.programId])) {
+      assertAllowed(await ctx.check(TRAIN_PERM.resultRead, { entityType: 'session', entityId: session.id }));
+    }
+  }
   const items = ctx.sql.query<ItemRow>('SELECT * FROM train_program_items WHERE program_id = ?', [
     input.programId,
   ]);
@@ -2212,7 +2236,7 @@ const completeProgramOp: OperationHandler<
 
   // Per side on a unilateral exercise: "1 × 10 each arm" is two sets asked for,
   // and one logged arm is half of it — which is what adherence should say.
-  const prescribedSets = items.reduce((n, i) => {
+  const prescribedSets = phasedPrescribedSets(ctx, input.programId) ?? items.reduce((n, i) => {
     const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
       i.exercise_id,
     ])[0];
@@ -2277,6 +2301,7 @@ export interface ProgramDetail {
   summary: ProgramSummaryRow | null;
   /** When this programme is trained — Wednesday 11:00, and so on. */
   slots: SlotRow[];
+  phased: boolean;
 }
 
 export const programDetailInput = z.object({
@@ -2336,7 +2361,7 @@ const getProgramOp: OperationHandler<z.infer<typeof programDetailInput>, Program
       ),
     });
   }
-  const summary =
+  let summary: ProgramSummaryRow | null =
     ctx.sql.query<ProgramSummaryRow>('SELECT * FROM train_program_summary WHERE program_id = ?', [
       program.id,
     ])[0] ?? null;
@@ -2344,9 +2369,20 @@ const getProgramOp: OperationHandler<z.infer<typeof programDetailInput>, Program
     'SELECT * FROM train_program_slots WHERE program_id = ? ORDER BY weekday, time_of_day',
     [program.id],
   );
+  const phased = !!sequenceOf(ctx, program.id);
+  let readableItems = items;
+  if (phased) {
+    const allowed = new Set<string>();
+    for (const row of ctx.sql.query<{ session_id: string; item_ids_json: string }>('SELECT session_id, item_ids_json FROM train_program_days WHERE program_id = ? AND session_id IS NOT NULL', [program.id])) {
+      if (sessions.some((session) => session.id === row.session_id)) (JSON.parse(row.item_ids_json) as string[]).forEach((id) => allowed.add(id));
+      else summary = null;
+    }
+    readableItems = items.filter((item) => allowed.has(item.id));
+  }
   return {
+    phased,
     program: { ...program, traineeName: trainee?.name ?? null },
-    items,
+    items: readableItems,
     sessions,
     summary,
     slots,
@@ -2371,13 +2407,11 @@ const myProgramsOp: OperationHandler<undefined, ProgramCard[]> = async (ctx) => 
     const trainee = ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [
       program.customer.entityId,
     ])[0];
-    const setsLogged =
-      ctx.sql.query<{ n: number }>(
-        `SELECT COUNT(*) AS n FROM train_set_results r
-           JOIN train_sessions s ON s.id = r.session_id
-          WHERE s.program_id = ? AND ${NOT_VOIDED}`,
-        [program.id],
-      )[0]?.n ?? 0;
+    let setsLogged = 0;
+    for (const session of ctx.sql.query<SessionRow>('SELECT * FROM train_sessions WHERE program_id = ?', [program.id])) {
+      if (!(await ctx.check(TRAIN_PERM.resultRead, { entityType: 'session', entityId: session.id })).allowed) continue;
+      setsLogged += ctx.sql.query<{ n: number }>(`SELECT COUNT(*) AS n FROM train_set_results r WHERE r.session_id = ? AND ${NOT_VOIDED}`, [session.id])[0]?.n ?? 0;
+    }
     visible.push({ ...program, traineeName: trainee?.name ?? null, setsLogged });
   }
   return visible;
@@ -2923,6 +2957,7 @@ const setItemSetsOp: OperationHandler<
         entityId: programItem.program_id!,
       }),
     );
+    requireOrdinaryProgram(ctx, programItem.program_id!);
     const program = programOf(ctx, programItem.program_id!);
     if (program.status !== 'planned' && program.status !== 'in_progress') {
       throw new Error(`invalid transition: a ${program.status} programme takes no new sets`);
@@ -3203,6 +3238,7 @@ const setProgramSlotsOp: OperationHandler<
   assertAllowed(
     await ctx.check(TRAIN_PERM.resultLog, { entityType: 'workorder', entityId: input.programId }),
   );
+  requireOrdinaryProgram(ctx, input.programId);
   const program = programOf(ctx, input.programId);
   if (program.status !== 'planned' && program.status !== 'in_progress') {
     throw new Error(`invalid transition: a ${program.status} programme keeps no schedule`);
@@ -3378,6 +3414,7 @@ const beginOp: OperationHandler<
   assertAllowed(
     await ctx.check(TRAIN_PERM.resultLog, { entityType: 'workorder', entityId: input.programId }),
   );
+  requireOrdinaryProgram(ctx, input.programId);
   const program = programOf(ctx, input.programId);
   if (program.status !== 'in_progress') {
     throw new Error(
@@ -3983,6 +4020,8 @@ export const strideModule: ModuleRegistration = {
   migrations: strideMigrations,
   predicates: { [PROGRAM_IN_REACH]: programInReach },
   operations: {
+    ...phasedOperations({ authorTemplate: authorTemplateOp, assignProgram: assignProgramOp, recordSession,
+      canReadExercise, canReadTemplate }) as unknown as Record<string, never>,
     'stride/equipment': equipmentOp as never,
     'stride/publish-equipment': publishEquipmentOp as never,
     'stride/set-my-equipment': setMyEquipmentOp as never,

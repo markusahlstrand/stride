@@ -343,6 +343,98 @@
         "body"
       ]
     },
+    "planSequence": {
+      "table": "train_plan_sequences",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "string"
+          },
+          "plan_json": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "number"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_id",
+          "plan_json",
+          "revision",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "template_id"
+      ]
+    },
+    "programDay": {
+      "table": "train_program_days",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "program_id": {
+            "type": "string"
+          },
+          "phase_index": {
+            "type": "number"
+          },
+          "day_index": {
+            "type": "number"
+          },
+          "workout_index": {
+            "type": "number"
+          },
+          "track_key": {
+            "type": "string"
+          },
+          "scheduled_date": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prescription_json": {
+            "type": "string"
+          },
+          "item_ids_json": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "program_id",
+          "phase_index",
+          "day_index",
+          "workout_index",
+          "track_key",
+          "scheduled_date",
+          "status",
+          "session_id",
+          "prescription_json",
+          "item_ids_json",
+          "created_at"
+        ],
+        "additionalProperties": false
+      }
+    },
     "programItem": {
       "table": "train_program_items",
       "fields": {
@@ -412,6 +504,59 @@
         ],
         "additionalProperties": false
       }
+    },
+    "programSequence": {
+      "table": "train_program_sequences",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "program_id": {
+            "type": "string"
+          },
+          "plan_json": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "start_date": {
+            "type": "string"
+          },
+          "track_key": {
+            "type": "string"
+          },
+          "unlocked_phase": {
+            "type": "number"
+          },
+          "paused_on": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": "number"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "program_id",
+          "plan_json",
+          "timezone",
+          "start_date",
+          "track_key",
+          "unlocked_phase",
+          "paused_on",
+          "revision",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "program_id"
+      ]
     },
     "programSlot": {
       "table": "train_program_slots",
