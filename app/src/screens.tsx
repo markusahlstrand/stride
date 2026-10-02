@@ -941,6 +941,14 @@ export function ProgramDetailScreen({
   const [starting, setStarting] = useState(false);
   /** The row a set was just logged on — so finishing it moves you along. */
   const advance = useRef<string | null>(null);
+  /** The full-screen session's two folds: the ✕ menu and the exercise list. */
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [listOpen, setListOpen] = useState(false);
+  /** Focus lands in the session when it opens, so Escape reaches it. Stable:
+   *  an inline ref runs on every render and would steal focus from the inputs. */
+  const focusOnMount = useCallback((el: HTMLDivElement | null) => {
+    el?.focus({ preventScroll: true });
+  }, []);
 
   const reload = useCallback(() => {
     api
@@ -1051,6 +1059,8 @@ export function ProgramDetailScreen({
   const itemCard = (
     item: ProgramDetail['items'][number],
     tag: string | null,
+    /** In the full-screen session: no Edit, no rhythm — only what you log. */
+    focus = false,
   ) => {
     const done = setsFor(item.id);
     const unit = item.exercise?.unit ?? 'reps';
@@ -1112,7 +1122,7 @@ export function ProgramDetailScreen({
               {item.exercise && onExercise && <span className="namelink-mark" aria-hidden="true">?</span>}
             </span>
           </button>
-          {editable && editing !== item.id && (
+          {editable && !focus && editing !== item.id && (
             <button
               className="ghost small"
               onClick={() => setEditing(item.id)}
@@ -1211,7 +1221,7 @@ export function ProgramDetailScreen({
             {previous ? ` · ${new Date(previous.performed_at).toLocaleDateString()}` : ''}
           </div>
         )}
-        {recurrenceLabel(item.recur_days, item.recur_per_week) && (
+        {!focus && recurrenceLabel(item.recur_days, item.recur_per_week) && (
           <div className="sub">{recurrenceLabel(item.recur_days, item.recur_per_week)}</div>
         )}
         {openSession && (
@@ -1255,40 +1265,143 @@ export function ProgramDetailScreen({
   };
 
   // -------------------------------------------------------------------------
-  // THE SESSION VIEW — one exercise at a time, and where you are in the whole.
+  // THE SESSION VIEW — full screen, and nothing on it but the work.
+  //
+  // While you train the tab bar, the rail, the session bar and the screen's own
+  // title are all noise: the exercise in front of you, the field you log into
+  // and a way past it are the whole job. So the session takes the screen over.
+  // Where you are in the whole is the progress bar along the top, and the bar
+  // IS the door to the list — tap it and the exercises fold down, tick by tick,
+  // each one a jump. Everything else (pause, settings, ending early, leaving
+  // with the clock still running) is behind the ✕, one tap away and out of
+  // sight until you want it.
   // -------------------------------------------------------------------------
   if (inSession && view === 'session') {
     const index = current ? items.findIndex((i) => i.id === current.id) : -1;
-    const step = (dir: 1 | -1) => {
+    const skip = () => {
       if (items.length === 0) return;
       const from = index < 0 ? 0 : index;
-      // Skip lands on the next UNFINISHED row; Previous is simply the row before.
-      if (dir === 1) {
-        const ahead = [...items.slice(from + 1), ...items.slice(0, from)].find((i) => !isDone(i));
-        setCursor((ahead ?? items[(from + 1) % items.length]!).id);
-      } else {
-        setCursor(items[(from - 1 + items.length) % items.length]!.id);
-      }
+      // Skip lands on the next UNFINISHED row, wrapping round to the ones you passed.
+      const ahead = [...items.slice(from + 1), ...items.slice(0, from)].find((i) => !isDone(i));
+      setCursor((ahead ?? items[(from + 1) % items.length]!).id);
       setEditing(null);
     };
+    const pct = totalSets ? (doneSets / totalSets) * 100 : 0;
+    const closeFolds = () => {
+      setMenuOpen(false);
+      setListOpen(false);
+    };
     return (
-      <>
-        <button className="back" onClick={onBack}>
-          ‹ Workouts
-        </button>
-        <div className="row center" style={{ marginTop: 2 }}>
-          <h1 style={{ margin: 0 }}>{program.title}</h1>
-          <span className="badge in_progress">{assessment ? 'baseline' : 'in session'}</span>
-        </div>
-        {live && <SessionClock session={live} onEnd={endNow} />}
+      <div
+        className="focus"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${program.title} — session`}
+        tabIndex={-1}
+        ref={focusOnMount}
+        onKeyDown={(e) => {
+          // A modal keeps Tab inside it: the tab bar and the session bar are
+          // still in the page underneath, and `aria-modal` does not stop focus
+          // walking out to them — after which Escape would never arrive here.
+          if (e.key === 'Tab') {
+            const stops = [
+              ...e.currentTarget.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select, textarea, [href], [tabindex]:not([tabindex="-1"])',
+              ),
+            ].filter((el) => !el.closest('[inert]'));
+            const first = stops[0];
+            const last = stops[stops.length - 1];
+            if (!first || !last) return;
+            const at = document.activeElement;
+            if (e.shiftKey && (at === first || at === e.currentTarget)) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && at === last) {
+              e.preventDefault();
+              first.focus();
+            }
+            return;
+          }
+          if (e.key !== 'Escape') return;
+          e.preventDefault();
+          // Escape closes what is open first; on a bare screen it opens the menu.
+          if (menuOpen || listOpen) closeFolds();
+          else setMenuOpen(true);
+        }}
+      >
+        <header className="focus-top">
+          <button
+            type="button"
+            className="focus-x"
+            aria-label="session menu"
+            aria-expanded={menuOpen}
+            onClick={() => {
+              setListOpen(false);
+              setMenuOpen((on) => !on);
+            }}
+          >
+            ✕
+          </button>
+          <button
+            type="button"
+            className="focus-progress"
+            aria-expanded={listOpen}
+            aria-label={`${allDone ? 'all done' : `exercise ${index + 1} of ${items.length}`}, ${doneSets} of ${totalSets} sets — show all exercises`}
+            onClick={() => {
+              setMenuOpen(false);
+              setListOpen((on) => !on);
+            }}
+          >
+            <span className="focus-progress-label mono">
+              <span>{allDone ? 'all done' : `${index + 1} / ${items.length}`}</span>
+              <span>
+                {doneSets}/{totalSets} sets <span aria-hidden="true">{listOpen ? '▴' : '▾'}</span>
+              </span>
+            </span>
+            <span className="progress-bar" aria-hidden="true">
+              <i style={{ width: `${pct}%` }} />
+            </span>
+          </button>
+          {live && <FocusClock session={live} />}
+        </header>
 
-        <div className="card session-progress">
-          <div className="row center">
-            <span className="title">
-              {allDone ? 'All done' : `Exercise ${index + 1} of ${items.length}`}
-              {/* The mark is a sibling of the title, not inside it: in this row
-                  the counter sits on the right, and a hint that opened inside
-                  the title would wrap against it instead of taking a line. */}
+        {menuOpen && live && (
+          <div className="focus-fold" role="menu">
+            <button
+              role="menuitem"
+              onClick={() => {
+                if (live.pausedAt) resumeSession();
+                else pauseSession();
+                setMenuOpen(false);
+              }}
+            >
+              {live.pausedAt ? 'Resume session' : 'Pause session'}
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => {
+                closeFolds();
+                setView('manage');
+              }}
+            >
+              Change the workout
+            </button>
+            <button role="menuitem" onClick={onBack}>
+              Leave — keep the clock running
+            </button>
+            {!allDone && (
+              <button role="menuitem" className="focus-end" onClick={endNow}>
+                End the session now
+              </button>
+            )}
+            <div className="sub">Every set is saved the moment you log it. Leaving loses nothing.</div>
+          </div>
+        )}
+
+        {listOpen && (
+          <div className="focus-fold">
+            <div className="row center">
+              <span className="title">{program.title}</span>
               <button
                 type="button"
                 className="markbtn"
@@ -1298,121 +1411,112 @@ export function ProgramDetailScreen({
               >
                 <span className="namelink-mark" aria-hidden="true">?</span>
               </button>
-            </span>
-            <span className="sub mono" style={{ marginTop: 0 }}>
-              {doneSets}/{totalSets} sets
-            </span>
+            </div>
+            {explainSets && (
+              <div className="sub hint">
+                Each pill is one set: its number, then the target in this exercise's own unit.
+                Dotted means still to do; logging a set fills its pill in with what you actually
+                did. Logged the wrong arm, or the wrong number? The ↺ on a filled pill takes that
+                set back.
+              </div>
+            )}
+            <div className="list">
+              {items.map((i, n) => {
+                const logged = setsFor(i.id);
+                const done = isDone(i);
+                return (
+                  <button
+                    key={i.id}
+                    type="button"
+                    className={`rowbtn${current?.id === i.id && !allDone ? ' current' : ''}`}
+                    onClick={() => {
+                      setCursor(i.id);
+                      setEditing(null);
+                      setListOpen(false);
+                    }}
+                  >
+                    <span className="person">
+                      <span className={`step${done ? ' done' : logged.length > 0 ? ' part' : ''}`}>
+                        {done ? '✓' : n + 1}
+                      </span>
+                      <span>
+                        <span className="name">{i.exercise?.name ?? 'Exercise'}</span>
+                        <span className="sub mono">
+                          {logged.length > 0
+                            ? sideSummary(logged, i.exercise?.unit ?? 'reps')
+                            : `${i.target_sets} × ${formatAmount(i.target_reps, i.exercise?.unit ?? 'reps')}${
+                                i.target_load ? ` @ ${i.target_load}` : ''
+                              }${i.exercise?.laterality === 'unilateral' ? ' each side' : ''}`}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="right">
+                      <Counter done={Math.min(logged.length, prescribedTotal(i))} total={prescribedTotal(i)} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          {explainSets && (
-            <div className="sub hint">
-              Each pill below is one set: its number, then the target in this exercise's own
-              unit. Dotted means still to do; logging a set fills its pill in with what you
-              actually did. Logged the wrong arm, or the wrong number? The ↺ on a filled
-              pill takes that set back.
+        )}
+
+        <div className="focus-body" inert={menuOpen || listOpen} data-folded={menuOpen || listOpen || undefined}>
+          {live?.pausedAt && (
+            <button className="focus-paused" onClick={resumeSession}>
+              Paused · tap to resume
+            </button>
+          )}
+
+          {earned && (
+            <div className="earned-card" onClick={() => setEarned(null)}>
+              <Figure pose="cheer" size={120} />
+              <div className="head">Yours forever</div>
+              <div className="what">{earned} · earned</div>
+              <div className="why">
+                Performing it once earned it into your library. Nobody can take it out of the
+                catalogue from under you.
+              </div>
             </div>
           )}
-          <div className="progress-bar" role="progressbar" aria-valuemin={0} aria-valuemax={totalSets} aria-valuenow={doneSets}>
-            <i style={{ width: `${totalSets ? (doneSets / totalSets) * 100 : 0}%` }} />
-          </div>
-        </div>
 
-        {allDone ? (
-          <div className="card raised accent">
-            <div className="title big">{assessment ? 'That is your baseline.' : 'Every set is logged.'}</div>
-            <div className="sub">
-              {assessment
-                ? 'Save it and it becomes the first point on every curve — and the left/right gap as a number.'
-                : 'Nothing more to do here today. Everything was saved as you went.'}
+          {allDone ? (
+            <div className="card raised accent">
+              <div className="title big">{assessment ? 'That is your baseline.' : 'Every set is logged.'}</div>
+              <div className="sub">
+                {assessment
+                  ? 'Save it and it becomes the first point on every curve — and the left/right gap as a number.'
+                  : 'Nothing more to do here today. Everything was saved as you went.'}
+              </div>
+              <div className="actions">
+                {assessment ? (
+                  <button
+                    className="primary wide"
+                    onClick={async () => {
+                      const ok = await run(() => api.completeProgram(program.id), 'Baseline saved');
+                      reload();
+                      if (ok) onProgress?.(program.customer.entityId);
+                    }}
+                  >
+                    Save it and see my numbers
+                  </button>
+                ) : (
+                  <button className="primary wide" onClick={onBack}>
+                    Back to my workouts
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="actions">
-              {assessment ? (
-                <button
-                  className="primary wide"
-                  onClick={async () => {
-                    const ok = await run(() => api.completeProgram(program.id), 'Baseline saved');
-                    reload();
-                    if (ok) onProgress?.(program.customer.entityId);
-                  }}
-                >
-                  Save it and see my numbers
-                </button>
-              ) : (
-                <button className="primary wide" onClick={onBack}>
-                  Back to my workouts
-                </button>
-              )}
-            </div>
-          </div>
-        ) : (
-          current && itemCard(current, null)
-        )}
+          ) : (
+            current && itemCard(current, null, true)
+          )}
+        </div>
 
         {!allDone && items.length > 1 && (
-          <div className="actions session-nav">
-            <button onClick={() => step(-1)}>‹ Previous</button>
-            <button onClick={() => step(1)}>Skip for now ›</button>
-          </div>
+          <footer className="focus-foot">
+            <button onClick={skip}>Skip for now ›</button>
+          </footer>
         )}
-
-        {earned && (
-          <div className="earned-card" onClick={() => setEarned(null)}>
-            <Figure pose="cheer" size={120} />
-            <div className="head">Yours forever</div>
-            <div className="what">{earned} · earned</div>
-            <div className="why">
-              Performing it once earned it into your library. Nobody can take it out of the
-              catalogue from under you.
-            </div>
-          </div>
-        )}
-
-        <h2>This session</h2>
-        <div className="list">
-          {items.map((i, n) => {
-            const logged = setsFor(i.id);
-            const done = isDone(i);
-            return (
-              <button
-                key={i.id}
-                type="button"
-                className={`rowbtn${current?.id === i.id && !allDone ? ' current' : ''}`}
-                onClick={() => {
-                  setCursor(i.id);
-                  setEditing(null);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-              >
-                <span className="person">
-                  <span className={`step${done ? ' done' : logged.length > 0 ? ' part' : ''}`}>
-                    {done ? '✓' : n + 1}
-                  </span>
-                  <span>
-                    <span className="name">{i.exercise?.name ?? 'Exercise'}</span>
-                    <span className="sub mono">
-                      {logged.length > 0
-                        ? sideSummary(logged, i.exercise?.unit ?? 'reps')
-                        : `${i.target_sets} × ${formatAmount(i.target_reps, i.exercise?.unit ?? 'reps')}${
-                            i.target_load ? ` @ ${i.target_load}` : ''
-                          }${i.exercise?.laterality === 'unilateral' ? ' each side' : ''}`}
-                    </span>
-                  </span>
-                </span>
-                <span className="right">
-                  <Counter done={Math.min(logged.length, prescribedTotal(i))} total={prescribedTotal(i)} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="actions" style={{ marginTop: 14 }}>
-          {!allDone && <button onClick={endNow}>End the session early</button>}
-          <button className="ghost" onClick={() => setView('manage')}>
-            Workout settings
-          </button>
-        </div>
-        <div className="sub">Every set is saved the moment you log it. Leaving loses nothing.</div>
-      </>
+      </div>
     );
   }
 
@@ -3567,6 +3671,20 @@ function SignOut() {
 }
 
 
+
+/**
+ * The clock in the full-screen session's header: the time and nothing else.
+ * Pausing lives behind the ✕ — a control you reach for twice a workout does
+ * not need to sit next to the number you glance at between every set.
+ */
+function FocusClock({ session }: { session: ActiveSession }) {
+  const ms = useElapsed(session);
+  return (
+    <span className={`focus-clock mono${session.pausedAt ? ' held' : ''}`} aria-label={`session time ${formatClock(ms)}${session.pausedAt ? ', paused' : ''}`}>
+      {formatClock(ms)}
+    </span>
+  );
+}
 
 /**
  * The session clock on the logging screen — the same fact the bar carries, at
