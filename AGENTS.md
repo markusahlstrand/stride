@@ -493,13 +493,18 @@ measured against. Guarded by test 30.
 
 **A workout screen has two views, and a session is the first one.** While a session is on
 — the device clock is running here, or the latest session is today's — `ProgramDetailScreen`
-shows the SESSION: a progress header, **one exercise at a time**, Previous / Skip, and an
-overview list whose steps tick as rows complete and which you can tap to jump. Logging the
+shows the SESSION, **full screen** (`.focus`, z 30: over the tab bar and rail, under the
+countdown, the finish and the toast): a header of ✕ · progress bar · clock, **one exercise at
+a time** with its logger, and Skip. Nothing else. The progress bar is the door to the
+exercise list — tap it and the steps fold down, ticking as rows complete, each one a jump.
+Pause, *Change the workout*, *Leave — keep the clock running* and *End the session now* live
+behind the ✕ (Escape opens it). The overlay renders inside `<main>`, so it must undo the
+desktop `main > *` cap or the rail shows either side of it. Logging the
 set that completes a row lets go of the cursor, so the screen falls to the next unfinished
 exercise; tapping a finished row to look at it must NOT bounce, which is why the advance is
 keyed to a log (`advance` ref) and not to completion. Everything about managing the workout —
 the schedule, finishing a block, adding exercises, the session history — is the other view,
-behind *Workout settings*. They used to be one long page, which put a schedule editor in
+behind *Change the workout* in the ✕ menu. They used to be one long page, which put a schedule editor in
 front of someone who had just pressed start. A baseline (`assessment`) has no schedule at
 all, and its end state is *Save it and see my numbers* → `complete-program` → Progress.
 

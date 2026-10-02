@@ -1576,3 +1576,116 @@ nav.tabs button.rail-user { display: none; }
 .phase-program > details { margin: 16px 0; }
 .phase-program .actions { flex-wrap: wrap; }
 .phase-program .card { margin: 16px 0; }
+
+/* --- the full-screen session -------------------------------------------------
+   While you train, the session IS the screen: above the tab bar and the rail
+   (z 20), below the countdown and the finish (z 40) and the toast (z 45), so a
+   denial still reaches you mid-set. Three bands: a header (✕ · progress · clock),
+   the exercise, and Skip. The progress bar is the door to the exercise list. */
+.focus {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  /* It is rendered inside <main>, whose desktop rule caps and centres every
+     child — undo that, or the rail and the session bar show either side. */
+  max-width: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-deep);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+}
+.focus-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 12px) 16px 10px;
+  box-sizing: border-box;
+}
+.focus-x {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 18px;
+  line-height: 1;
+}
+.focus-progress {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+.focus-progress:active { background: transparent; }
+.focus-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.focus-progress .progress-bar {
+  display: block;
+  margin-top: 0;
+  height: 10px;
+  border: 2px solid var(--ink);
+}
+.focus-clock { flex: none; font-size: 17px; font-weight: 500; color: var(--text); min-width: 4ch; text-align: right; }
+.focus-clock.held { color: var(--muted); }
+
+/* The two folds drop from under the header and scroll on their own. */
+.focus-fold {
+  flex: none;
+  width: calc(100% - 32px);
+  max-width: 528px;
+  max-height: 65vh;
+  overflow-y: auto;
+  margin: 0 auto 10px;
+  padding: 14px;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-raised);
+}
+.focus-fold[role='menu'] { display: flex; flex-direction: column; gap: 8px; }
+.focus-fold[role='menu'] button { width: 100%; text-align: left; }
+.focus-fold .focus-end { color: var(--deny); }
+.focus-fold .list { margin-top: 10px; }
+
+.focus-body {
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 6px 16px 24px;
+  box-sizing: border-box;
+}
+.focus-body[aria-hidden='true'] { opacity: 0.35; pointer-events: none; }
+.focus-paused { width: 100%; margin-bottom: 12px; background: var(--tint-warn); }
+.focus-foot {
+  flex: none;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 10px 16px calc(env(safe-area-inset-bottom) + 14px);
+  box-sizing: border-box;
+}
+.focus-foot button { width: 100%; }
