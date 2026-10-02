@@ -1678,7 +1678,10 @@ nav.tabs button.rail-user { display: none; }
   padding: 6px 16px 24px;
   box-sizing: border-box;
 }
-.focus-body[aria-hidden='true'] { opacity: 0.35; pointer-events: none; }
+/* `inert` takes the body out of the tab order and the accessibility tree while
+   a fold is open; this only dims it. */
+.focus-body[data-folded] { opacity: 0.35; }
+.focus:focus { outline: none; }
 .focus-paused { width: 100%; margin-bottom: 12px; background: var(--tint-warn); }
 .focus-foot {
   flex: none;

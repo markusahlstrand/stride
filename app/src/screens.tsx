@@ -944,6 +944,11 @@ export function ProgramDetailScreen({
   /** The full-screen session's two folds: the ✕ menu and the exercise list. */
   const [menuOpen, setMenuOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
+  /** Focus lands in the session when it opens, so Escape reaches it. Stable:
+   *  an inline ref runs on every render and would steal focus from the inputs. */
+  const focusOnMount = useCallback((el: HTMLDivElement | null) => {
+    el?.focus({ preventScroll: true });
+  }, []);
 
   const reload = useCallback(() => {
     api
@@ -1292,8 +1297,33 @@ export function ProgramDetailScreen({
         role="dialog"
         aria-modal="true"
         aria-label={`${program.title} — session`}
+        tabIndex={-1}
+        ref={focusOnMount}
         onKeyDown={(e) => {
+          // A modal keeps Tab inside it: the tab bar and the session bar are
+          // still in the page underneath, and `aria-modal` does not stop focus
+          // walking out to them — after which Escape would never arrive here.
+          if (e.key === 'Tab') {
+            const stops = [
+              ...e.currentTarget.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select, textarea, [href], [tabindex]:not([tabindex="-1"])',
+              ),
+            ].filter((el) => !el.closest('[inert]'));
+            const first = stops[0];
+            const last = stops[stops.length - 1];
+            if (!first || !last) return;
+            const at = document.activeElement;
+            if (e.shiftKey && (at === first || at === e.currentTarget)) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && at === last) {
+              e.preventDefault();
+              first.focus();
+            }
+            return;
+          }
           if (e.key !== 'Escape') return;
+          e.preventDefault();
           // Escape closes what is open first; on a bare screen it opens the menu.
           if (menuOpen || listOpen) closeFolds();
           else setMenuOpen(true);
@@ -1430,7 +1460,7 @@ export function ProgramDetailScreen({
           </div>
         )}
 
-        <div className="focus-body" aria-hidden={menuOpen || listOpen || undefined}>
+        <div className="focus-body" inert={menuOpen || listOpen} data-folded={menuOpen || listOpen || undefined}>
           {live?.pausedAt && (
             <button className="focus-paused" onClick={resumeSession}>
               Paused · tap to resume
