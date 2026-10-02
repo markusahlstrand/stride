@@ -1067,7 +1067,24 @@ export function ProgramDetailScreen({
     const unilateral = item.exercise?.laterality === 'unilateral';
     // One side at a time means two rows of pills, L and R, each numbered from 1
     // — the way the server numbers both the prescription and the results.
-    const sides: (Side | null)[] = unilateral ? ['left', 'right'] : [null];
+    //
+    // Which arms the PRESCRIPTION asks for. A uniform row is "each side", so
+    // both; an explicit list says exactly which, and a post-op shoulder's list
+    // says left and nothing else. Offering the right arm there is how a rehab
+    // log grew a right-arm history nobody did.
+    const prescribedSides: Side[] = !unilateral
+      ? []
+      : item.sets.length > 0
+        ? (['left', 'right'] as const).filter((x) => item.sets.some((s) => s.side === x))
+        : [];
+    if (unilateral && prescribedSides.length === 0) prescribedSides.push('left', 'right');
+    // A side gets a row of pills if it is prescribed OR already has sets on it,
+    // so a set logged on the wrong arm stays in sight — and can be taken back.
+    const sides: (Side | null)[] = unilateral
+      ? (['left', 'right'] as const).filter(
+          (x) => prescribedSides.includes(x) || done.some((s) => s.side === x),
+        )
+      : [null];
     // A uniform prescription and an explicit ramp are the same list once you
     // expand the first — so the pills below never have to know which it was.
     const prescribedFor = (side: Side | null) =>
@@ -1093,11 +1110,14 @@ export function ProgramDetailScreen({
     const lastTime = previous
       ? sideSummary(previous.sets.filter((x) => x.program_item_id === item.id), unit)
       : null;
-    // The side to offer next: the one with fewer sets logged, left first.
+    // The side to offer next: the first prescribed side with sets still to do,
+    // left first. Once every prescribed set is in, the one with fewer — an
+    // extra set goes where the prescription had it, never to an arm it left out.
+    const remaining = (x: Side) =>
+      prescribedFor(x).length - done.filter((s) => s.side === x).length;
     const nextSide: Side | undefined = unilateral
-      ? done.filter((s) => s.side === 'left').length <= done.filter((s) => s.side === 'right').length
-        ? 'left'
-        : 'right'
+      ? (prescribedSides.find((x) => remaining(x) > 0) ??
+        [...prescribedSides].sort((a, b) => remaining(b) - remaining(a))[0])
       : undefined;
 
     // Reshaping is for a plan, not for a record: once a block is completed or
@@ -1233,6 +1253,7 @@ export function ProgramDetailScreen({
             modality={item.exercise?.modality ?? 'strength'}
             loadNote={loadNoteOf(item.exercise?.description ?? null)}
             defaultSide={nextSide}
+            sides={prescribedSides}
             // The next prescribed set ON THAT SIDE is the default — so after the
             // baseline, the left arm is offered its own lighter load.
             defaultFor={(side) => {
@@ -1968,6 +1989,7 @@ export function SetLogger({
   modality,
   loadNote,
   defaultSide,
+  sides = ['left', 'right'],
   defaultFor,
   onLog,
 }: {
@@ -1979,6 +2001,9 @@ export function SetLogger({
   loadNote: string | null;
   /** Set on a unilateral exercise: the side to offer first. Undefined = bilateral. */
   defaultSide: Side | undefined;
+  /** The sides the prescription asks for. One side means no choice to make —
+   *  a left-only rehab row logs left without offering the right arm. */
+  sides?: Side[];
   /** The next prescribed set for a side — its reps and load prefill the fields. */
   defaultFor: (side: Side | undefined) => { reps: number; load: string | null };
   onLog: (body: {
@@ -2098,9 +2123,9 @@ export function SetLogger({
 
   return (
     <div style={{ marginTop: 12 }}>
-      {defaultSide && (
+      {defaultSide && sides.length > 1 && (
         <div className="side-toggle" role="radiogroup" aria-label="which side">
-          {(['left', 'right'] as const).map((x) => (
+          {sides.map((x) => (
             <button
               key={x}
               type="button"
