@@ -508,6 +508,16 @@ behind *Change the workout* in the ✕ menu. They used to be one long page, whic
 front of someone who had just pressed start. A baseline (`assessment`) has no schedule at
 all, and its end state is *Save it and see my numbers* → `complete-program` → Progress.
 
+**Finishing is one-way, so it asks — and the way back is a copy.** The engine has no edge
+out of `completed`, and adding one here would be forking it. `Finish this block` therefore
+confirms in place first (it used to be one tap beside *Start today's session*, which is how a
+standing rehab block got finished by accident), and a finished workout offers *Train it
+again*: `stride/repeat-program` makes a new `planned` programme with the same rows, per-set
+rows, supersets and slots, through the same `fillProgram` snapshot `assign-program` uses. It
+gates on `workorder:read` on the source **and** the narrowed `result:log` on its trainee —
+reading a programme is not permission to make its owner another one. The finished block
+keeps its sessions and adherence. Guarded by test 38.
+
 **Taking a set back is a void, not a delete.** The left arm's ten that were the right
 arm's had no way out: the set was in the session, in the week's count and in the symmetry
 percentage. `stride/void-set` writes a row to `train_set_voids` and touches the set itself

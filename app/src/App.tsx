@@ -333,6 +333,7 @@ export function App() {
               navigate({ name: 'progress', traineeId: traineeId === me?.traineeId ? null : traineeId })
             }
             onExercise={(id) => navigate({ name: 'exercise', id })}
+            onOpen={(id) => navigate({ name: 'workout', id })}
           />
         ) : route.name === 'thread' ? (
           <ThreadScreen

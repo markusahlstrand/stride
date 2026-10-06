@@ -25,6 +25,7 @@ import {
   programItemInput,
   removeProgramItemInput,
   removeTemplateItemInput,
+  repeatProgramInput,
   retireExerciseInput,
   revokeInviteInput,
   setSharingInput,
@@ -330,6 +331,12 @@ export const operations = {
       'Create a workout, for yourself or for a trainee you coach, from a plan or from nothing. It is left PLANNED — starting it is a separate call.',
     http: { method: 'POST', path: '/programs' },
     input: assignProgramInput,
+  },
+  'stride/repeat-program': {
+    summary:
+      'Train a workout again: a new PLANNED copy with the same exercises, sets and booked times. The way back from a block finished by mistake — the finished one keeps its sessions and adherence.',
+    http: { method: 'POST', path: '/programs/{programId}/repeat' },
+    input: repeatProgramInput,
   },
   'stride/get-program': {
     summary: 'One workout in full: what it prescribes, when it is trained, and its sessions.',
