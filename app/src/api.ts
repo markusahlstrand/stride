@@ -539,6 +539,8 @@ export const api = {
   removeProgramItem: (itemId: string) => post<{ removed: string }>(`/items/${itemId}/remove`),
   startProgram: (id: string) => post<ProgramCard>(`/programs/${id}/start`),
   completeProgram: (id: string) => post<{ summary: Summary }>(`/programs/${id}/complete`),
+  /** A new PLANNED copy of a workout — the way back from finishing one by mistake. */
+  repeatProgram: (id: string) => post<{ program: ProgramCard }>(`/programs/${id}/repeat`),
   // The model declares a timeline as `/timeline/{entityType}/{entityId}` — it is
   // asked for by entity, and a programme is only one kind of entity that has one.
   timeline: (entityType: string, entityId: string) =>

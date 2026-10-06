@@ -2180,4 +2180,102 @@ describe('training scenario', () => {
       /a completed program takes no corrections/,
     );
   });
+
+  it('38. TRAIN IT AGAIN: a block finished by mistake is not reopened, it is copied', async () => {
+    const press = (await vera.invoke<ExerciseView[]>('stride/exercises')).find(
+      (e) => e.slug === 'single-arm-dumbbell-press',
+    )!;
+    const { program } = await vera.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Finished too soon',
+      kind: 'rehab',
+      notes: 'Pain-free range only.',
+      slots: [
+        { weekday: 1, time: '08:00' },
+        { weekday: 4, time: '19:00' },
+      ],
+    });
+    const item = await vera.invoke<ItemRow>('stride/add-program-item', {
+      programId: program.id,
+      exerciseId: press.id,
+      targetSets: 2,
+      targetReps: 10,
+      targetLoad: '4',
+      groupKey: 'A',
+    });
+    // A ramp, so the copy has per-set rows to carry and not just the uniform columns.
+    await vera.invoke('stride/set-item-sets', {
+      itemId: item.id,
+      sets: [
+        { reps: 10, load: '3', side: 'left' },
+        { reps: 8, load: '4', side: 'left' },
+        { reps: 10, load: '3', side: 'right' },
+        { reps: 8, load: '4', side: 'right' },
+      ],
+    });
+    await vera.invoke('workorder/start', { orderId: program.id });
+    const session = await vera.invoke<SessionRow>('stride/log-session', { programId: program.id });
+    await vera.invoke('stride/log-set', {
+      sessionId: session.id,
+      programItemId: item.id,
+      reps: 10,
+      load: '3',
+      side: 'left',
+    });
+    await vera.invoke('stride/complete-program', { programId: program.id });
+
+    // The engine has no way back from `completed`, and that holds.
+    await expect(vera.invoke('workorder/start', { orderId: program.id })).rejects.toThrow(
+      /invalid transition/,
+    );
+
+    // NOBODY ELSE'S. Björn cannot see Vera's block, so he cannot copy it either.
+    await expect(
+      bjorn.invoke('stride/repeat-program', { programId: program.id }),
+    ).rejects.toThrow(/permission denied: workorder:read/);
+
+    // Only a FINISHED block has a way back to offer; a running one is still open.
+    const running = await vera.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Still going',
+      kind: 'rehab',
+    });
+    await expect(
+      vera.invoke('stride/repeat-program', { programId: running.program.id }),
+    ).rejects.toThrow(/only a finished workout/);
+
+    const again = await vera.invoke<{ program: WorkOrder }>('stride/repeat-program', {
+      programId: program.id,
+    });
+    expect(again.program.id).not.toBe(program.id);
+    expect(again.program.status).toBe('planned');
+    expect([again.program.title, again.program.kind, again.program.description]).toEqual([
+      'Finished too soon',
+      'rehab',
+      'Pain-free range only.',
+    ]);
+
+    const copy = await vera.invoke<ProgramDetail>('stride/get-program', {
+      programId: again.program.id,
+    });
+    const before = await vera.invoke<ProgramDetail>('stride/get-program', {
+      programId: program.id,
+    });
+    const shape = (d: ProgramDetail) =>
+      d.items.map((i) => ({
+        exercise: i.exercise_id,
+        sets: i.target_sets,
+        group: i.group_key,
+        rows: i.sets.map((x) => [x.side, x.target_reps, x.target_load]),
+      }));
+    expect(shape(copy)).toEqual(shape(before));
+    expect(copy.items[0]!.id).not.toBe(item.id);
+    expect(copy.slots.map((x) => [x.weekday, x.time_of_day])).toEqual([
+      [1, '08:00'],
+      [4, '19:00'],
+    ]);
+    // A fresh start: no sessions on the copy, and the finished block keeps its own.
+    expect(copy.sessions).toHaveLength(0);
+    expect(before.program.status).toBe('completed');
+    expect(before.sessions).toHaveLength(1);
+    expect(before.summary).toBeTruthy();
+  });
 });

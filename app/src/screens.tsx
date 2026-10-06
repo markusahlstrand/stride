@@ -914,12 +914,15 @@ export function ProgramDetailScreen({
   onBack,
   onProgress,
   onExercise,
+  onOpen,
 }: ScreenProps & {
   programId: string;
   onBack: () => void;
   onProgress?: (traineeId: string) => void;
   /** Open one exercise's how-to. Optional, so the screen renders without it. */
   onExercise?: (exerciseId: string) => void;
+  /** Open another workout — where "Train it again" lands you. */
+  onOpen?: (programId: string) => void;
 }) {
   const [detail, setDetail] = useState<ProgramDetail | null>(null);
   const [earned, setEarned] = useState<string | null>(null);
@@ -927,6 +930,14 @@ export function ProgramDetailScreen({
   const [editing, setEditing] = useState<string | null>(null);
   /** "1: 10" in a dotted circle explains itself only once somebody says so. */
   const [explainSets, setExplainSets] = useState(false);
+  /**
+   * Finishing is one-way — the engine has no edge out of `completed` — so it asks
+   * once. It used to be a single tap beside "Start today's session", which is how
+   * a standing rehab block got finished by accident.
+   */
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  /** Held while finishing or repeating is in flight: a double tap must not make two copies. */
+  const [ending, setEnding] = useState(false);
   /**
    * TWO VIEWS OF ONE WORKOUT. While a session is on, the screen is the SESSION:
    * one exercise at a time and an overview of the rest. Everything about
@@ -1599,21 +1610,66 @@ export function ProgramDetailScreen({
               {assessment ? 'Continue the baseline' : resumable ? 'Start a new session' : "Start today's session"}
             </button>
           )}
-          {program.status === 'in_progress' && (
+          {program.status === 'in_progress' && !confirmFinish && (
             // A DEFAULT button, deliberately not the primary one: finishing is
             // optional, and never finishing is the normal shape of a standing
             // workout.
-            <button
-              onClick={() =>
-                run(() => api.completeProgram(program.id), 'Finished — adherence computed').then(
-                  reload,
-                )
-              }
-            >
+            <button onClick={() => setConfirmFinish(true)}>
               {assessment ? 'Save the baseline as it is' : 'Finish this block'}
             </button>
           )}
+          {/* Not a reopen — there is none. A new planned copy with the same rows
+              and booked times; this one keeps its sessions and its number. */}
+          {(program.status === 'completed' || program.status === 'closed') && (
+            <button
+              className="primary"
+              disabled={ending}
+              onClick={async () => {
+                if (ending) return;
+                setEnding(true);
+                let copy: string | null = null;
+                try {
+                  const ok = await run(async () => {
+                    copy = (await api.repeatProgram(program.id)).program.id;
+                  }, 'A fresh copy, ready to start');
+                  if (ok && copy) onOpen?.(copy);
+                } finally {
+                  setEnding(false);
+                }
+              }}
+            >
+              {assessment ? 'Take it again' : 'Train it again'}
+            </button>
+          )}
         </div>
+        {program.status === 'in_progress' && confirmFinish && (
+          <div className="sub">
+            {assessment
+              ? 'This saves the baseline as it is and closes it — you cannot log into it afterwards.'
+              : 'Finishing closes this workout for good and works out how much of it you did. You cannot log into it afterwards — only train a fresh copy of it. A workout you keep doing week after week never needs finishing.'}
+            <div className="actions">
+              <button
+                disabled={ending}
+                onClick={async () => {
+                  if (ending) return;
+                  setEnding(true);
+                  try {
+                    await run(() => api.completeProgram(program.id), 'Finished — adherence computed');
+                    setConfirmFinish(false);
+                    await reload();
+                  } finally {
+                    setEnding(false);
+                  }
+                }}
+              >
+                {assessment ? 'Yes, save it' : 'Yes, finish it'}
+              </button>
+              <button className="primary" onClick={() => setConfirmFinish(false)}>
+                Keep training
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {summary && <AdherenceCard summary={summary} />}

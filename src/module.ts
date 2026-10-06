@@ -1603,6 +1603,32 @@ const assignProgramOp: OperationHandler<
     if (source.length === 0) throw new Error(`template has no items: ${input.templateId}`);
   }
 
+  const items = await fillProgram(ctx, program, trainee, source, {
+    slots: (input.slots ?? []).map((slot) => ({ weekday: slot.weekday, time: slot.time })),
+    templateId: input.templateId ?? null,
+    repeatOf: null,
+  });
+  return { program, items };
+};
+
+/**
+ * Fill a freshly created programme: SNAPSHOT the source rows (a template's, or
+ * another programme's for a repeat) with their per-set rows, link the coach who
+ * wrote it, book the slots, and announce it. Shared by `assign-program` and
+ * `repeat-program`, which differ only in where the rows come from — both have
+ * already run their gates by the time they get here.
+ */
+async function fillProgram(
+  ctx: OperationContext,
+  program: WorkOrder,
+  trainee: TraineeRow,
+  source: ItemRow[],
+  from: {
+    slots: { weekday: number; time: string }[];
+    templateId: string | null;
+    repeatOf: string | null;
+  },
+): Promise<ItemRow[]> {
   for (const item of source) {
     const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
       item.exercise_id,
@@ -1661,7 +1687,7 @@ const assignProgramOp: OperationHandler<
 
   const now = ctx.now();
   const seen = new Set<string>();
-  for (const slot of input.slots ?? []) {
+  for (const slot of from.slots) {
     const key = `${slot.weekday}@${slot.time}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -1687,9 +1713,10 @@ const assignProgramOp: OperationHandler<
       number: program.number,
       traineeId: trainee.id,
       traineeName: trainee.name,
-      title: input.title,
-      kind: input.kind,
-      templateId: input.templateId ?? null,
+      title: program.title,
+      kind: program.kind,
+      templateId: from.templateId,
+      repeatOf: from.repeatOf,
       slots: [...seen],
       items: items.map((i) => ({
         exerciseId: i.exercise_id,
@@ -1699,6 +1726,76 @@ const assignProgramOp: OperationHandler<
         targetLoad: i.target_load,
       })),
     },
+  });
+  return items;
+}
+
+export const repeatProgramInput = z.object({ programId: z.string().min(1) });
+
+/**
+ * TRAIN IT AGAIN — a new programme that prescribes what an existing one did.
+ *
+ * This is the way back from a block somebody finished by mistake. It is not a
+ * reopen: the engine's machine has no edge out of `completed`, and adding one
+ * here would be forking it. The finished block keeps its sessions and its
+ * adherence; the copy starts `planned`, with the same exercises, per-set rows,
+ * supersets, rhythm and booked slots, and starting it is the usual separate
+ * `workorder/start`.
+ *
+ * Three gates, one per thing it touches. `workorder:create` is the node-level
+ * formality assign-program also passes; `workorder:read` on the source says you
+ * may see what it prescribes; `result:log` on its TRAINEE is the real one — the
+ * same narrowed check that stops anybody writing into another person's training.
+ * Being able to read a programme is not permission to make its owner another.
+ */
+const repeatProgramOp: OperationHandler<
+  z.infer<typeof repeatProgramInput>,
+  { program: WorkOrder; items: ItemRow[] }
+> = async (ctx, rawInput) => {
+  assertAllowed(await ctx.check(WO.create));
+  const input = repeatProgramInput.parse(rawInput);
+  assertAllowed(
+    await ctx.check(WO.read, { entityType: 'workorder', entityId: input.programId }),
+  );
+  const original = programOf(ctx, input.programId);
+  // A planned or running workout is still open — edit it rather than copy it.
+  if (original.status !== 'completed' && original.status !== 'closed') {
+    throw new Error('only a finished workout can be trained again — this one is still open');
+  }
+  const traineeId = original.customer.entityId;
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: traineeId }),
+  );
+  // A phased programme is a dated sequence, not a list of rows — repeating it is
+  // assigning its plan again, which has its own path.
+  requireOrdinaryProgram(ctx, input.programId);
+  const trainee = ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [
+    traineeId,
+  ])[0];
+  if (!trainee) throw new Error(`trainee not found: ${traineeId}`);
+
+  const source = ctx.sql.query<ItemRow>(
+    'SELECT * FROM train_program_items WHERE program_id = ? ORDER BY position',
+    [original.id],
+  );
+  const slots = ctx.sql
+    .query<SlotRow>(
+      'SELECT * FROM train_program_slots WHERE program_id = ? ORDER BY weekday, time_of_day',
+      [original.id],
+    )
+    .map((slot) => ({ weekday: slot.weekday, time: slot.time_of_day }));
+
+  const program = createWorkOrder(ctx, {
+    facility: { entityType: 'trainee', entityId: trainee.id },
+    customer: { entityType: 'trainee', entityId: trainee.id },
+    kind: original.kind,
+    title: original.title,
+    ...(original.description != null ? { description: original.description } : {}),
+  });
+  const items = await fillProgram(ctx, program, trainee, source, {
+    slots,
+    templateId: null,
+    repeatOf: original.id,
   });
   return { program, items };
 };
@@ -4045,6 +4142,7 @@ export const strideModule: ModuleRegistration = {
     'stride/share-template': shareTemplateOp as never,
     'stride/templates': templatesOp as never,
     'stride/assign-program': assignProgramOp as never,
+    'stride/repeat-program': repeatProgramOp as never,
     'stride/add-program-item': addProgramItemOp as never,
     'stride/remove-program-item': removeProgramItemOp as never,
     'stride/log-session': logSessionOp as never,
