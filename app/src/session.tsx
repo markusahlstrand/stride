@@ -188,6 +188,42 @@ export function useElapsed(s: ActiveSession | null): number {
   return s ? elapsedMs(s) : 0;
 }
 
+/**
+ * Keep the screen awake while the clock runs. The phone is on the floor beside
+ * the mat and nobody's hands are free to tap it awake between sets.
+ *
+ * The browser releases the lock whenever the page is hidden (a locked phone, a
+ * switched tab), so it is taken again on every return to visible — not once.
+ * A paused session lets the screen sleep: you have stepped away. Unsupported
+ * browsers, and a refusal (low battery), are silent: the cost is the old
+ * behaviour, never an error mid-workout.
+ */
+export function useWakeLock(active: boolean): void {
+  useEffect(() => {
+    if (!active || !('wakeLock' in navigator)) return;
+    const wl = navigator.wakeLock;
+    let lock: WakeLockSentinel | null = null;
+    let cancelled = false;
+    const take = () => {
+      if (document.visibilityState !== 'visible') return;
+      wl.request('screen').then(
+        (l) => {
+          if (cancelled) void l.release().catch(() => {});
+          else lock = l;
+        },
+        () => {},
+      );
+    };
+    take();
+    document.addEventListener('visibilitychange', take);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', take);
+      void lock?.release().catch(() => {});
+    };
+  }, [active]);
+}
+
 // ============================================================================
 // THE THREE MOMENTS. Everything else in the app is static; these are the only
 // places anything moves, and each one is skipped entirely under

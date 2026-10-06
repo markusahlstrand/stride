@@ -30,6 +30,7 @@ import {
   useActiveSession,
   useCountingDown,
   useFinishSummary,
+  useWakeLock,
 } from './session';
 import { Figure, type Pose } from './figures';
 
@@ -200,6 +201,8 @@ export function App() {
   const workout = useActiveSession();
   const countingDown = useCountingDown();
   const finished = useFinishSummary();
+  // The screen stays on while a session clock runs, on whatever screen you are.
+  useWakeLock(Boolean(workout && !workout.pausedAt));
   const { notice, setNotice, run } = useNotice();
   // Stable, because the toast's timer depends on it: an inline arrow would be a
   // new function every render and restart the clock each time anything moved.
