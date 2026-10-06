@@ -936,6 +936,8 @@ export function ProgramDetailScreen({
    * a standing rehab block got finished by accident.
    */
   const [confirmFinish, setConfirmFinish] = useState(false);
+  /** Held while finishing or repeating is in flight: a double tap must not make two copies. */
+  const [ending, setEnding] = useState(false);
   /**
    * TWO VIEWS OF ONE WORKOUT. While a session is on, the screen is the SESSION:
    * one exercise at a time and an overview of the rest. Everything about
@@ -1621,12 +1623,19 @@ export function ProgramDetailScreen({
           {(program.status === 'completed' || program.status === 'closed') && (
             <button
               className="primary"
+              disabled={ending}
               onClick={async () => {
+                if (ending) return;
+                setEnding(true);
                 let copy: string | null = null;
-                const ok = await run(async () => {
-                  copy = (await api.repeatProgram(program.id)).program.id;
-                }, 'A fresh copy, ready to start');
-                if (ok && copy) onOpen?.(copy);
+                try {
+                  const ok = await run(async () => {
+                    copy = (await api.repeatProgram(program.id)).program.id;
+                  }, 'A fresh copy, ready to start');
+                  if (ok && copy) onOpen?.(copy);
+                } finally {
+                  setEnding(false);
+                }
               }}
             >
               {assessment ? 'Take it again' : 'Train it again'}
@@ -1640,11 +1649,18 @@ export function ProgramDetailScreen({
               : 'Finishing closes this workout for good and works out how much of it you did. You cannot log into it afterwards — only train a fresh copy of it. A workout you keep doing week after week never needs finishing.'}
             <div className="actions">
               <button
-                onClick={() =>
-                  run(() => api.completeProgram(program.id), 'Finished — adherence computed')
-                    .then(() => setConfirmFinish(false))
-                    .then(reload)
-                }
+                disabled={ending}
+                onClick={async () => {
+                  if (ending) return;
+                  setEnding(true);
+                  try {
+                    await run(() => api.completeProgram(program.id), 'Finished — adherence computed');
+                    setConfirmFinish(false);
+                    await reload();
+                  } finally {
+                    setEnding(false);
+                  }
+                }}
               >
                 {assessment ? 'Yes, save it' : 'Yes, finish it'}
               </button>

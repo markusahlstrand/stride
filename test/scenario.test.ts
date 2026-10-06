@@ -2224,12 +2224,23 @@ describe('training scenario', () => {
     await vera.invoke('stride/complete-program', { programId: program.id });
 
     // The engine has no way back from `completed`, and that holds.
-    await expect(vera.invoke('workorder/start', { orderId: program.id })).rejects.toThrow();
+    await expect(vera.invoke('workorder/start', { orderId: program.id })).rejects.toThrow(
+      /invalid transition/,
+    );
 
     // NOBODY ELSE'S. Björn cannot see Vera's block, so he cannot copy it either.
     await expect(
       bjorn.invoke('stride/repeat-program', { programId: program.id }),
     ).rejects.toThrow(/permission denied: workorder:read/);
+
+    // Only a FINISHED block has a way back to offer; a running one is still open.
+    const running = await vera.invoke<{ program: WorkOrder }>('stride/assign-program', {
+      title: 'Still going',
+      kind: 'rehab',
+    });
+    await expect(
+      vera.invoke('stride/repeat-program', { programId: running.program.id }),
+    ).rejects.toThrow(/only a finished workout/);
 
     const again = await vera.invoke<{ program: WorkOrder }>('stride/repeat-program', {
       programId: program.id,

@@ -1758,6 +1758,10 @@ const repeatProgramOp: OperationHandler<
     await ctx.check(WO.read, { entityType: 'workorder', entityId: input.programId }),
   );
   const original = programOf(ctx, input.programId);
+  // A planned or running workout is still open — edit it rather than copy it.
+  if (original.status !== 'completed' && original.status !== 'closed') {
+    throw new Error('only a finished workout can be trained again — this one is still open');
+  }
   const traineeId = original.customer.entityId;
   assertAllowed(
     await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: traineeId }),

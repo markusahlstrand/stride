@@ -334,7 +334,7 @@ export const operations = {
   },
   'stride/repeat-program': {
     summary:
-      'Train a workout again: a new PLANNED copy with the same exercises, sets and booked times. The way back from a block finished by mistake — the finished one keeps its sessions and adherence.',
+      'Train a FINISHED workout again: a new PLANNED copy with the same exercises, sets and booked times. The way back from a block finished by mistake — the finished one keeps its sessions and adherence.',
     http: { method: 'POST', path: '/programs/{programId}/repeat' },
     input: repeatProgramInput,
   },
