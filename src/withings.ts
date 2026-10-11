@@ -86,11 +86,18 @@ async function wbs<T>(fetchFn: Fetch, path: string, form: Record<string, string>
     method: 'POST',
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
+      accept: 'application/json',
+      'user-agent': 'stride/1.0 (+https://stride.ahlstrand.es)',
       ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
     },
     body: new URLSearchParams(form).toString(),
   });
-  if (!res.ok) throw new WithingsError(`Withings answered HTTP ${res.status}`);
+  if (!res.ok) {
+    // A bare status hides who said no: Withings itself, or a WAF in front of it.
+    const said = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
+    const rid = res.headers.get('x-request-id');
+    throw new WithingsError(`Withings answered HTTP ${res.status}${said ? `: ${said}` : ''}${rid ? ` (withings request ${rid})` : ''}`);
+  }
   const json = (await res.json()) as { status?: number; body?: T; error?: string };
   if (json.status !== 0 || json.body === undefined) {
     throw new WithingsError(json.error ?? `Withings refused (status ${json.status})`, json.status);
