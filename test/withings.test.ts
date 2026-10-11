@@ -7,11 +7,16 @@ import { matchesOutboundHost } from '@substrat-run/contracts';
 import type { ScopeStub } from '@substrat-run/kernel';
 import type { SqliteScopeHost } from '@substrat-run/adapter-sqlite';
 
-import type { MeasurementRow } from '../src/module.js';
+import type { ActivityDayRow, ActivityRow, MeasurementRow, SleepNightRow, WearableView } from '../src/module.js';
 import { buildStrideHost, seedStride, type StrideWorld } from '../src/seed.js';
 import {
   WITHINGS_API,
   WithingsError,
+  activityKindOf,
+  activityOfWorkout,
+  daysOfActivity,
+  hasActivityScope,
+  sleepOfSummary,
   decimalOf,
   exchangeCode,
   readingsOf,
@@ -157,7 +162,7 @@ describe('the consent round', () => {
       response_type: 'code',
       client_id: 'cid',
       redirect_uri: 'https://x.test/cb',
-      scope: 'user.metrics',
+      scope: 'user.metrics,user.activity',
       state: 'nonce',
     });
   });
@@ -308,5 +313,229 @@ describe('the sync', () => {
       syncWithings({ app, store, traineeId: w.veraId, scope: bjorn, fetch: withings.fn, now: NOW }),
     ).rejects.toThrow(/result:read/);
     expect((await rows(vera, w.veraId)).some((m) => m.value === '80.1')).toBe(false);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// What the device itself recorded
+// ---------------------------------------------------------------------------
+
+describe('device data: the mapping', () => {
+  it('names a workout in our words, and anything it does not know is other, never a refusal', () => {
+    expect([2, 307, 498, 1, 6, 7, 16, 28, 36, 9999].map(activityKindOf)).toEqual([
+      'run', 'run', 'run', 'walk', 'cycle', 'swim', 'weights', 'yoga', 'other', 'other',
+    ]);
+  });
+
+  it('maps a workout exactly, and a pulse of 0 means "not measured", not "no pulse"', () => {
+    expect(
+      activityOfWorkout({
+        id: 9001,
+        category: 2,
+        startdate: epoch('2026-10-09T06:00:00.000Z'),
+        enddate: epoch('2026-10-09T06:45:00.000Z'),
+        data: { distance: 8200, calories: 520.4, hr_average: 148, hr_min: 0, hr_max: 176, hr_zone_0: 300, hr_zone_3: 200 },
+      }),
+    ).toEqual({
+      externalId: '9001',
+      kind: 'run',
+      startedAt: '2026-10-09T06:00:00.000Z',
+      endedAt: '2026-10-09T06:45:00.000Z',
+      durationSeconds: 2700,
+      distanceM: '8200',
+      calories: '520.4',
+      hrAvg: 148,
+      hrMax: 176,
+      hrZone0Seconds: 300,
+      hrZone3Seconds: 200,
+    });
+  });
+
+  it('maps a night, with the efficiency as a decimal string and the stages in seconds', () => {
+    expect(
+      sleepOfSummary({
+        id: 77,
+        date: '2026-10-10',
+        startdate: epoch('2026-10-09T22:10:00.000Z'),
+        enddate: epoch('2026-10-10T05:50:00.000Z'),
+        data: { total_timeinbed: 27600, total_sleep_time: 25200, deepsleepduration: 5400, sleep_efficiency: 0.913, sleep_score: 82, hr_average: 54 },
+      }),
+    ).toMatchObject({
+      externalId: '77',
+      night: '2026-10-10',
+      inBedSeconds: 27600,
+      asleepSeconds: 25200,
+      deepSeconds: 5400,
+      score: 82,
+      efficiency: '0.91',
+      hrAvg: 54,
+    });
+  });
+
+  it('keeps one entry per day, the device that counted the most standing for it', () => {
+    const days = daysOfActivity([
+      { date: '2026-10-10', steps: 300 },
+      { date: '2026-10-10', steps: 9120, distance: 6900.4, hr_average: 71 },
+      { date: '2026-10-11', steps: 50 },
+    ]);
+    expect(days).toEqual([
+      { day: '2026-10-10', steps: 9120, distanceM: '6900.4', hrAvg: 71 },
+      { day: '2026-10-11', steps: 50 },
+    ]);
+  });
+
+  it('knows whether a link was granted the device\'s own data', () => {
+    expect(hasActivityScope({ scope: 'user.metrics' })).toBe(false);
+    expect(hasActivityScope({ scope: 'user.metrics,user.activity' })).toBe(true);
+  });
+});
+
+describe('device data: the sync', () => {
+  let dir: string;
+  let host: SqliteScopeHost;
+  let w: StrideWorld;
+  let vera: ScopeStub;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'substrat-withings-device-'));
+    host = buildStrideHost(dir);
+    w = await seedStride(host, dir);
+    vera = await host.getScope(w.vera, w.t1, w.s1);
+  });
+  afterAll(async () => {
+    await host.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** Answers each Withings endpoint by `path?action`, and remembers what it was asked. */
+  const device = (answers: Record<string, () => Response>) => {
+    const calls: { key: string; form: URLSearchParams }[] = [];
+    const fn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const form = new URLSearchParams(String(init?.body));
+      const key = `${new URL(String(input)).pathname}?${form.get('action')}`;
+      calls.push({ key, form });
+      return (answers[key] ?? (() => new Response(JSON.stringify({ status: 0, body: { measuregrps: [], more: 0 } }), { status: 200 })))();
+    }) as typeof fetch;
+    return { fn, calls };
+  };
+  const body = (b: unknown) => () => new Response(JSON.stringify({ status: 0, body: b }), { status: 200 });
+  const t = (iso: string) => epoch(iso);
+
+  const answers = (over: Record<string, () => Response> = {}) => ({
+    '/v2/measure?getworkouts': body({
+      more: false,
+      series: [
+        {
+          id: 9001, category: 2, startdate: t('2026-10-09T06:00:00.000Z'), enddate: t('2026-10-09T06:45:00.000Z'),
+          modified: t('2026-10-09T07:00:00.000Z'), data: { distance: 8200, hr_average: 148, hr_max: 176 },
+        },
+      ],
+    }),
+    '/v2/sleep?getsummary': body({
+      more: false,
+      series: [
+        {
+          id: 77, date: '2026-10-10', startdate: t('2026-10-09T22:10:00.000Z'), enddate: t('2026-10-10T05:50:00.000Z'),
+          modified: t('2026-10-10T06:00:00.000Z'), data: { total_sleep_time: 25200, sleep_score: 82 },
+        },
+      ],
+    }),
+    '/v2/measure?getactivity': body({
+      more: false,
+      activities: [{ date: '2026-10-10', modified: t('2026-10-10T23:00:00.000Z'), steps: 9120, distance: 6900 }],
+    }),
+    ...over,
+  });
+
+  const link = (over: Partial<WithingsLink> = {}) => memoryStoreWith(freshLink({ scope: 'user.metrics,user.activity', ...over }));
+  const memoryStoreWith = (l: WithingsLink) => {
+    const s = memoryStore();
+    s.link = l;
+    return s;
+  };
+  const sync = (store: ReturnType<typeof memoryStore>, fn: typeof fetch) =>
+    syncWithings({ app, store, traineeId: w.veraId, scope: vera, fetch: fn, now: NOW });
+  const mine = () => vera.invoke<WearableView>('stride/wearable', { traineeId: w.veraId, days: 730 });
+
+  it('writes workouts, nights and days through the operation, and a second sync changes nothing', async () => {
+    const store = link();
+    const fake = device(answers());
+    const first = await sync(store, fake.fn);
+    expect(first.wearable).toEqual({ activities: 1, sleep: 1, days: 1 });
+    expect(first.problems).toBeUndefined();
+
+    const got = await mine();
+    expect(got.activities.find((a: ActivityRow) => a.external_id === '9001')).toMatchObject({ kind: 'run', distance_m: '8200', hr_avg: 148, hr_max: 176 });
+    expect(got.sleep.find((n: SleepNightRow) => n.external_id === '77')).toMatchObject({ night: '2026-10-10', score: 82 });
+    expect(got.days.find((d: ActivityDayRow) => d.day === '2026-10-10')).toMatchObject({ steps: 9120 });
+
+    // A first pull is a bounded window of dates; the asks carry the fields we map.
+    const workouts = fake.calls.find((c) => c.key === '/v2/measure?getworkouts')!;
+    expect(workouts.form.get('startdateymd')).toBe('2025-10-11');
+    expect(workouts.form.get('data_fields')).toContain('hr_zone_3');
+
+    // Each dataset has its own cursor: the newest `modified` it actually read.
+    expect(store.link!.cursors).toEqual({
+      workouts: t('2026-10-09T07:00:00.000Z'),
+      sleep: t('2026-10-10T06:00:00.000Z'),
+      activity: t('2026-10-10T23:00:00.000Z'),
+    });
+
+    // Again: only what changed since the cursor is asked for, and nothing is written.
+    const fake2 = device(answers());
+    const second = await sync(store, fake2.fn);
+    expect(second.wearable).toEqual({ activities: 0, sleep: 0, days: 0 });
+    const asked = fake2.calls.find((c) => c.key === '/v2/measure?getworkouts')!;
+    expect(asked.form.has('startdateymd')).toBe(false);
+    expect(asked.form.get('lastupdate')).toBe(String(t('2026-10-09T07:00:00.000Z') - 60));
+  });
+
+  it('a dataset Withings cannot give does not cost the others: sleep fails, workouts and steps are kept', async () => {
+    const store = link({ userid: '43' });
+    const fake = device(answers({ '/v2/sleep?getsummary': () => new Response(JSON.stringify({ status: 2554, error: 'no sleep device' }), { status: 200 }) }));
+    const r = await sync(store, fake.fn);
+    expect(r.wearable).toMatchObject({ sleep: 0 });
+    expect(r.problems).toEqual(['sleep: no sleep device']);
+    // The failed dataset's cursor did not move; the others' did.
+    expect(store.link!.cursors?.sleep).toBeUndefined();
+    expect(store.link!.cursors?.workouts).toBeDefined();
+  });
+
+  it('a link from before the device scope was asked for syncs weight only, and reads no device data', async () => {
+    const store = link({ scope: 'user.metrics' });
+    const fake = device(answers());
+    const r = await sync(store, fake.fn);
+    expect(r.wearable).toBeUndefined();
+    expect(fake.calls.map((c) => c.key).filter((k) => /getworkouts|getsummary|getactivity/.test(k))).toEqual([]);
+  });
+
+  it('one bad row from the device is skipped and said so, and does not cost the weight or the rest', async () => {
+    const store = link({ userid: '45' });
+    const bad = answers({
+      '/v2/measure?getworkouts': body({
+        more: false,
+        series: [
+          { id: 9101, category: 2, startdate: t('2026-10-09T07:00:00.000Z'), enddate: t('2026-10-09T06:00:00.000Z'), modified: 1 },
+          { id: 9102, category: 2, startdate: t('2026-10-08T06:00:00.000Z'), enddate: t('2026-10-08T06:30:00.000Z'), modified: 2 },
+        ],
+      }),
+    });
+    const r = await sync(store, device(bad).fn); // resolves: it does not throw
+    expect(r.wearable?.activities).toBe(1);
+    expect(r.problems).toEqual(['workouts: skipped 1 that end before they start']);
+    const ids = (await mine()).activities.map((a: ActivityRow) => a.external_id);
+    expect(ids).toContain('9102');
+    expect(ids).not.toContain('9101');
+    // The sync still completed, so the link carries its bookkeeping.
+    expect(store.link!.lastSyncAt).toBe(NOW.toISOString());
+  });
+
+  it('never saves a cursor off an incomplete pull of a dataset', async () => {
+    const store = link({ userid: '44' });
+    const stuck = answers({ '/v2/measure?getworkouts': body({ more: true, series: [{ id: 1, category: 2, startdate: 1, enddate: 2, modified: 5 }] }) });
+    const r = await sync(store, device(stuck).fn);
+    expect(r.problems?.[0]).toMatch(/workouts: Withings said there is more but gave no offset/);
+    expect(store.link!.cursors?.workouts).toBeUndefined();
   });
 });

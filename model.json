@@ -28,6 +28,234 @@
         "equipment_slug"
       ]
     },
+    "activity": {
+      "table": "train_activities",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "trainee_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": "string"
+          },
+          "duration_seconds": {
+            "type": "number"
+          },
+          "distance_m": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calories": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "steps": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "elevation_m": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hr_avg": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_min": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_max": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_zone0_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_zone1_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_zone2_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_zone3_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "recorded_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trainee_id",
+          "source",
+          "external_id",
+          "kind",
+          "started_at",
+          "ended_at",
+          "duration_seconds",
+          "distance_m",
+          "calories",
+          "steps",
+          "elevation_m",
+          "hr_avg",
+          "hr_min",
+          "hr_max",
+          "hr_zone0_seconds",
+          "hr_zone1_seconds",
+          "hr_zone2_seconds",
+          "hr_zone3_seconds",
+          "recorded_by",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "activityDay": {
+      "table": "train_activity_days",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "trainee_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "day": {
+            "type": "string"
+          },
+          "steps": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "distance_m": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calories": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total_calories": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "active_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_avg": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_min": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_max": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "recorded_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "trainee_id",
+          "source",
+          "day",
+          "steps",
+          "distance_m",
+          "calories",
+          "total_calories",
+          "active_seconds",
+          "hr_avg",
+          "hr_min",
+          "hr_max",
+          "recorded_by",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "trainee_id",
+        "source",
+        "day"
+      ]
+    },
     "coach": {
       "table": "train_coaches",
       "fields": {
@@ -823,6 +1051,141 @@
         "trainee_id",
         "coach_id"
       ]
+    },
+    "sleepNight": {
+      "table": "train_sleep_nights",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "trainee_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "night": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": "string"
+          },
+          "in_bed_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "asleep_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "light_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "deep_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rem_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "awake_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "efficiency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hr_avg": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_min": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_max": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rr_avg": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "recorded_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trainee_id",
+          "source",
+          "external_id",
+          "night",
+          "started_at",
+          "ended_at",
+          "in_bed_seconds",
+          "asleep_seconds",
+          "light_seconds",
+          "deep_seconds",
+          "rem_seconds",
+          "awake_seconds",
+          "score",
+          "efficiency",
+          "hr_avg",
+          "hr_min",
+          "hr_max",
+          "rr_avg",
+          "recorded_by",
+          "created_at",
+          "updated_at"
+        ],
+        "additionalProperties": false
+      }
     },
     "template": {
       "table": "train_templates",

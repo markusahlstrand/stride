@@ -3874,6 +3874,416 @@ const measurementsOp: OperationHandler<z.infer<typeof traineeIdInput>, Measureme
 };
 
 // ---------------------------------------------------------------------------
+// WEARABLES — what a device recorded: workouts, nights, days.
+//
+// Mirrored from a provider (today Withings) and NOT append-only, deliberately: a
+// night is revised after the fact and a day's steps grow until midnight, so a sync is
+// an upsert on the provider's own id. What keeps the history honest is that every
+// insert and every change that alters a value emits a fat event; the audit spine
+// remembers what was believed when, and the row says what is believed now.
+//
+// The module knows nothing about HOW the data arrives. A harness holds the provider's
+// tokens and does the network, then hands the readings here as the signed-in person —
+// so the kernel still decides, and the keys are the MEASUREMENT keys: `result:log` on
+// the trainee record to write, `result:read` to read. A coach sees none of it until
+// the person shares everything, exactly like a weight.
+// ---------------------------------------------------------------------------
+
+/** The kinds of workout a device can name, in our words. The harness maps a provider's categories onto these; anything else is `other`. */
+export const ACTIVITY_KINDS = {
+  walk: 'Walk',
+  run: 'Run',
+  hike: 'Hike',
+  cycle: 'Cycling',
+  swim: 'Swimming',
+  weights: 'Weights',
+  fitness: 'Fitness',
+  yoga: 'Yoga',
+  pilates: 'Pilates',
+  rowing: 'Rowing',
+  elliptical: 'Elliptical',
+  climbing: 'Climbing',
+  ski: 'Skiing',
+  tennis: 'Tennis',
+  football: 'Football',
+  dance: 'Dancing',
+  boxing: 'Boxing',
+  other: 'Other',
+} as const;
+export type ActivityKind = keyof typeof ACTIVITY_KINDS;
+const ACTIVITY_KIND_KEYS = Object.keys(ACTIVITY_KINDS) as [ActivityKind, ...ActivityKind[]];
+
+/** Sources a wearable row may come from. A new provider is a new entry here, not a new column. */
+const WEARABLE_SOURCES = ['withings'] as const;
+
+const wholeNumber = z.number().int().min(0).max(10_000_000);
+const heartRate = z.number().int().min(20).max(260);
+const nonNegativeDecimal = decimalString.refine((v) => !v.startsWith('-'), 'must not be negative');
+const instant = z.string().refine((v) => !Number.isNaN(new Date(v).getTime()), 'not a date');
+const calendarDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'a calendar day, YYYY-MM-DD');
+
+const activityReading = z.object({
+  externalId: z.string().min(1).max(80),
+  kind: z.enum(ACTIVITY_KIND_KEYS),
+  startedAt: instant,
+  endedAt: instant,
+  durationSeconds: wholeNumber,
+  distanceM: nonNegativeDecimal.optional(),
+  calories: nonNegativeDecimal.optional(),
+  steps: wholeNumber.optional(),
+  elevationM: nonNegativeDecimal.optional(),
+  hrAvg: heartRate.optional(),
+  hrMin: heartRate.optional(),
+  hrMax: heartRate.optional(),
+  hrZone0Seconds: wholeNumber.optional(),
+  hrZone1Seconds: wholeNumber.optional(),
+  hrZone2Seconds: wholeNumber.optional(),
+  hrZone3Seconds: wholeNumber.optional(),
+});
+
+const sleepReading = z.object({
+  externalId: z.string().min(1).max(80),
+  /** The morning it ended on, as a calendar day: "last night" is the day you woke. */
+  night: calendarDay,
+  startedAt: instant,
+  endedAt: instant,
+  inBedSeconds: wholeNumber.optional(),
+  asleepSeconds: wholeNumber.optional(),
+  lightSeconds: wholeNumber.optional(),
+  deepSeconds: wholeNumber.optional(),
+  remSeconds: wholeNumber.optional(),
+  awakeSeconds: wholeNumber.optional(),
+  score: z.number().int().min(0).max(100).optional(),
+  efficiency: nonNegativeDecimal.optional(),
+  hrAvg: heartRate.optional(),
+  hrMin: heartRate.optional(),
+  hrMax: heartRate.optional(),
+  rrAvg: z.number().int().min(1).max(80).optional(),
+});
+
+const dayReading = z.object({
+  day: calendarDay,
+  steps: wholeNumber.optional(),
+  distanceM: nonNegativeDecimal.optional(),
+  calories: nonNegativeDecimal.optional(),
+  totalCalories: nonNegativeDecimal.optional(),
+  activeSeconds: wholeNumber.optional(),
+  hrAvg: heartRate.optional(),
+  hrMin: heartRate.optional(),
+  hrMax: heartRate.optional(),
+});
+
+export const recordWearableInput = z.object({
+  traineeId: z.string().min(1),
+  source: z.enum(WEARABLE_SOURCES),
+  // Bounded, because a harness chunks a long history and one request must stay one transaction of sane size.
+  activities: z.array(activityReading).max(500).default([]),
+  sleep: z.array(sleepReading).max(500).default([]),
+  days: z.array(dayReading).max(800).default([]),
+});
+
+export interface ActivityRow {
+  id: string;
+  trainee_id: string;
+  source: string;
+  external_id: string;
+  kind: ActivityKind;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
+  distance_m: string | null;
+  calories: string | null;
+  steps: number | null;
+  elevation_m: string | null;
+  hr_avg: number | null;
+  hr_min: number | null;
+  hr_max: number | null;
+  hr_zone0_seconds: number | null;
+  hr_zone1_seconds: number | null;
+  hr_zone2_seconds: number | null;
+  hr_zone3_seconds: number | null;
+  recorded_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SleepNightRow {
+  id: string;
+  trainee_id: string;
+  source: string;
+  external_id: string;
+  night: string;
+  started_at: string;
+  ended_at: string;
+  in_bed_seconds: number | null;
+  asleep_seconds: number | null;
+  light_seconds: number | null;
+  deep_seconds: number | null;
+  rem_seconds: number | null;
+  awake_seconds: number | null;
+  score: number | null;
+  efficiency: string | null;
+  hr_avg: number | null;
+  hr_min: number | null;
+  hr_max: number | null;
+  rr_avg: number | null;
+  recorded_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ActivityDayRow {
+  trainee_id: string;
+  source: string;
+  day: string;
+  steps: number | null;
+  distance_m: string | null;
+  calories: string | null;
+  total_calories: string | null;
+  active_seconds: number | null;
+  hr_avg: number | null;
+  hr_min: number | null;
+  hr_max: number | null;
+  recorded_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WearableRecorded {
+  activities: WearableCounts;
+  sleep: WearableCounts;
+  days: WearableCounts;
+}
+interface WearableCounts {
+  created: number;
+  updated: number;
+  unchanged: number;
+}
+
+type ColumnValue = string | number | null;
+
+/**
+ * Insert a row, or change it if (and only if) a value differs. Returns what happened so the
+ * caller can say it in an event — and so a sync that finds nothing new emits nothing at all.
+ *
+ * `table` and every key of `values` are literals from this file, never input: they are
+ * interpolated into SQL, the values are bound.
+ */
+function upsertWearableRow(
+  ctx: OperationContext,
+  table: string,
+  where: Record<string, ColumnValue>,
+  /** What the row SAYS: compared against what is stored, and written when it differs. */
+  values: Record<string, ColumnValue>,
+  /** Only ever written on insert (a fresh id, who first recorded it, when). Never compared: it is new every time. */
+  onInsert: Record<string, ColumnValue>,
+): 'created' | 'updated' | 'unchanged' {
+  const keys = Object.keys(where);
+  const found = ctx.sql.query<Record<string, ColumnValue>>(
+    `SELECT * FROM ${table} WHERE ${keys.map((k) => `${k} = ?`).join(' AND ')}`,
+    keys.map((k) => where[k]!),
+  )[0];
+  if (!found) {
+    const all = { ...where, ...onInsert, ...values };
+    const cols = Object.keys(all);
+    ctx.sql.exec(
+      `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+      cols.map((c) => all[c]!),
+    );
+    return 'created';
+  }
+  const changed = Object.keys(values).filter((c) => c !== 'updated_at' && found[c] !== values[c]);
+  if (changed.length === 0) return 'unchanged';
+  const cols = [...changed, 'updated_at'];
+  ctx.sql.exec(
+    `UPDATE ${table} SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE ${keys.map((k) => `${k} = ?`).join(' AND ')}`,
+    [...cols.map((c) => values[c]!), ...keys.map((k) => where[k]!)],
+  );
+  return 'updated';
+}
+
+/**
+ * Record what a wearable reported, as the person it is about. Idempotent: the same reading
+ * again is `unchanged` and silent; a revised one is `updated` and announced. Gated by the
+ * NARROWED `result:log` on the trainee — a person can record their own body, and so can an
+ * admin or a coach whose trainee shares it, and nobody else.
+ */
+const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, WearableRecorded> = async (
+  ctx,
+  rawInput,
+) => {
+  const input = recordWearableInput.parse(rawInput);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: input.traineeId }),
+  );
+  const trainee = ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [
+    input.traineeId,
+  ])[0];
+  if (!trainee) throw new Error(`trainee not found: ${input.traineeId}`);
+
+  const now = ctx.now();
+  const out: WearableRecorded = {
+    activities: { created: 0, updated: 0, unchanged: 0 },
+    sleep: { created: 0, updated: 0, unchanged: 0 },
+    days: { created: 0, updated: 0, unchanged: 0 },
+  };
+  const announce = (type: string, payload: Record<string, unknown>) =>
+    ctx.emit({
+      type,
+      schemaVersion: 1,
+      entity: { entityType: 'trainee', entityId: trainee.id },
+      // How a body slept and how hard its heart worked is health data about a person.
+      piiClass: 'pseudonymous',
+      subjectId: dataSubjectId.parse(trainee.id),
+      payload,
+    });
+
+  for (const a of input.activities) {
+    if (new Date(a.endedAt).getTime() < new Date(a.startedAt).getTime()) {
+      throw new Error(`an activity cannot end before it starts: ${a.externalId}`);
+    }
+    const values = {
+      kind: a.kind,
+      started_at: a.startedAt,
+      ended_at: a.endedAt,
+      duration_seconds: a.durationSeconds,
+      distance_m: a.distanceM ?? null,
+      calories: a.calories ?? null,
+      steps: a.steps ?? null,
+      elevation_m: a.elevationM ?? null,
+      hr_avg: a.hrAvg ?? null,
+      hr_min: a.hrMin ?? null,
+      hr_max: a.hrMax ?? null,
+      hr_zone0_seconds: a.hrZone0Seconds ?? null,
+      hr_zone1_seconds: a.hrZone1Seconds ?? null,
+      hr_zone2_seconds: a.hrZone2Seconds ?? null,
+      hr_zone3_seconds: a.hrZone3Seconds ?? null,
+      updated_at: now,
+    };
+    const id = ulid();
+    const result = upsertWearableRow(
+      ctx,
+      'train_activities',
+      { trainee_id: trainee.id, source: input.source, external_id: a.externalId },
+      values,
+      { id, recorded_by: ctx.principal, created_at: now },
+    );
+    out.activities[result]++;
+    if (result !== 'unchanged') {
+      announce('stride.activity-recorded', {
+        traineeId: trainee.id,
+        source: input.source,
+        change: result,
+        ...a,
+      });
+    }
+  }
+
+  for (const n of input.sleep) {
+    const values = {
+      night: n.night,
+      started_at: n.startedAt,
+      ended_at: n.endedAt,
+      in_bed_seconds: n.inBedSeconds ?? null,
+      asleep_seconds: n.asleepSeconds ?? null,
+      light_seconds: n.lightSeconds ?? null,
+      deep_seconds: n.deepSeconds ?? null,
+      rem_seconds: n.remSeconds ?? null,
+      awake_seconds: n.awakeSeconds ?? null,
+      score: n.score ?? null,
+      efficiency: n.efficiency ?? null,
+      hr_avg: n.hrAvg ?? null,
+      hr_min: n.hrMin ?? null,
+      hr_max: n.hrMax ?? null,
+      rr_avg: n.rrAvg ?? null,
+      updated_at: now,
+    };
+    const result = upsertWearableRow(
+      ctx,
+      'train_sleep_nights',
+      { trainee_id: trainee.id, source: input.source, external_id: n.externalId },
+      values,
+      { id: ulid(), recorded_by: ctx.principal, created_at: now },
+    );
+    out.sleep[result]++;
+    if (result !== 'unchanged') {
+      announce('stride.sleep-recorded', {
+        traineeId: trainee.id,
+        source: input.source,
+        change: result,
+        ...n,
+      });
+    }
+  }
+
+  for (const d of input.days) {
+    const values = {
+      steps: d.steps ?? null,
+      distance_m: d.distanceM ?? null,
+      calories: d.calories ?? null,
+      total_calories: d.totalCalories ?? null,
+      active_seconds: d.activeSeconds ?? null,
+      hr_avg: d.hrAvg ?? null,
+      hr_min: d.hrMin ?? null,
+      hr_max: d.hrMax ?? null,
+      updated_at: now,
+    };
+    const result = upsertWearableRow(
+      ctx,
+      'train_activity_days',
+      { trainee_id: trainee.id, source: input.source, day: d.day },
+      values,
+      { recorded_by: ctx.principal, created_at: now },
+    );
+    out.days[result]++;
+    if (result !== 'unchanged') {
+      announce('stride.activity-day-recorded', {
+        traineeId: trainee.id,
+        source: input.source,
+        change: result,
+        ...d,
+      });
+    }
+  }
+  return out;
+};
+
+export const wearableInput = z.object({
+  traineeId: z.string().min(1).describe('Trainee record id: use traineeId from stride/whoami for your own data, or an id from stride/trainees for somebody you may read.'),
+  days: z.number().int().min(1).max(730).default(90).describe('How far back to read, in days. Defaults to 90.'),
+});
+
+export interface WearableView {
+  activities: ActivityRow[];
+  sleep: SleepNightRow[];
+  days: ActivityDayRow[];
+}
+
+/** What the person's wearable recorded over the last N days, newest first. Narrowed `result:read`. */
+const wearableOp: OperationHandler<z.infer<typeof wearableInput>, WearableView> = async (ctx, rawInput) => {
+  const input = wearableInput.parse(rawInput);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultRead, { entityType: 'trainee', entityId: input.traineeId }),
+  );
+  const since = new Date(new Date(ctx.now()).getTime() - input.days * 86_400_000).toISOString();
+  const sinceDay = since.slice(0, 10);
+  return {
+    activities: ctx.sql.query<ActivityRow>(
+      'SELECT * FROM train_activities WHERE trainee_id = ? AND started_at >= ? ORDER BY started_at DESC, id',
+      [input.traineeId, since],
+    ),
+    sleep: ctx.sql.query<SleepNightRow>(
+      'SELECT * FROM train_sleep_nights WHERE trainee_id = ? AND night >= ? ORDER BY night DESC, id',
+      [input.traineeId, sinceDay],
+    ),
+    days: ctx.sql.query<ActivityDayRow>(
+      'SELECT * FROM train_activity_days WHERE trainee_id = ? AND day >= ? ORDER BY day DESC',
+      [input.traineeId, sinceDay],
+    ),
+  };
+};
+
+// ---------------------------------------------------------------------------
 // PROGRESS — the evolution, read off the append-only results.
 //
 // Nothing here is stored. Every point is a fold over `train_set_results`, one
@@ -4172,6 +4582,8 @@ export const strideModule: ModuleRegistration = {
     'stride/timeline': timelineOp as never,
     'stride/log-measurement': logMeasurementOp as never,
     'stride/measurements': measurementsOp as never,
+    'stride/record-wearable': recordWearableOp as never,
+    'stride/wearable': wearableOp as never,
     'stride/progress': progressOp as never,
   },
 };

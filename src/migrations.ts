@@ -482,5 +482,97 @@ export const strideMigrations: SqlMigration[] = [
       CREATE INDEX train_program_days_schedule ON train_program_days(program_id, scheduled_date);
     `,
   },
+  {
+    version: '0012-wearables',
+    sql: `
+      -- What a wearable recorded, mirrored from a provider (today only Withings).
+      --
+      -- Unlike set results and measurements these rows ARE rewritten: the provider
+      -- revises a night after the fact and a day's steps grow until midnight, so a
+      -- sync is an upsert on the PROVIDER'S id (unique below), not an append. Every
+      -- insert and every change that alters a value still emits a fat event, so the
+      -- history of what was believed when stays in the audit spine, not in a column.
+      --
+      -- Keyed by trainee and nothing else: no foreign key to a session or a programme.
+      -- A run is not a workout of ours, and tying the two together is the next change.
+      -- Read and written under result:read / result:log on the TRAINEE record, exactly
+      -- as measurements are, so no permission key is added.
+
+      -- One workout the device recorded: a run, a ride, a swim.
+      CREATE TABLE train_activities (
+        id               TEXT PRIMARY KEY,
+        trainee_id       TEXT NOT NULL REFERENCES train_trainees(id),
+        source           TEXT NOT NULL,
+        external_id      TEXT NOT NULL,
+        kind             TEXT NOT NULL,
+        started_at       TEXT NOT NULL,
+        ended_at         TEXT NOT NULL,
+        duration_seconds INTEGER NOT NULL,
+        distance_m       TEXT,
+        calories         TEXT,
+        steps            INTEGER,
+        elevation_m      TEXT,
+        hr_avg           INTEGER,
+        hr_min           INTEGER,
+        hr_max           INTEGER,
+        hr_zone0_seconds INTEGER,
+        hr_zone1_seconds INTEGER,
+        hr_zone2_seconds INTEGER,
+        hr_zone3_seconds INTEGER,
+        recorded_by      TEXT NOT NULL,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        UNIQUE (trainee_id, source, external_id)
+      );
+      CREATE INDEX train_activities_when ON train_activities(trainee_id, started_at);
+
+      -- One night's sleep, summarised by the device.
+      CREATE TABLE train_sleep_nights (
+        id                TEXT PRIMARY KEY,
+        trainee_id        TEXT NOT NULL REFERENCES train_trainees(id),
+        source            TEXT NOT NULL,
+        external_id       TEXT NOT NULL,
+        night             TEXT NOT NULL,
+        started_at        TEXT NOT NULL,
+        ended_at          TEXT NOT NULL,
+        in_bed_seconds    INTEGER,
+        asleep_seconds    INTEGER,
+        light_seconds     INTEGER,
+        deep_seconds      INTEGER,
+        rem_seconds       INTEGER,
+        awake_seconds     INTEGER,
+        score             INTEGER,
+        efficiency        TEXT,
+        hr_avg            INTEGER,
+        hr_min            INTEGER,
+        hr_max            INTEGER,
+        rr_avg            INTEGER,
+        recorded_by       TEXT NOT NULL,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL,
+        UNIQUE (trainee_id, source, external_id)
+      );
+      CREATE INDEX train_sleep_nights_when ON train_sleep_nights(trainee_id, night);
+
+      -- One calendar day of movement.
+      CREATE TABLE train_activity_days (
+        trainee_id       TEXT NOT NULL REFERENCES train_trainees(id),
+        source           TEXT NOT NULL,
+        day              TEXT NOT NULL,
+        steps            INTEGER,
+        distance_m       TEXT,
+        calories         TEXT,
+        total_calories   TEXT,
+        active_seconds   INTEGER,
+        hr_avg           INTEGER,
+        hr_min           INTEGER,
+        hr_max           INTEGER,
+        recorded_by      TEXT NOT NULL,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        PRIMARY KEY (trainee_id, source, day)
+      );
+    `,
+  },
 
 ];
