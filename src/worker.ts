@@ -12,7 +12,7 @@ import {
   type IdentityDO,
 } from '@substrat-run/vertical-auth';
 import { invocationLog, PermissionDenied, readRoutedNode } from '@substrat-run/kernel';
-import { z, type PrincipalId, type ScopeId, type TenantId } from '@substrat-run/contracts';
+import { resolveScopedEnvSpec, z, type PrincipalId, type ScopeId, type TenantId } from '@substrat-run/contracts';
 import { AUTH_CONFIG_KEY, ConfigDO } from './config-do.js';
 import { MODULES, ROLES } from './modules.js';
 import {
@@ -76,14 +76,12 @@ interface Env {
   /** Legacy, unread — see the ConfigDO note above. */
   CONFIG: DurableObjectNamespace<ConfigDO>;
   /**
-   * The Withings developer app this vertical is registered as. Both unset ⇒ the integration is
-   * simply absent: `/api/withings/status` says `configured: false` and the app hides its card.
-   * One Withings app serves every gym, which is why these are worker-wide and not per-scope.
+   * Deployment-wide fallback for the Withings app credentials. A hosted install gets them per scope
+   * from the dashboard's Settings → Environment instead (see `withingsAppOf`); these only matter
+   * where the worker is deployed by hand.
    */
   WITHINGS_CLIENT_ID?: string;
   WITHINGS_CLIENT_SECRET?: string;
-  /** Only if the callback is not `https://<this host>/api/withings/callback`. */
-  WITHINGS_REDIRECT_URI?: string;
 }
 
 /**
@@ -379,13 +377,30 @@ app.get('/api/session', async (c) => {
 const withingsKey = (traineeId: string) => `withings:${traineeId}`;
 const WITHINGS_STATE_COOKIE = 'stride_withings_state';
 
-const withingsAppOf = (env: Env): WithingsApp | null =>
-  env.WITHINGS_CLIENT_ID && env.WITHINGS_CLIENT_SECRET
-    ? { clientId: env.WITHINGS_CLIENT_ID, clientSecret: env.WITHINGS_CLIENT_SECRET }
-    : null;
+/**
+ * The Withings developer app, or null when this gym has not been given one — and then the integration is
+ * simply absent: `/api/withings/status` says `configured: false` and the app hides its card.
+ *
+ * Declared as `envSpec` in package.json, so the dashboard renders the form (Settings → Environment). A
+ * hosted vertical reads those values from what was DELIVERED to its scope, not from worker env: env is
+ * shared by every install of one serving script. `resolveScopedEnvSpec` is the merge, delivered > env.
+ */
+// The keys only: the labels the dashboard shows live in package.json `substrat.envSpec`.
+const WITHINGS_ENV = [
+  { key: 'WITHINGS_CLIENT_ID', description: 'Withings client ID', required: false, secret: false },
+  { key: 'WITHINGS_CLIENT_SECRET', description: 'Withings client secret', required: false, secret: true },
+];
 
-const withingsRedirectUri = (env: Env, req: Request) =>
-  env.WITHINGS_REDIRECT_URI ?? `${new URL(req.url).origin}/api/withings/callback`;
+async function withingsAppOf(env: Env, node: { scopeId: string; tenantId: string }): Promise<WithingsApp | null> {
+  const delivered = await identityDo(env, node).getScopeConfig(node.scopeId);
+  const { values } = resolveScopedEnvSpec(WITHINGS_ENV, env as unknown as Record<string, unknown>, delivered);
+  const clientId = values.WITHINGS_CLIENT_ID;
+  const clientSecret = values.WITHINGS_CLIENT_SECRET;
+  return clientId && clientSecret ? { clientId, clientSecret } : null;
+}
+
+/** Derived from the request, so it is whatever host the person is on: it must match what Withings has registered. */
+const withingsRedirectUri = (req: Request) => `${new URL(req.url).origin}/api/withings/callback`;
 
 /** Parsed LENIENTLY, like the auth choice: anything unreadable is "not connected", never a throw. */
 function withingsLinkStore(env: Env, node: { tenantId: string; scopeId: string }): LinkStore {
@@ -425,7 +440,7 @@ app.get('/api/withings/status', async (c) => {
   const { node, traineeId } = await withingsCaller(c.env, c.req.raw);
   const link = traineeId ? await withingsLinkStore(c.env, node).get(traineeId) : null;
   return c.json({
-    configured: withingsAppOf(c.env) !== null,
+    configured: (await withingsAppOf(c.env, node)) !== null,
     traineeId,
     connected: link !== null,
     connectedAt: link?.connectedAt ?? null,
@@ -435,9 +450,9 @@ app.get('/api/withings/status', async (c) => {
 
 /** Step 1: bind the round to this browser with a one-time nonce, then send them to Withings. */
 app.get('/api/withings/connect', async (c) => {
-  const app_ = withingsAppOf(c.env);
-  if (!app_) return c.json({ error: 'Withings is not set up on this deployment' }, 503);
-  const { traineeId } = await withingsCaller(c.env, c.req.raw);
+  const { node, traineeId } = await withingsCaller(c.env, c.req.raw);
+  const app_ = await withingsAppOf(c.env, node);
+  if (!app_) return c.json({ error: 'Withings is not set up for this gym' }, 503);
   if (!traineeId) return c.json({ error: 'make yourself a workout first: Withings needs a trainee record to write to' }, 409);
 
   const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))))
@@ -455,7 +470,7 @@ app.get('/api/withings/connect', async (c) => {
   return c.redirect(
     withingsConsentUrl({
       clientId: app_.clientId,
-      redirectUri: withingsRedirectUri(c.env, c.req.raw),
+      redirectUri: withingsRedirectUri(c.req.raw),
       state: nonce,
     }),
     302,
@@ -467,8 +482,6 @@ app.get('/api/withings/connect', async (c) => {
  * browser's cookie AND a signed-in session, so a code planted by somebody else's link spends on nothing.
  */
 app.get('/api/withings/callback', async (c) => {
-  const app_ = withingsAppOf(c.env);
-  if (!app_) return c.json({ error: 'Withings is not set up on this deployment' }, 503);
   const url = new URL(c.req.url);
   const cookie = getCookie(c, WITHINGS_STATE_COOKIE);
   deleteCookie(c, WITHINGS_STATE_COOKIE, { path: '/api/withings' });
@@ -481,12 +494,14 @@ app.get('/api/withings/callback', async (c) => {
   }
 
   const { scope, node, traineeId } = await withingsCaller(c.env, c.req.raw);
+  const app_ = await withingsAppOf(c.env, node);
+  if (!app_) return c.json({ error: 'Withings is not set up for this gym' }, 503);
   if (!traineeId) return c.json({ error: 'no trainee record to connect Withings to' }, 409);
   const store = withingsLinkStore(c.env, node);
   try {
     const link = await exchangeCode(
       app_,
-      { code, redirectUri: withingsRedirectUri(c.env, c.req.raw) },
+      { code, redirectUri: withingsRedirectUri(c.req.raw) },
       fetch,
       new Date(),
     );
@@ -501,9 +516,9 @@ app.get('/api/withings/callback', async (c) => {
 });
 
 app.post('/api/withings/sync', async (c) => {
-  const app_ = withingsAppOf(c.env);
-  if (!app_) return c.json({ error: 'Withings is not set up on this deployment' }, 503);
   const { scope, node, traineeId } = await withingsCaller(c.env, c.req.raw);
+  const app_ = await withingsAppOf(c.env, node);
+  if (!app_) return c.json({ error: 'Withings is not set up for this gym' }, 503);
   if (!traineeId) return c.json({ error: 'no trainee record' }, 409);
   try {
     return c.json(

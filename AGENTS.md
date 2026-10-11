@@ -631,9 +631,12 @@ what that person could have typed, and the test pins the denial.
   revised reading is a new row.
 - **The OAuth `state` is a nonce in an HttpOnly cookie**, checked at the callback together with a
   signed-in session. Nothing is stored server-side for it.
-- **The app credentials are worker env**, `WITHINGS_CLIENT_ID` / `WITHINGS_CLIENT_SECRET` — one
-  Withings app serves every gym, unlike the session secret, which must never be shared. Unset means
-  the integration is absent (`configured: false`, the card hides).
+- **The app credentials are per-scope config, declared as `envSpec`** in package.json
+  (`WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET`), so the dashboard's Settings → Environment renders the
+  form and delivers the values through `/internal/configure` into the identity DO. A hosted vertical must
+  NOT read these from worker env — that is shared by every install of the serving script — so
+  `withingsAppOf` uses `resolveScopedEnvSpec` (delivered > env). Unset means the integration is absent
+  (`configured: false`, the card hides).
 - Not in the local harness (`server.ts`): there is no identity DO there. Not a platform connector
   either — that would move the callback and the tokens to the hub and leave the operations alone.
 
