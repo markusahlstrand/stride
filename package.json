@@ -78,6 +78,26 @@
     "permissions": "src/modules.ts",
     "requires": [
       "oidc-issuer"
+    ],
+    "envSpec": [
+      {
+        "key": "WITHINGS_CLIENT_ID",
+        "label": "Withings client ID",
+        "description": "From the Withings developer dashboard. Together with the secret, it turns on the Withings card on Progress.",
+        "placeholder": "1782e150\u2026",
+        "required": false,
+        "secret": false,
+        "group": "Withings"
+      },
+      {
+        "key": "WITHINGS_CLIENT_SECRET",
+        "label": "Withings client secret",
+        "description": "Shown once when the Withings application is created. Write-only here.",
+        "placeholder": "",
+        "required": false,
+        "secret": true,
+        "group": "Withings"
+      }
     ]
   }
 }

@@ -22,6 +22,7 @@ import {
   type Goal,
   type Invitation,
   type Measurement,
+  type WithingsStatus,
   type MeasurementKind,
   MEASUREMENT_KINDS,
   type Message,
@@ -4294,6 +4295,83 @@ function BodyCard({
   );
 }
 
+/**
+ * A scale that writes to Body for you. Only ever about YOUR record: Withings is a login of one person's,
+ * so there is no id to pass and nothing to show anybody else. Hidden outright when this deployment has
+ * no Withings app registered.
+ */
+function WithingsCard({ run, onSynced }: { run: Run; onSynced: () => void }) {
+  const [status, setStatus] = useState<WithingsStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api.withingsStatus().then(setStatus).catch(() => setStatus(null));
+  }, []);
+  useEffect(load, [load]);
+
+  if (!status?.configured) return null;
+
+  const sync = async () => {
+    setBusy(true);
+    const ok = await run(async () => {
+      const r = await api.withingsSync();
+      setResult(r.added === 0 ? 'Already up to date.' : `${r.added} new ${r.added === 1 ? 'reading' : 'readings'} added.`);
+    }, 'Synced from Withings');
+    setBusy(false);
+    load();
+    if (ok) onSynced();
+  };
+  const disconnect = async () => {
+    setBusy(true);
+    await run(() => api.withingsDisconnect(), 'Withings disconnected');
+    setBusy(false);
+    load();
+  };
+
+  return (
+    <div className="card">
+      <div className="row center">
+        <span className="title">Withings</span>
+        <span className="sub">{status.connected ? 'Connected' : 'Not connected'}</span>
+      </div>
+      <div className="sub" style={{ marginTop: 4 }}>
+        {status.connected
+          ? status.lastSyncAt
+            ? `Weight and body fat from your scale. Last synced ${new Date(status.lastSyncAt).toLocaleString()}.`
+            : 'Weight and body fat from your scale. Not synced yet.'
+          : 'Bring in weight and body fat from a Withings scale. Stride only asks for body measurements.'}
+      </div>
+      <div className="actions" style={{ marginTop: 10 }}>
+        {status.connected ? (
+          <>
+            <button className="tinted" disabled={busy} onClick={sync}>
+              Sync now
+            </button>
+            <button className="ghost" disabled={busy} onClick={disconnect}>
+              Disconnect
+            </button>
+          </>
+        ) : (
+          // A full navigation, not a fetch: the round trip ends at Withings and comes back through the server.
+          <button className="tinted" onClick={() => window.location.assign('/api/withings/connect')}>
+            Connect Withings
+          </button>
+        )}
+      </div>
+      {result && (
+        <div className="sub" style={{ marginTop: 6 }} role="status">
+          {result}
+        </div>
+      )}
+      {status.connected && (
+        <div className="sub" style={{ marginTop: 6 }}>
+          Disconnecting stops new readings. The ones already kept stay in your history.
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ProgressScreen({
   traineeId,
   me,
@@ -4419,6 +4497,7 @@ export function ProgressScreen({
         run={run}
         onLogged={reload}
       />
+      {mine && <WithingsCard run={run} onSynced={reload} />}
     </>
   );
 }

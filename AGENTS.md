@@ -614,6 +614,32 @@ staff read "programme". Guarded by test 25.
   HTTP surface and the React app, so it is a design decision, not a version upgrade.
   One programme by id is `getWorkOrder(ctx, id)` — never a list you `.find` through.
 
+## Withings is harness code, and syncing is just logging as the person
+
+`src/withings.ts` + the `/api/withings/*` routes in `worker.ts` pull weight and body fat from a
+connected scale into `train_measurements`. It is NOT an operation and `module.ts` does not know it
+exists: rule 2 keeps `fetch` out of module code, so the network half is harness, and the domain half
+is `stride/log-measurement` called **as the signed-in person**. The kernel still decides (narrowed
+`result:log` on their own record) and the audit spine still names them — a sync can write exactly
+what that person could have typed, and the test pins the denial.
+
+- **Tokens are per trainee**, kept in the identity DO's scope config under `withings:<traineeId>`
+  (no delete there, so a disconnected link is the empty string). The refresh token ROTATES: the new
+  one is saved before the new access token is used, or a failed write strands the connection.
+- **No migration, no new permission.** A reading is deduped on (kind, measured_at, value) against what
+  `stride/measurements` already returns, and tagged `note: 'Withings'`. Append-only still holds: a
+  revised reading is a new row.
+- **The OAuth `state` is a nonce in an HttpOnly cookie**, checked at the callback together with a
+  signed-in session. Nothing is stored server-side for it.
+- **The app credentials are per-scope config, declared as `envSpec`** in package.json
+  (`WITHINGS_CLIENT_ID`, `WITHINGS_CLIENT_SECRET`), so the dashboard's Settings → Environment renders the
+  form and delivers the values through `/internal/configure` into the identity DO. A hosted vertical must
+  NOT read these from worker env — that is shared by every install of the serving script — so
+  `withingsAppOf` uses `resolveScopedEnvSpec` (delivered > env). Unset means the integration is absent
+  (`configured: false`, the card hides).
+- Not in the local harness (`server.ts`): there is no identity DO there. Not a platform connector
+  either — that would move the callback and the tokens to the hub and leave the operations alone.
+
 ## Per-instance config, and the session secret
 
 `mountPlatformSurface`'s built-in `/internal/configure` answers **501 for the life of every

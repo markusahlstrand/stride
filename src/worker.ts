@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { HTTPException } from 'hono/http-exception';
 import { CloudflareScopeHost, defineScopeDO } from '@substrat-run/adapter-cloudflare';
 import { mountOperations, mountPlatformSurface } from '@substrat-run/vertical-host';
@@ -11,9 +12,19 @@ import {
   type IdentityDO,
 } from '@substrat-run/vertical-auth';
 import { invocationLog, PermissionDenied, readRoutedNode } from '@substrat-run/kernel';
-import { z, type PrincipalId, type ScopeId, type TenantId } from '@substrat-run/contracts';
+import { resolveScopedEnvSpec, z, type PrincipalId, type ScopeId, type TenantId } from '@substrat-run/contracts';
 import { AUTH_CONFIG_KEY, ConfigDO } from './config-do.js';
 import { MODULES, ROLES } from './modules.js';
+import {
+  WithingsError,
+  exchangeCode,
+  syncWithings,
+  withingsConsentUrl,
+  type LinkStore,
+  type WithingsApp,
+  type WithingsLink,
+} from './withings.js';
+import type { WhoAmI } from './module.js';
 
 // ============================================================================
 // THE DEPLOYED VERTICAL — one Durable Object per scope on Cloudflare.
@@ -64,6 +75,13 @@ interface Env {
   IDENTITY: DurableObjectNamespace<IdentityDO>;
   /** Legacy, unread — see the ConfigDO note above. */
   CONFIG: DurableObjectNamespace<ConfigDO>;
+  /**
+   * Deployment-wide fallback for the Withings app credentials. A hosted install gets them per scope
+   * from the dashboard's Settings → Environment instead (see `withingsAppOf`); these only matter
+   * where the worker is deployed by hand.
+   */
+  WITHINGS_CLIENT_ID?: string;
+  WITHINGS_CLIENT_SECRET?: string;
 }
 
 /**
@@ -340,6 +358,189 @@ app.get('/api/session', async (c) => {
     email: subject?.email ?? null,
     name: subject?.name ?? null,
   });
+});
+
+// ============================================================================
+// WITHINGS — body measurements from a connected scale.
+//
+// Harness code, and deliberately NOT an operation: rule 2 keeps `fetch` out of
+// module code. What it does reach the domain through is `stride/log-measurement`,
+// called as the person who pressed the button — so the kernel still decides whether
+// they may, and nothing in module.ts knows Withings exists. The logic lives in
+// `withings.ts`; this is the wiring.
+//
+// Tokens are per TRAINEE (one scale account per person), kept in the identity DO's
+// scope config under `withings:<traineeId>`. That store has no delete, so a
+// disconnected link is the empty string.
+// ============================================================================
+
+const withingsKey = (traineeId: string) => `withings:${traineeId}`;
+const WITHINGS_STATE_COOKIE = 'stride_withings_state';
+
+/**
+ * The Withings developer app, or null when this gym has not been given one — and then the integration is
+ * simply absent: `/api/withings/status` says `configured: false` and the app hides its card.
+ *
+ * Declared as `envSpec` in package.json, so the dashboard renders the form (Settings → Environment). A
+ * hosted vertical reads those values from what was DELIVERED to its scope, not from worker env: env is
+ * shared by every install of one serving script. `resolveScopedEnvSpec` is the merge, delivered > env.
+ */
+// The keys only: the labels the dashboard shows live in package.json `substrat.envSpec`.
+const WITHINGS_ENV = [
+  { key: 'WITHINGS_CLIENT_ID', description: 'Withings client ID', required: false, secret: false },
+  { key: 'WITHINGS_CLIENT_SECRET', description: 'Withings client secret', required: false, secret: true },
+];
+
+async function withingsAppOf(env: Env, node: { scopeId: string; tenantId: string }): Promise<WithingsApp | null> {
+  const delivered = await identityDo(env, node).getScopeConfig(node.scopeId);
+  const { values } = resolveScopedEnvSpec(WITHINGS_ENV, env as unknown as Record<string, unknown>, delivered);
+  const clientId = values.WITHINGS_CLIENT_ID;
+  const clientSecret = values.WITHINGS_CLIENT_SECRET;
+  return clientId && clientSecret ? { clientId, clientSecret } : null;
+}
+
+/** Derived from the request, so it is whatever host the person is on: it must match what Withings has registered. */
+const withingsRedirectUri = (req: Request) => `${new URL(req.url).origin}/api/withings/callback`;
+
+/** Parsed LENIENTLY, like the auth choice: anything unreadable is "not connected", never a throw. */
+function withingsLinkStore(env: Env, node: { tenantId: string; scopeId: string }): LinkStore {
+  const identity = identityDo(env, node);
+  return {
+    async get(traineeId) {
+      const raw = (await identity.getScopeConfig(node.scopeId))[withingsKey(traineeId)];
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as WithingsLink;
+      } catch {
+        return null;
+      }
+    },
+    async set(traineeId, link) {
+      await identity.setScopeConfig(node.scopeId, [
+        { key: withingsKey(traineeId), value: link ? JSON.stringify(link) : '' },
+      ]);
+    },
+  };
+}
+
+/** The signed-in person, their scope, and THEIR trainee record — Withings is about a body, so it needs one. */
+async function withingsCaller(env: Env, req: Request) {
+  const { principal, tenantId, scopeId } = await principalOf(req, env);
+  const scope = await hostFor(env).getScope(principal, tenantId, scopeId);
+  const me = await scope.invoke<WhoAmI>('stride/whoami');
+  return { scope, node: { tenantId, scopeId }, traineeId: me.traineeId };
+}
+
+const withingsFailure = (c: { json: (b: unknown, s: number) => Response }, e: unknown) => {
+  if (e instanceof WithingsError) return c.json({ error: e.message }, 502);
+  throw e;
+};
+
+app.get('/api/withings/status', async (c) => {
+  const { node, traineeId } = await withingsCaller(c.env, c.req.raw);
+  const link = traineeId ? await withingsLinkStore(c.env, node).get(traineeId) : null;
+  return c.json({
+    configured: (await withingsAppOf(c.env, node)) !== null,
+    traineeId,
+    connected: link !== null,
+    connectedAt: link?.connectedAt ?? null,
+    lastSyncAt: link?.lastSyncAt ?? null,
+  });
+});
+
+/** Step 1: bind the round to this browser with a one-time nonce, then send them to Withings. */
+app.get('/api/withings/connect', async (c) => {
+  const { node, traineeId } = await withingsCaller(c.env, c.req.raw);
+  const app_ = await withingsAppOf(c.env, node);
+  if (!app_) return c.json({ error: 'Withings is not set up for this gym' }, 503);
+  if (!traineeId) return c.json({ error: 'make yourself a workout first: Withings needs a trainee record to write to' }, 409);
+
+  const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  setCookie(c, WITHINGS_STATE_COOKIE, nonce, {
+    httpOnly: true,
+    secure: true,
+    // Lax, not Strict: the return trip from account.withings.com is a cross-site navigation.
+    sameSite: 'Lax',
+    path: '/api/withings',
+    maxAge: 600,
+  });
+  return c.redirect(
+    withingsConsentUrl({
+      clientId: app_.clientId,
+      redirectUri: withingsRedirectUri(c.req.raw),
+      state: nonce,
+    }),
+    302,
+  );
+});
+
+/**
+ * Step 2: Withings sends the person back with a `code`. It is worth nothing without the nonce in THIS
+ * browser's cookie AND a signed-in session, so a code planted by somebody else's link spends on nothing.
+ */
+app.get('/api/withings/callback', async (c) => {
+  const url = new URL(c.req.url);
+  const cookie = getCookie(c, WITHINGS_STATE_COOKIE);
+  deleteCookie(c, WITHINGS_STATE_COOKIE, { path: '/api/withings' });
+  if (url.searchParams.get('error')) {
+    return c.json({ error: 'Withings did not authorize the connection' }, 400);
+  }
+  const code = url.searchParams.get('code');
+  if (!code || !cookie || cookie !== url.searchParams.get('state')) {
+    return c.json({ error: 'this connection attempt did not start here: try Connect again' }, 400);
+  }
+
+  const { scope, node, traineeId } = await withingsCaller(c.env, c.req.raw);
+  const app_ = await withingsAppOf(c.env, node);
+  if (!app_) return c.json({ error: 'Withings is not set up for this gym' }, 503);
+  if (!traineeId) return c.json({ error: 'no trainee record to connect Withings to' }, 409);
+  const store = withingsLinkStore(c.env, node);
+  try {
+    const link = await exchangeCode(
+      app_,
+      { code, redirectUri: withingsRedirectUri(c.req.raw) },
+      fetch,
+      new Date(),
+    );
+    await store.set(traineeId, link);
+  } catch (e) {
+    return withingsFailure(c, e);
+  }
+  // The first pull rides the same request, but a failure here must not undo the connection: it is
+  // saved, and "Sync now" is one tap away.
+  await syncWithings({ app: app_, store, traineeId, scope, fetch, now: new Date() }).catch(() => undefined);
+  return c.redirect('/#/progress', 302);
+});
+
+app.post('/api/withings/sync', async (c) => {
+  const { scope, node, traineeId } = await withingsCaller(c.env, c.req.raw);
+  const app_ = await withingsAppOf(c.env, node);
+  if (!app_) return c.json({ error: 'Withings is not set up for this gym' }, 503);
+  if (!traineeId) return c.json({ error: 'no trainee record' }, 409);
+  try {
+    return c.json(
+      await syncWithings({
+        app: app_,
+        store: withingsLinkStore(c.env, node),
+        traineeId,
+        scope,
+        fetch,
+        now: new Date(),
+      }),
+    );
+  } catch (e) {
+    return withingsFailure(c, e);
+  }
+});
+
+/** Forgets OUR copy of the tokens. The readings already kept stay: a history is the point. */
+app.delete('/api/withings', async (c) => {
+  const { node, traineeId } = await withingsCaller(c.env, c.req.raw);
+  if (traineeId) await withingsLinkStore(c.env, node).set(traineeId, null);
+  return c.json({ connected: false });
 });
 
 /**

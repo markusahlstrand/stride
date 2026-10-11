@@ -312,6 +312,14 @@ export const MEASUREMENT_KINDS: Record<MeasurementKind, { unit: string; sided: b
   'shoulder-external-rotation': { unit: 'deg', sided: true, label: 'Shoulder external rotation' },
 };
 
+export interface WithingsStatus {
+  /** False when this deployment has no Withings app — the card stays hidden. */
+  configured: boolean;
+  connected: boolean;
+  connectedAt: string | null;
+  lastSyncAt: string | null;
+}
+
 export interface Measurement {
   id: string;
   trainee_id: string;
@@ -455,6 +463,11 @@ export const api = {
     b: { kind: MeasurementKind; side?: Side; value: string; measuredAt?: string; note?: string },
   ) => post<Measurement>(`/trainees/${traineeId}/measurements`, b),
   progress: (traineeId: string) => get<Progress>(`/trainees/${traineeId}/progress`),
+
+  // Withings: always about the SIGNED-IN person's own record, so none of these take an id.
+  withingsStatus: () => get<WithingsStatus>('/withings/status'),
+  withingsSync: () => post<{ seen: number; added: number }>('/withings/sync'),
+  withingsDisconnect: () => call<{ connected: false }>('/withings', { method: 'DELETE' }),
 
   threads: () => get<Thread[]>('/threads'),
   messages: (traineeId: string, coachId: string) =>
