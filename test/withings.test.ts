@@ -59,7 +59,9 @@ const freshLink = (over: Partial<WithingsLink> = {}): WithingsLink => ({
 });
 
 /** A Withings that answers `/v2/oauth2` and `/measure`, and remembers what it was asked. */
-function fakeWithings(groups: unknown[]) {
+function fakeWithings(groups: unknown[] | unknown[][]) {
+  // An array of arrays is a paginated answer: each page says `more` and where the next one starts.
+  const pages: unknown[][] = Array.isArray(groups[0]) ? (groups as unknown[][]) : [groups];
   const calls: { path: string; form: URLSearchParams; auth: string | null }[] = [];
   const fn = (async (input: string | URL | Request, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
@@ -75,15 +77,24 @@ function fakeWithings(groups: unknown[]) {
             expires_in: 10_800,
             scope: 'user.metrics',
           }
-        : { updatetime: epoch('2026-10-11T07:59:00.000Z'), more: 0, measuregrps: groups };
+        : (() => {
+            const i = Number(form.get('offset') ?? 0);
+            return {
+              updatetime: epoch('2026-10-11T07:59:00.000Z'),
+              more: i < pages.length - 1 ? 1 : 0,
+              offset: i + 1,
+              measuregrps: pages[i] ?? [],
+            };
+          })();
     return new Response(JSON.stringify({ status: 0, body }), { status: 200 });
   }) as typeof fetch;
   return { fn, calls };
 }
 
-const weighIn = (iso: string, value: number, unit = -3) => ({
+const weighIn = (iso: string, value: number, unit = -3, modified = epoch(iso)) => ({
   grpid: epoch(iso),
   date: epoch(iso),
+  modified,
   category: 1,
   measures: [{ value, type: 1, unit }],
 });
@@ -194,14 +205,15 @@ describe('the sync', () => {
     expect(getmeas.auth).toBe('Bearer access-1');
     expect(getmeas.form.get('startdate')).toBe(String(epoch(NOW.toISOString()) - 365 * 86_400));
     expect(store.link!.lastSyncAt).toBe(NOW.toISOString());
-    expect(store.link!.lastUpdate).toBe(epoch('2026-10-11T07:59:00.000Z'));
+    // The cursor is the newest `modified` actually read, not the response's own `updatetime`.
+    expect(store.link!.lastUpdate).toBe(epoch('2026-10-10T06:30:00.000Z'));
 
     // Again, same data, incremental this time: nothing new, and it asks only for what changed.
     const again = await syncWithings({ app, store, traineeId: w.veraId, scope: vera, fetch: withings.fn, now: NOW });
     expect(again).toEqual({ seen: 2, added: 0 });
     expect((await rows(vera, w.veraId)).length).toBe(before + 2);
     const second = withings.calls.filter((c) => c.path === '/measure')[1]!;
-    expect(second.form.get('lastupdate')).toBe(String(epoch('2026-10-11T07:59:00.000Z')));
+    expect(second.form.get('lastupdate')).toBe(String(epoch('2026-10-10T06:30:00.000Z')));
     expect(second.form.has('startdate')).toBe(false);
   });
 
@@ -218,6 +230,50 @@ describe('the sync', () => {
     expect(store.link).toMatchObject({ accessToken: 'access-2', refreshToken: 'refresh-2' });
     // Once for the refresh, once for the sync's own bookkeeping.
     expect(store.writes).toBe(2);
+  });
+
+  it('follows Withings\' pages with the offset it gives, and reads all of them', async () => {
+    const store = memoryStore();
+    store.link = freshLink();
+    const withings = fakeWithings([
+      [weighIn('2026-10-10T06:30:00.000Z', 72400)],
+      [weighIn('2026-10-09T06:30:00.000Z', 72900)],
+      [weighIn('2026-10-08T06:30:00.000Z', 73300)],
+    ]);
+    const r = await syncWithings({ app, store, traineeId: w.veraId, scope: vera, fetch: withings.fn, now: NOW });
+    expect(r.seen).toBe(3);
+    expect(withings.calls.filter((c) => c.path === '/measure').map((c) => c.form.get('offset'))).toEqual([null, '1', '2']);
+  });
+
+  it('never saves a cursor off a pull that did not finish', async () => {
+    const stuck = (extra: Record<string, unknown>) =>
+      (async (input: string | URL | Request) =>
+        new Response(
+          JSON.stringify({
+            status: 0,
+            body: new URL(String(input)).pathname === '/measure' ? { more: 1, measuregrps: [weighIn('2026-10-10T06:30:00.000Z', 72400)], ...extra } : {},
+          }),
+          { status: 200 },
+        )) as typeof fetch;
+    const before = (await rows(vera, w.veraId)).length;
+
+    // `more` with no offset would repeat page one for ever, or end one page short.
+    const noOffset = memoryStore();
+    noOffset.link = freshLink();
+    await expect(
+      syncWithings({ app, store: noOffset, traineeId: w.veraId, scope: vera, fetch: stuck({}), now: NOW }),
+    ).rejects.toThrow(/no offset/);
+    expect(noOffset.link.lastUpdate).toBeNull();
+
+    // `more` for ever: the page limit throws instead of returning a partial answer as a whole one.
+    const endless = memoryStore();
+    endless.link = freshLink();
+    await expect(
+      syncWithings({ app, store: endless, traineeId: w.veraId, scope: vera, fetch: stuck({ offset: 1 }), now: NOW }),
+    ).rejects.toThrow(/more than 50 pages/);
+    expect(endless.link.lastUpdate).toBeNull();
+    // And nothing was written: the whole pull happens before the first row.
+    expect((await rows(vera, w.veraId)).length).toBe(before);
   });
 
   it('says plainly when nothing is connected', async () => {

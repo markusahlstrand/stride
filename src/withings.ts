@@ -41,7 +41,7 @@ export interface WithingsLink {
   expiresAt: string;
   scope: string;
   connectedAt: string;
-  /** Withings' own `updatetime` of the last pull, for `lastupdate` next time. Epoch seconds. */
+  /** The largest `modified` seen so far, for `lastupdate` next time. Epoch seconds. */
   lastUpdate: number | null;
   lastSyncAt: string | null;
 }
@@ -106,6 +106,7 @@ interface TokenBody {
   scope: string;
 }
 
+/** A token response as our stored link; a refresh keeps what the response does not carry. */
 const linkFromTokens = (t: TokenBody, now: Date, prev?: WithingsLink): WithingsLink => ({
   userid: String(t.userid),
   accessToken: t.access_token,
@@ -135,6 +136,7 @@ export async function exchangeCode(
   return linkFromTokens(body, now);
 }
 
+/** A new access token from the refresh token. Withings rotates the refresh token too, so the caller must save the result. */
 async function refresh(app: WithingsApp, link: WithingsLink, fetchFn: Fetch, now: Date): Promise<WithingsLink> {
   const body = await wbs<TokenBody>(fetchFn, '/v2/oauth2', {
     action: 'requesttoken',
@@ -184,6 +186,8 @@ interface MeasureGroup {
   grpid: number;
   /** Epoch seconds of the measurement itself. */
   date: number;
+  /** Epoch seconds it was last created or changed at Withings: the cursor for the next pull. */
+  modified?: number;
   category: number;
   measures: { value: number; type: number; unit: number }[];
 }
@@ -206,22 +210,28 @@ export function readingsOf(groups: MeasureGroup[]): WithingsReading[] {
 }
 
 interface MeasBody {
-  updatetime: number;
   more: number;
   offset?: number;
   measuregrps: MeasureGroup[];
 }
 
+/** More pages than a person's body measurements can plausibly fill: past this, something is wrong. */
+const MAX_PAGES = 50;
+
+/**
+ * Every group in the window, following Withings' own `more` / `offset` pagination.
+ *
+ * It returns ONLY a complete pull. An incomplete one throws, because the caller saves a cursor off the
+ * result: a cursor advanced past pages that were never read would exclude those readings for good.
+ */
 async function pullGroups(
   fetchFn: Fetch,
   accessToken: string,
   window: { lastUpdate: number } | { startdate: number; enddate: number },
-): Promise<{ groups: MeasureGroup[]; updatetime: number }> {
+): Promise<MeasureGroup[]> {
   const groups: MeasureGroup[] = [];
   let offset: number | undefined;
-  let updatetime = 0;
-  // `more` is Withings' own pagination. Bounded, because a loop that trusts a remote flag forever is a hang.
-  for (let page = 0; page < 50; page++) {
+  for (let page = 0; page < MAX_PAGES; page++) {
     const form: Record<string, string> = {
       action: 'getmeas',
       meastypes: Object.keys(KIND_OF_TYPE).join(','),
@@ -233,11 +243,12 @@ async function pullGroups(
     };
     const body = await wbs<MeasBody>(fetchFn, '/measure', form, accessToken);
     groups.push(...body.measuregrps);
-    updatetime = body.updatetime;
-    if (!body.more) break;
+    if (!body.more) return groups;
+    // `more` without an `offset` would repeat the first page for ever, or end quietly one page short.
+    if (body.offset === undefined) throw new WithingsError('Withings said there is more but gave no offset');
     offset = body.offset;
   }
-  return { groups, updatetime };
+  throw new WithingsError(`Withings returned more than ${MAX_PAGES} pages of measurements`);
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +295,14 @@ export async function syncWithings(a: {
         startdate: Math.floor(now.getTime() / 1000) - FIRST_SYNC_DAYS * 86_400,
         enddate: Math.floor(now.getTime() / 1000),
       };
-  const { groups, updatetime } = await pullGroups(fetchFn, link.accessToken, window);
+  const groups = await pullGroups(fetchFn, link.accessToken, window);
+  // Withings' own advice: the largest `modified` actually processed, over EVERY group returned (also the
+  // ones we have no kind for), so a change we skipped is not fetched again for ever. Nothing returned
+  // leaves the cursor where it was.
+  const cursor = groups.reduce<number | null>(
+    (max, g) => (g.modified !== undefined && (max === null || g.modified > max) ? g.modified : max),
+    link.lastUpdate,
+  );
   const readings = readingsOf(groups);
 
   // Read first, through the operation: the dedupe is whatever the kernel will let this person see.
@@ -311,7 +329,7 @@ export async function syncWithings(a: {
 
   await store.set(traineeId, {
     ...link,
-    lastUpdate: updatetime || link.lastUpdate,
+    lastUpdate: cursor,
     lastSyncAt: now.toISOString(),
   });
   return { seen: readings.length, added };
