@@ -4305,6 +4305,12 @@ function spanOf(seconds: number | null): string {
   return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`;
 }
 
+/** Metres as kilometres, with the precision the distance deserves: a 5 km run to two places, a 21 km one to one. */
+function kmOf(metres: string): string {
+  const km = Number.parseFloat(metres) / 1000;
+  return Number.isFinite(km) ? `${km.toFixed(km >= 10 ? 1 : 2)} km` : '—';
+}
+
 /** Proportional segments with their meaning in the label, because strength of mint alone says nothing. */
 function SplitBar({ parts, label }: { parts: { name: string; seconds: number | null }[]; label: string }) {
   const total = parts.reduce((n, p) => n + (p.seconds ?? 0), 0);
@@ -4339,7 +4345,7 @@ function WearableSection({ data }: { data: Wearable | null }) {
             <span className="title">{ACTIVITY_KINDS[a.kind] ?? 'Workout'}</span>
             <span className="mono">
               {spanOf(a.duration_seconds)}
-              {a.distance_m ? ` · ${(Number.parseFloat(a.distance_m) / 1000).toFixed(a.distance_m.length > 3 ? 1 : 2)} km` : ''}
+              {a.distance_m ? ` · ${kmOf(a.distance_m)}` : ''}
             </span>
           </div>
           <div className="sub" style={{ marginTop: 4 }}>
@@ -4392,7 +4398,7 @@ function WearableSection({ data }: { data: Wearable | null }) {
           <div className="sub" style={{ marginTop: 4 }}>
             {new Date(`${days[0]!.day}T12:00:00`).toLocaleDateString()}
             {days[0]!.active_seconds ? ` · ${spanOf(days[0]!.active_seconds)} active` : ''}
-            {days[0]!.distance_m ? ` · ${(Number.parseFloat(days[0]!.distance_m) / 1000).toFixed(1)} km` : ''}
+            {days[0]!.distance_m ? ` · ${kmOf(days[0]!.distance_m)}` : ''}
           </div>
           <Spark values={[...days].reverse().slice(-14).map((d) => d.steps ?? 0)} />
         </div>

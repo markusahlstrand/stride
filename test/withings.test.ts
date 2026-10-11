@@ -510,6 +510,27 @@ describe('device data: the sync', () => {
     expect(fake.calls.map((c) => c.key).filter((k) => /getworkouts|getsummary|getactivity/.test(k))).toEqual([]);
   });
 
+  it('one bad row from the device is skipped and said so, and does not cost the weight or the rest', async () => {
+    const store = link({ userid: '45' });
+    const bad = answers({
+      '/v2/measure?getworkouts': body({
+        more: false,
+        series: [
+          { id: 9101, category: 2, startdate: t('2026-10-09T07:00:00.000Z'), enddate: t('2026-10-09T06:00:00.000Z'), modified: 1 },
+          { id: 9102, category: 2, startdate: t('2026-10-08T06:00:00.000Z'), enddate: t('2026-10-08T06:30:00.000Z'), modified: 2 },
+        ],
+      }),
+    });
+    const r = await sync(store, device(bad).fn); // resolves: it does not throw
+    expect(r.wearable?.activities).toBe(1);
+    expect(r.problems).toEqual(['workouts: skipped 1 that end before they start']);
+    const ids = (await mine()).activities.map((a: ActivityRow) => a.external_id);
+    expect(ids).toContain('9102');
+    expect(ids).not.toContain('9101');
+    // The sync still completed, so the link carries its bookkeeping.
+    expect(store.link!.lastSyncAt).toBe(NOW.toISOString());
+  });
+
   it('never saves a cursor off an incomplete pull of a dataset', async () => {
     const store = link({ userid: '44' });
     const stuck = answers({ '/v2/measure?getworkouts': body({ more: true, series: [{ id: 1, category: 2, startdate: 1, enddate: 2, modified: 5 }] }) });

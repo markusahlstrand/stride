@@ -548,7 +548,13 @@ async function syncWearables(a: {
       { action: 'getworkouts', data_fields: WORKOUT_FIELDS, ...windowFor(cursors.workouts, now) },
       (b) => (b.series as WorkoutObject[] | undefined) ?? [],
     );
-    await record('activities', items.map(activityOfWorkout), 200);
+    // A workout that ends before it starts is bad data from the device, and the operation rightly refuses it.
+    // Dropped HERE and said aloud, because one bad row must not cost the person the rest of the sync.
+    const sane = items.filter((w) => w.enddate >= w.startdate);
+    if (sane.length < items.length) {
+      problems.push(`workouts: skipped ${items.length - sane.length} that end before they start`);
+    }
+    await record('activities', sane.map(activityOfWorkout), 200);
     const next = newestModified(items, cursors.workouts);
     if (next !== undefined) cursors.workouts = next;
   });
@@ -561,7 +567,11 @@ async function syncWearables(a: {
       { action: 'getsummary', data_fields: SLEEP_FIELDS, ...windowFor(cursors.sleep, now) },
       (b) => (b.series as SleepObject[] | undefined) ?? [],
     );
-    await record('sleep', items.map(sleepOfSummary), 200);
+    const sane = items.filter((n) => n.enddate >= n.startdate);
+    if (sane.length < items.length) {
+      problems.push(`sleep: skipped ${items.length - sane.length} that end before they start`);
+    }
+    await record('sleep', sane.map(sleepOfSummary), 200);
     const next = newestModified(items, cursors.sleep);
     if (next !== undefined) cursors.sleep = next;
   });
