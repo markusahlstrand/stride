@@ -1,13 +1,16 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { matchesOutboundHost } from '@substrat-run/contracts';
 import type { ScopeStub } from '@substrat-run/kernel';
 import type { SqliteScopeHost } from '@substrat-run/adapter-sqlite';
 
 import type { MeasurementRow } from '../src/module.js';
 import { buildStrideHost, seedStride, type StrideWorld } from '../src/seed.js';
 import {
+  WITHINGS_API,
   WithingsError,
   decimalOf,
   exchangeCode,
@@ -97,6 +100,20 @@ const weighIn = (iso: string, value: number, unit = -3, modified = epoch(iso)) =
   modified,
   category: 1,
   measures: [{ value, type: 1, unit }],
+});
+
+describe('the deployment declares the host it calls', () => {
+  /**
+   * A hosted vertical may `fetch` only what package.json `substrat.outbound` names; the platform's egress
+   * worker answers anything else with a 403 that looks like Withings refusing. Nothing in the scenario can
+   * see that, because tests call the code directly, so this is the one place the two are held together.
+   */
+  it('lists the host the token and measure calls go to', () => {
+    const pkg = JSON.parse(String(readFileSync(join(process.cwd(), 'package.json')))) as {
+      substrat: { outbound?: string[] };
+    };
+    expect(matchesOutboundHost(new URL(WITHINGS_API).hostname, pkg.substrat.outbound ?? [])).toBe(true);
+  });
 });
 
 describe('decimals are exact', () => {
