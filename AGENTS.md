@@ -637,6 +637,10 @@ what that person could have typed, and the test pins the denial.
   NOT read these from worker env — that is shared by every install of the serving script — so
   `withingsAppOf` uses `resolveScopedEnvSpec` (delivered > env). Unset means the integration is absent
   (`configured: false`, the card hides).
+- **A hosted vertical may only `fetch` the hosts in package.json `substrat.outbound`.** The platform's
+  egress worker answers any other with a 403 (`outbound refused`) that reads like the provider saying no.
+  Withings needs `wbsapi.withings.net` (the consent page is a browser redirect, never a server call). A
+  test holds `WITHINGS_API` and the declaration together. Any new provider needs its host added the same day.
 - Not in the local harness (`server.ts`): there is no identity DO there. Not a platform connector
   either — that would move the callback and the tokens to the hub and leave the operations alone.
 
