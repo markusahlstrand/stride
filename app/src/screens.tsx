@@ -23,6 +23,8 @@ import {
   type Invitation,
   type Measurement,
   type WithingsStatus,
+  type Wearable,
+  ACTIVITY_KINDS,
   type MeasurementKind,
   MEASUREMENT_KINDS,
   type Message,
@@ -4295,6 +4297,110 @@ function BodyCard({
   );
 }
 
+/** "1 h 24 min", "45 min", "40 s": whichever is the honest size for it. */
+function spanOf(seconds: number | null): string {
+  if (seconds === null) return '—';
+  if (seconds < 60) return `${seconds} s`;
+  const m = Math.round(seconds / 60);
+  return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`;
+}
+
+/** Proportional segments with their meaning in the label, because strength of mint alone says nothing. */
+function SplitBar({ parts, label }: { parts: { name: string; seconds: number | null }[]; label: string }) {
+  const total = parts.reduce((n, p) => n + (p.seconds ?? 0), 0);
+  if (total <= 0) return null;
+  return (
+    <div
+      className="zones"
+      role="img"
+      aria-label={`${label}: ${parts.map((p) => `${p.name} ${spanOf(p.seconds ?? 0)}`).join(', ')}`}
+    >
+      {parts.map((p) => (
+        <span key={p.name} style={{ width: `${((p.seconds ?? 0) / total) * 100}%` }} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * What a wearable recorded: workouts, nights, days. Shown only when there is something, and only to
+ * somebody the kernel let read it — a coach below "share everything" gets a 403 upstream, and the Body
+ * section already says why.
+ */
+function WearableSection({ data }: { data: Wearable | null }) {
+  if (!data) return null;
+  const { activities, sleep, days } = data;
+  return (
+    <>
+      {activities.length > 0 && <h2>Workouts</h2>}
+      {activities.slice(0, 8).map((a) => (
+        <div key={a.id} className="card">
+          <div className="row center">
+            <span className="title">{ACTIVITY_KINDS[a.kind] ?? 'Workout'}</span>
+            <span className="mono">
+              {spanOf(a.duration_seconds)}
+              {a.distance_m ? ` · ${(Number.parseFloat(a.distance_m) / 1000).toFixed(a.distance_m.length > 3 ? 1 : 2)} km` : ''}
+            </span>
+          </div>
+          <div className="sub" style={{ marginTop: 4 }}>
+            {new Date(a.started_at).toLocaleDateString()}
+            {a.hr_avg ? ` · ${a.hr_avg} bpm average` : ''}
+            {a.hr_max ? `, up to ${a.hr_max}` : ''}
+          </div>
+          <SplitBar
+            label="Heart-rate zones"
+            parts={[
+              { name: 'light', seconds: a.hr_zone0_seconds },
+              { name: 'moderate', seconds: a.hr_zone1_seconds },
+              { name: 'intense', seconds: a.hr_zone2_seconds },
+              { name: 'maximal', seconds: a.hr_zone3_seconds },
+            ]}
+          />
+        </div>
+      ))}
+
+      {sleep.length > 0 && <h2>Sleep</h2>}
+      {sleep.slice(0, 7).map((n) => (
+        <div key={n.id} className="card">
+          <div className="row center">
+            <span className="title">{new Date(`${n.night}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })}</span>
+            <span className="mono">{spanOf(n.asleep_seconds)}</span>
+          </div>
+          <div className="sub" style={{ marginTop: 4 }}>
+            {n.score !== null ? `Sleep score ${n.score}` : 'No score'}
+            {n.hr_avg ? ` · ${n.hr_avg} bpm asleep` : ''}
+          </div>
+          <SplitBar
+            label="Sleep stages"
+            parts={[
+              { name: 'awake', seconds: n.awake_seconds },
+              { name: 'light', seconds: n.light_seconds },
+              { name: 'REM', seconds: n.rem_seconds },
+              { name: 'deep', seconds: n.deep_seconds },
+            ]}
+          />
+        </div>
+      ))}
+
+      {days.length > 0 && <h2>Daily activity</h2>}
+      {days.length > 0 && (
+        <div className="card">
+          <div className="row center">
+            <span className="title">Steps</span>
+            <span className="mono">{days[0]!.steps?.toLocaleString() ?? '—'}</span>
+          </div>
+          <div className="sub" style={{ marginTop: 4 }}>
+            {new Date(`${days[0]!.day}T12:00:00`).toLocaleDateString()}
+            {days[0]!.active_seconds ? ` · ${spanOf(days[0]!.active_seconds)} active` : ''}
+            {days[0]!.distance_m ? ` · ${(Number.parseFloat(days[0]!.distance_m) / 1000).toFixed(1)} km` : ''}
+          </div>
+          <Spark values={[...days].reverse().slice(-14).map((d) => d.steps ?? 0)} />
+        </div>
+      )}
+    </>
+  );
+}
+
 /**
  * A scale that writes to Body for you. Only ever about YOUR record: Withings is a login of one person's,
  * so there is no id to pass and nothing to show anybody else. Hidden outright when this deployment has
@@ -4315,7 +4421,18 @@ function WithingsCard({ run, onSynced }: { run: Run; onSynced: () => void }) {
     setBusy(true);
     const ok = await run(async () => {
       const r = await api.withingsSync();
-      setResult(r.added === 0 ? 'Already up to date.' : `${r.added} new ${r.added === 1 ? 'reading' : 'readings'} added.`);
+      const w = r.wearable;
+      const parts = [
+        r.added > 0 ? `${r.added} new ${r.added === 1 ? 'measurement' : 'measurements'}` : null,
+        w && w.activities > 0 ? `${w.activities} ${w.activities === 1 ? 'workout' : 'workouts'}` : null,
+        w && w.sleep > 0 ? `${w.sleep} ${w.sleep === 1 ? 'night' : 'nights'} of sleep` : null,
+        w && w.days > 0 ? `${w.days} ${w.days === 1 ? 'day' : 'days'} of activity` : null,
+      ].filter(Boolean);
+      setResult(
+        `${parts.length ? `Added ${parts.join(', ')}.` : 'Already up to date.'}${
+          r.problems?.length ? ` Couldn't read: ${r.problems.join('; ')}.` : ''
+        }`,
+      );
     }, 'Synced from Withings');
     setBusy(false);
     load();
@@ -4337,9 +4454,9 @@ function WithingsCard({ run, onSynced }: { run: Run; onSynced: () => void }) {
       <div className="sub" style={{ marginTop: 4 }}>
         {status.connected
           ? status.lastSyncAt
-            ? `Weight and body fat from your scale. Last synced ${new Date(status.lastSyncAt).toLocaleString()}.`
-            : 'Weight and body fat from your scale. Not synced yet.'
-          : 'Bring in weight and body fat from a Withings scale. Stride only asks for body measurements.'}
+            ? `${status.canReadActivity ? 'Measurements, workouts, sleep and daily activity' : 'Weight and body fat'} from Withings. Last synced ${new Date(status.lastSyncAt).toLocaleString()}.`
+            : `${status.canReadActivity ? 'Measurements, workouts, sleep and daily activity' : 'Weight and body fat'} from Withings. Not synced yet.`
+          : 'Bring in weight, body fat, workouts, sleep and daily activity from Withings. It is read-only: Stride never writes to your Withings account.'}
       </div>
       <div className="actions" style={{ marginTop: 10 }}>
         {status.connected ? (
@@ -4358,6 +4475,14 @@ function WithingsCard({ run, onSynced }: { run: Run; onSynced: () => void }) {
           </button>
         )}
       </div>
+      {status.connected && !status.canReadActivity && (
+        <div className="sub" style={{ marginTop: 6 }}>
+          This connection only covers weight and body fat. Reconnect to also bring in workouts, sleep and daily activity.{' '}
+          <button className="ghost" disabled={busy} onClick={() => window.location.assign('/api/withings/connect')}>
+            Reconnect
+          </button>
+        </div>
+      )}
       {result && (
         <div className="sub" style={{ marginTop: 6 }} role="status">
           {result}
@@ -4381,6 +4506,7 @@ export function ProgressScreen({
 }: ScreenProps & { traineeId: string | null; onBack: () => void; onOpen: (id: string) => void }) {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [measurements, setMeasurements] = useState<Measurement[] | null>(null);
+  const [wearable, setWearable] = useState<Wearable | null>(null);
   const [templates] = useList<Template>(() => api.templates(), [me?.key]);
   const [trainees] = useList<Trainee>(() => api.trainees(), [me?.key]);
   const [busy, setBusy] = useState(false);
@@ -4390,6 +4516,7 @@ export function ProgressScreen({
     api.progress(traineeId).then(setProgress).catch(() => setProgress(null));
     // A 403 here is a decision, not a failure: keep null and say "not shared".
     api.measurements(traineeId).then(setMeasurements).catch(() => setMeasurements(null));
+    api.wearable(traineeId).then(setWearable).catch(() => setWearable(null));
   }, [traineeId]);
   useEffect(reload, [reload]);
 
@@ -4497,6 +4624,7 @@ export function ProgressScreen({
         run={run}
         onLogged={reload}
       />
+      <WearableSection data={wearable} />
       {mine && <WithingsCard run={run} onSynced={reload} />}
     </>
   );

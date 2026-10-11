@@ -167,7 +167,7 @@ describe('the Withings flow, through the routes', () => {
       client_id: 'cid',
       // The host the person is on, character for character what Withings has registered.
       redirect_uri: CALLBACK,
-      scope: 'user.metrics',
+      scope: 'user.metrics,user.activity',
     });
 
     // The state is the cookie's value, and the cookie cannot be read by a script or sent cross-site.

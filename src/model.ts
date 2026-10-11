@@ -16,6 +16,8 @@ import {
   inviteInput,
   itemSetsInput,
   logMeasurementInput,
+  recordWearableInput,
+  wearableInput,
   logSessionInput,
   logSetInput,
   myEquipmentInput,
@@ -412,6 +414,19 @@ export const operations = {
     summary: 'Record a measurement of a body. A correction is a new row, never an edit.',
     http: { method: 'POST', path: '/trainees/{traineeId}/measurements' },
     input: logMeasurementInput,
+  },
+  // What a wearable recorded. By TRAINEE for the same reason measurements are.
+  'stride/wearable': {
+    summary:
+      'What a person’s wearable recorded: workouts with heart-rate zones, nightly sleep and daily steps, newest first. Defaults to the last 90 days.',
+    http: { method: 'GET', path: '/trainees/{traineeId}/wearable' },
+    input: wearableInput,
+  },
+  'stride/record-wearable': {
+    summary:
+      'Record what a wearable reported: workouts, nights, days. Idempotent on the provider’s id; a revised reading updates the row and says so.',
+    http: { method: 'POST', path: '/trainees/{traineeId}/wearable' },
+    input: recordWearableInput,
   },
   /** Every exercise this person has performed, folded per session and per side. */
   'stride/progress': {

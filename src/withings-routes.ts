@@ -5,6 +5,7 @@ import {
   exchangeCode,
   syncWithings,
   withingsConsentUrl,
+  hasActivityScope,
   type Invoker,
   type LinkStore,
   type WithingsApp,
@@ -75,6 +76,8 @@ export function withingsRoutes<E extends object>(deps: WithingsRouteDeps<E>): Ho
       configured: app !== null,
       traineeId,
       connected: link !== null,
+      // A link made before the device's own data was asked for: it works for weight, and offers a reconnect.
+      canReadActivity: link ? hasActivityScope(link) : false,
       connectedAt: link?.connectedAt ?? null,
       lastSyncAt: link?.lastSyncAt ?? null,
     });

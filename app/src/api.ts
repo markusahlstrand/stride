@@ -316,8 +316,66 @@ export interface WithingsStatus {
   /** False when this deployment has no Withings app — the card stays hidden. */
   configured: boolean;
   connected: boolean;
+  /** False for a link made before workouts, sleep and daily activity were asked for: it offers a reconnect. */
+  canReadActivity: boolean;
   connectedAt: string | null;
   lastSyncAt: string | null;
+}
+
+/** Mirrors ACTIVITY_KINDS in module.ts. */
+export const ACTIVITY_KINDS: Record<string, string> = {
+  walk: 'Walk', run: 'Run', hike: 'Hike', cycle: 'Cycling', swim: 'Swimming', weights: 'Weights', fitness: 'Fitness',
+  yoga: 'Yoga', pilates: 'Pilates', rowing: 'Rowing', elliptical: 'Elliptical', climbing: 'Climbing', ski: 'Skiing',
+  tennis: 'Tennis', football: 'Football', dance: 'Dancing', boxing: 'Boxing', other: 'Other',
+};
+
+export interface WearableActivity {
+  id: string;
+  external_id: string;
+  kind: string;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
+  distance_m: string | null;
+  calories: string | null;
+  steps: number | null;
+  hr_avg: number | null;
+  hr_min: number | null;
+  hr_max: number | null;
+  hr_zone0_seconds: number | null;
+  hr_zone1_seconds: number | null;
+  hr_zone2_seconds: number | null;
+  hr_zone3_seconds: number | null;
+}
+export interface WearableNight {
+  id: string;
+  night: string;
+  asleep_seconds: number | null;
+  in_bed_seconds: number | null;
+  light_seconds: number | null;
+  deep_seconds: number | null;
+  rem_seconds: number | null;
+  awake_seconds: number | null;
+  score: number | null;
+  hr_avg: number | null;
+}
+export interface WearableDay {
+  day: string;
+  steps: number | null;
+  distance_m: string | null;
+  active_seconds: number | null;
+  hr_avg: number | null;
+}
+export interface Wearable {
+  activities: WearableActivity[];
+  sleep: WearableNight[];
+  days: WearableDay[];
+}
+export interface WithingsSyncResult {
+  seen: number;
+  added: number;
+  wearable?: { activities: number; sleep: number; days: number };
+  problems?: string[];
 }
 
 export interface Measurement {
@@ -462,11 +520,13 @@ export const api = {
     traineeId: string,
     b: { kind: MeasurementKind; side?: Side; value: string; measuredAt?: string; note?: string },
   ) => post<Measurement>(`/trainees/${traineeId}/measurements`, b),
+  /** What the person's wearable recorded: workouts, nights, days. 403 unless they share everything with you. */
+  wearable: (traineeId: string, days = 90) => get<Wearable>(`/trainees/${traineeId}/wearable?days=${days}`),
   progress: (traineeId: string) => get<Progress>(`/trainees/${traineeId}/progress`),
 
   // Withings: always about the SIGNED-IN person's own record, so none of these take an id.
   withingsStatus: () => get<WithingsStatus>('/withings/status'),
-  withingsSync: () => post<{ seen: number; added: number }>('/withings/sync'),
+  withingsSync: () => post<WithingsSyncResult>('/withings/sync'),
   withingsDisconnect: () => call<{ connected: false }>('/withings', { method: 'DELETE' }),
 
   threads: () => get<Thread[]>('/threads'),
