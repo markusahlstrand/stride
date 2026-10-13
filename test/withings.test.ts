@@ -7,7 +7,7 @@ import { matchesOutboundHost } from '@substrat-run/contracts';
 import type { ScopeStub } from '@substrat-run/kernel';
 import type { SqliteScopeHost } from '@substrat-run/adapter-sqlite';
 
-import type { ActivityDayRow, ActivityRow, MeasurementRow, SleepNightRow, WearableView } from '../src/module.js';
+import type { MeasurementRow, WearableView } from '../src/module.js';
 import { buildStrideHost, seedStride, type StrideWorld } from '../src/seed.js';
 import {
   WITHINGS_API,
@@ -24,6 +24,7 @@ import {
   withingsConsentUrl,
   type LinkStore,
   type WithingsLink,
+  SYNC_COVERAGE,
 } from '../src/withings.js';
 
 // ============================================================================
@@ -141,16 +142,29 @@ describe('decimals are exact', () => {
         measures: [
           { value: 72400, type: 1, unit: -3 },
           { value: 185, type: 6, unit: -1 },
-          { value: 61, type: 11, unit: 0 }, // pulse: no kind for it
+          { value: 61, type: 11, unit: 0 }, // a spot pulse: a kind of its own now
+          { value: 7, type: 99999, unit: 0 }, // a type nobody has a kind for
         ],
       },
       { grpid: 2, date: 1, category: 2, measures: [{ value: 70000, type: 1, unit: -3 }] }, // a goal, not a reading
       { grpid: 3, date: 1, category: 1, measures: [{ value: 0, type: 1, unit: -3 }] }, // a scale glitch
     ]);
-    expect(rows).toEqual([
-      { kind: 'weight', value: '72.4', measuredAt: '2026-10-10T06:30:00.000Z' },
-      { kind: 'body-fat', value: '18.5', measuredAt: '2026-10-10T06:30:00.000Z' },
+    expect(rows.map(({ kind, value, measuredAt, externalId }) => ({ kind, value, measuredAt, externalId }))).toEqual([
+      { kind: 'weight', value: '72.4', measuredAt: '2026-10-10T06:30:00.000Z', externalId: '1:1' },
+      { kind: 'body-fat', value: '18.5', measuredAt: '2026-10-10T06:30:00.000Z', externalId: '1:6' },
+      { kind: 'pulse', value: '61', measuredAt: '2026-10-10T06:30:00.000Z', externalId: '1:11' },
     ]);
+    // Each reading keeps what Withings said about it, so a field we did not map is not a field we lost.
+    expect(rows[0]!.payload).toMatchObject({ grpid: 1, category: 1, measure: { value: 72400, type: 1, unit: -3 } });
+  });
+
+  it('knows a kind for every blood pressure, oxygen, temperature and body-composition type it asks for', () => {
+    const types = [4, 5, 8, 9, 10, 11, 54, 71, 73, 76, 77, 88, 91, 123, 155, 168, 169, 170];
+    const rows = readingsOf([
+      { grpid: 7, date: 1, category: 1, measures: types.map((type) => ({ value: 5, type, unit: 0 })) },
+    ]);
+    expect(rows.map((r) => r.externalId)).toEqual(types.map((t) => `7:${t}`));
+    expect(new Set(rows.map((r) => r.kind)).size).toBe(types.length);
   });
 });
 
@@ -349,6 +363,8 @@ describe('device data: the mapping', () => {
       hrMax: 176,
       hrZone0Seconds: 300,
       hrZone3Seconds: 200,
+      // The workout as Withings sent it: the mapped columns are a view of this, not a replacement.
+      payload: expect.objectContaining({ id: 9001, category: 2, data: expect.objectContaining({ calories: 520.4 }) }),
     });
   });
 
@@ -380,8 +396,8 @@ describe('device data: the mapping', () => {
       { date: '2026-10-11', steps: 50 },
     ]);
     expect(days).toEqual([
-      { day: '2026-10-10', steps: 9120, distanceM: '6900.4', hrAvg: 71 },
-      { day: '2026-10-11', steps: 50 },
+      { day: '2026-10-10', steps: 9120, distanceM: '6900.4', hrAvg: 71, payload: expect.objectContaining({ steps: 9120 }) },
+      { day: '2026-10-11', steps: 50, payload: expect.objectContaining({ steps: 50 }) },
     ]);
   });
 
@@ -466,9 +482,9 @@ describe('device data: the sync', () => {
     expect(first.problems).toBeUndefined();
 
     const got = await mine();
-    expect(got.activities.find((a: ActivityRow) => a.external_id === '9001')).toMatchObject({ kind: 'run', distance_m: '8200', hr_avg: 148, hr_max: 176 });
-    expect(got.sleep.find((n: SleepNightRow) => n.external_id === '77')).toMatchObject({ night: '2026-10-10', score: 82 });
-    expect(got.days.find((d: ActivityDayRow) => d.day === '2026-10-10')).toMatchObject({ steps: 9120 });
+    expect(got.activities.find((a) => a.external_id === '9001')).toMatchObject({ kind: 'run', distance_m: '8200', hr_avg: 148, hr_max: 176 });
+    expect(got.sleep.find((n) => n.external_id === '77')).toMatchObject({ night: '2026-10-10', score: 82 });
+    expect(got.days.find((d) => d.day === '2026-10-10')).toMatchObject({ steps: 9120 });
 
     // A first pull is a bounded window of dates; the asks carry the fields we map.
     const workouts = fake.calls.find((c) => c.key === '/v2/measure?getworkouts')!;
@@ -489,6 +505,67 @@ describe('device data: the sync', () => {
     const asked = fake2.calls.find((c) => c.key === '/v2/measure?getworkouts')!;
     expect(asked.form.has('startdateymd')).toBe(false);
     expect(asked.form.get('lastupdate')).toBe(String(t('2026-10-09T07:00:00.000Z') - 60));
+  });
+
+  it('a link synced for less than we ask for now re-reads the first window once, then goes back to the cursor', async () => {
+    // Coverage 1 with a cursor: the old sync never fetched blood pressure, so "nothing changed since" is a lie.
+    const store = link({ userid: '46', lastUpdate: t('2026-10-10T00:00:00.000Z'), cursors: { workouts: t('2026-10-09T07:00:00.000Z') } });
+    const fake = device(answers());
+    await sync(store, fake.fn);
+    const meas = fake.calls.find((c) => c.key === '/measure?getmeas')!;
+    expect(meas.form.has('lastupdate')).toBe(false);
+    expect(meas.form.get('startdate')).toBeTruthy();
+    expect(meas.form.get('meastypes')!.split(',')).toEqual(expect.arrayContaining(['9', '10', '54', '76']));
+    expect(fake.calls.find((c) => c.key === '/v2/measure?getworkouts')!.form.has('startdateymd')).toBe(true);
+    expect(store.link!.coverage).toBe(SYNC_COVERAGE);
+
+    const next = device(answers());
+    await sync(store, next.fn);
+    expect(next.calls.find((c) => c.key === '/v2/measure?getworkouts')!.form.has('startdateymd')).toBe(false);
+  });
+
+  it('a token refresh is not a reconnect: the cursors and the coverage survive it', async () => {
+    const cursors = { workouts: t('2026-10-09T07:00:00.000Z'), sleep: t('2026-10-10T06:00:00.000Z'), activity: t('2026-10-10T23:00:00.000Z') };
+    const store = link({
+      userid: '49', expiresAt: '2026-10-11T08:00:30.000Z', coverage: SYNC_COVERAGE, cursors, lastUpdate: t('2026-10-10T00:00:00.000Z'),
+    });
+    const fake = device(answers({
+      '/v2/oauth2?requesttoken': body({ userid: 49, access_token: 'a2', refresh_token: 'r2', expires_in: 10_800, scope: 'user.metrics,user.activity' }),
+    }));
+    await sync(store, fake.fn);
+    expect(store.link!.accessToken).toBe('a2');
+    expect(fake.calls.find((c) => c.key === '/v2/measure?getworkouts')!.form.has('startdateymd')).toBe(false);
+    expect(store.link!.coverage).toBe(SYNC_COVERAGE);
+  });
+
+  it('a pass that had a problem is not counted as covered, so the next one tries again', async () => {
+    const store = link({ userid: '47' });
+    const fake = device(answers({ '/v2/sleep?getsummary': () => new Response(JSON.stringify({ status: 2554, error: 'no sleep device' }), { status: 200 }) }));
+    await sync(store, fake.fn);
+    expect(store.link!.coverage ?? 1).toBeLessThan(SYNC_COVERAGE);
+  });
+
+  it('writes every kind it knows from one weigh-in, tagged with where it came from and what was said', async () => {
+    const store = link({ userid: '48' });
+    const fake = device(answers({
+      '/measure?getmeas': body({
+        more: 0,
+        measuregrps: [{ grpid: 555, date: t('2026-10-10T06:30:00.000Z'), modified: t('2026-10-10T06:31:00.000Z'), category: 1, deviceid: 'dev-1', measures: [
+          { value: 72400, type: 1, unit: -3 }, { value: 118, type: 10, unit: 0 }, { value: 76, type: 9, unit: 0 }, { value: 97, type: 54, unit: 0 },
+        ] }],
+      }),
+    }));
+    await sync(store, fake.fn);
+    const rows = await vera.invoke<{ kind: string; value: string; source: string | null; external_id: string | null; payload?: unknown }[]>(
+      'stride/measurements', { traineeId: w.veraId, source: 'withings', days: 3650, payload: true },
+    );
+    const byKind = Object.fromEntries(rows.filter((r) => r.external_id?.startsWith('555:')).map((r) => [r.kind, r]));
+    expect(Object.keys(byKind).sort()).toEqual(['diastolic-bp', 'spo2', 'systolic-bp', 'weight']);
+    expect(byKind['systolic-bp']).toMatchObject({ value: '118', source: 'withings', external_id: '555:10' });
+    expect(byKind['weight']!.payload).toMatchObject({ grpid: 555, deviceid: 'dev-1', measure: { type: 1 } });
+
+    const onlyBp = await vera.invoke<{ kind: string }[]>('stride/measurements', { traineeId: w.veraId, kind: 'systolic-bp' });
+    expect(onlyBp.every((r) => r.kind === 'systolic-bp')).toBe(true);
   });
 
   it('a dataset Withings cannot give does not cost the others: sleep fails, workouts and steps are kept', async () => {
@@ -524,7 +601,7 @@ describe('device data: the sync', () => {
     const r = await sync(store, device(bad).fn); // resolves: it does not throw
     expect(r.wearable?.activities).toBe(1);
     expect(r.problems).toEqual(['workouts: skipped 1 that end before they start']);
-    const ids = (await mine()).activities.map((a: ActivityRow) => a.external_id);
+    const ids = (await mine()).activities.map((a) => a.external_id);
     expect(ids).toContain('9102');
     expect(ids).not.toContain('9101');
     // The sync still completed, so the link carries its bookkeeping.

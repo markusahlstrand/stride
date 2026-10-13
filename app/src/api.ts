@@ -295,7 +295,25 @@ export type MeasurementKind =
   | 'grip'
   | 'shoulder-flexion'
   | 'shoulder-abduction'
-  | 'shoulder-external-rotation';
+  | 'shoulder-external-rotation'
+  | 'height'
+  | 'fat-mass'
+  | 'fat-free-mass'
+  | 'muscle-mass'
+  | 'bone-mass'
+  | 'hydration'
+  | 'extracellular-water'
+  | 'intracellular-water'
+  | 'visceral-fat'
+  | 'systolic-bp'
+  | 'diastolic-bp'
+  | 'pulse'
+  | 'spo2'
+  | 'body-temp'
+  | 'skin-temp'
+  | 'pulse-wave-velocity'
+  | 'vascular-age'
+  | 'vo2max';
 
 /** Mirrors MEASUREMENT_KINDS in module.ts: the unit each kind is in, and
  *  whether it belongs to a side. The server refuses anything else. */
@@ -314,7 +332,32 @@ export const MEASUREMENT_KINDS: Record<MeasurementKind, { unit: string; sided: b
   'shoulder-flexion': { unit: 'deg', sided: true, label: 'Shoulder flexion — arm forward and up' },
   'shoulder-abduction': { unit: 'deg', sided: true, label: 'Shoulder abduction — arm out to the side' },
   'shoulder-external-rotation': { unit: 'deg', sided: true, label: 'Shoulder external rotation' },
+  height: { unit: 'm', sided: false, label: 'Height' },
+  'fat-mass': { unit: 'kg', sided: false, label: 'Fat mass' },
+  'fat-free-mass': { unit: 'kg', sided: false, label: 'Fat-free mass' },
+  'muscle-mass': { unit: 'kg', sided: false, label: 'Muscle mass' },
+  'bone-mass': { unit: 'kg', sided: false, label: 'Bone mass' },
+  hydration: { unit: 'kg', sided: false, label: 'Body water' },
+  'extracellular-water': { unit: 'kg', sided: false, label: 'Extracellular water' },
+  'intracellular-water': { unit: 'kg', sided: false, label: 'Intracellular water' },
+  'visceral-fat': { unit: 'index', sided: false, label: 'Visceral fat index' },
+  'systolic-bp': { unit: 'mmHg', sided: false, label: 'Systolic blood pressure' },
+  'diastolic-bp': { unit: 'mmHg', sided: false, label: 'Diastolic blood pressure' },
+  pulse: { unit: 'bpm', sided: false, label: 'Pulse' },
+  spo2: { unit: '%', sided: false, label: 'Blood oxygen (SpO2)' },
+  'body-temp': { unit: 'C', sided: false, label: 'Body temperature' },
+  'skin-temp': { unit: 'C', sided: false, label: 'Skin temperature' },
+  'pulse-wave-velocity': { unit: 'm/s', sided: false, label: 'Pulse wave velocity' },
+  'vascular-age': { unit: 'years', sided: false, label: 'Vascular age' },
+  vo2max: { unit: 'ml/min/kg', sided: false, label: 'VO2 max' },
 };
+
+/** Mirrors DEVICE_ONLY_KINDS in module.ts: what a device takes and a person rarely types, so the log form leaves them out. */
+export const DEVICE_ONLY_KINDS: ReadonlySet<string> = new Set([
+  'height', 'fat-mass', 'fat-free-mass', 'muscle-mass', 'bone-mass', 'hydration', 'extracellular-water',
+  'intracellular-water', 'visceral-fat', 'systolic-bp', 'diastolic-bp', 'pulse', 'spo2', 'body-temp',
+  'skin-temp', 'pulse-wave-velocity', 'vascular-age', 'vo2max',
+]);
 
 export interface WithingsStatus {
   /** False when this deployment has no Withings app — the card stays hidden. */

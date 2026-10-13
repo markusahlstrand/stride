@@ -123,6 +123,12 @@
               "null"
             ]
           },
+          "payload": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "recorded_by": {
             "type": "string"
           },
@@ -153,6 +159,7 @@
           "hr_zone1_seconds",
           "hr_zone2_seconds",
           "hr_zone3_seconds",
+          "payload",
           "recorded_by",
           "created_at",
           "updated_at"
@@ -222,6 +229,12 @@
               "null"
             ]
           },
+          "payload": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "recorded_by": {
             "type": "string"
           },
@@ -244,6 +257,7 @@
           "hr_avg",
           "hr_min",
           "hr_max",
+          "payload",
           "recorded_by",
           "created_at",
           "updated_at"
@@ -508,6 +522,24 @@
               "null"
             ]
           },
+          "source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payload": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "logged_by": {
             "type": "string"
           },
@@ -524,6 +556,9 @@
           "unit",
           "measured_at",
           "note",
+          "source",
+          "external_id",
+          "payload",
           "logged_by",
           "created_at"
         ],
@@ -1150,6 +1185,12 @@
               "null"
             ]
           },
+          "payload": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "recorded_by": {
             "type": "string"
           },
@@ -1180,6 +1221,7 @@
           "hr_min",
           "hr_max",
           "rr_avg",
+          "payload",
           "recorded_by",
           "created_at",
           "updated_at"
