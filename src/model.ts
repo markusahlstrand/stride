@@ -41,6 +41,7 @@ import {
   traineeIdInput,
   trainMyselfInput,
   voidSetInput,
+  agendaInput,
 } from './module.js';
 
 // ============================================================================
@@ -439,9 +440,9 @@ export const operations = {
   // --- reads that carry a query --------------------------------------------
   'stride/agenda': {
     summary:
-      'The appointment book: what training is booked for a day, and whether it has happened yet. Defaults to today.',
+      'The appointment book: what training is booked in a week, on which date, and whether it has happened yet. Defaults to this week; `week` is any date inside the one to show.',
     http: { method: 'GET', path: '/agenda' },
-    input: onDate,
+    input: agendaInput,
   },
   'stride/schedule': {
     summary:

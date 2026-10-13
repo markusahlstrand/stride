@@ -1106,6 +1106,19 @@ describe('training scenario', () => {
     ).resolves.toBeTruthy();
   });
 
+  it('24b. the agenda pages by week and says what happened on each day', async () => {
+    // The week of Wed 19 Aug, and the one before it: same slots, other dates.
+    const now = await vera.invoke<AgendaEntry[]>('stride/agenda', { on: '2026-08-19' });
+    const prev = await vera.invoke<AgendaEntry[]>('stride/agenda', {
+      on: '2026-08-19',
+      week: '2026-08-12',
+    });
+    expect(now.find((a) => a.weekday === 3)!.date).toBe('2026-08-19');
+    expect(prev.find((a) => a.weekday === 3)!.date).toBe('2026-08-12');
+    // Another week is never "today", so nothing there offers a Continue.
+    expect(prev.every((a) => !a.dueToday && a.sessionToday === null)).toBe(true);
+  });
+
   it('24. booked training: Wednesday at 11, and one tap to begin', async () => {
     const agenda = await vera.invoke<AgendaEntry[]>('stride/agenda', { on: '2026-08-19' });
     const wed = agenda.find((a) => a.weekday === 3)!;

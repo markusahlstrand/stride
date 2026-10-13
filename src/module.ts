@@ -3381,22 +3381,37 @@ export interface AgendaEntry {
   status: string;
   weekday: number;
   time: string;
+  /** The calendar day this slot falls on in the week asked for (UTC, `YYYY-MM-DD`). */
+  date: string;
   dueToday: boolean;
-  /** THIS slot's session today, if it has been started. Two slots on one day
-   *  are two sessions: today's sessions are matched to today's slots in order. */
+  /** This slot's session ON ITS DAY, if one was started. Two slots on one day
+   *  are two sessions: that day's sessions are matched to its slots in order. */
+  sessionOnDate: string | null;
+  setsOnDate: number;
+  /** `sessionOnDate` / `setsOnDate` when that day is today, else null / 0 — what
+   *  the Today card's "Continue" reads. */
   sessionToday: string | null;
   setsToday: number;
   exercises: number;
 }
 
-const agendaInput = z.object({ on: z.string().optional() });
+export const agendaInput = z.object({
+  /** "Now", for tests. Defaults to the operation's clock. */
+  on: z.string().optional(),
+  /** Any date inside the week to show. Defaults to the week of `on`. */
+  week: z.string().optional(),
+});
 
 /**
  * THE APPOINTMENT BOOK — what training is booked, and whether it has happened.
  *
  * A walk like every other listing: one `ctx.check` per programme, so a trainee
  * sees their own, a coach sees what was shared, an admin the gym, a stranger an
- * empty list. Sorted by time so "next up" is just the first row.
+ * empty list. Sorted by day and time so "next up" is just the first row.
+ *
+ * `week` lets the app page through weeks: every slot is placed on its calendar
+ * date in that week and paired with the sessions actually logged that day, so a
+ * past day reads as done or missed rather than just "Wednesday".
  */
 const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = async (
   ctx,
@@ -3405,8 +3420,17 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
   const input = agendaInput.parse(rawInput ?? {});
   const today = new Date(input.on ?? ctx.now());
   if (Number.isNaN(today.getTime())) throw new Error(`not a date: ${input.on}`);
-  const weekday = isoWeekday(today);
-  const dayStart = today.toISOString().slice(0, 10);
+  const todayDate = today.toISOString().slice(0, 10);
+  const target = new Date(input.week ?? today);
+  if (Number.isNaN(target.getTime())) throw new Error(`not a date: ${input.week}`);
+  const monday = weekStart(target);
+  const dateOf = (weekday: number) => {
+    const d = new Date(monday);
+    d.setUTCDate(d.getUTCDate() + weekday - 1);
+    return d.toISOString().slice(0, 10);
+  };
+  const from = dateOf(1);
+  const to = dateOf(7);
 
   const out: AgendaEntry[] = [];
   for (const program of allOrders(ctx)) {
@@ -3423,28 +3447,29 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
     );
     if (slots.length === 0) continue;
 
-    // Today's sessions in the order they were opened. Two slots on one day are
-    // two workouts, so they are matched up in order — the first session belongs
-    // to the first slot due today, the second to the second — rather than every
-    // slot pointing at whichever session happens to be latest. A session beyond
-    // the last slot (an extra run) stays with the last slot.
-    const todays = ctx.sql.query<SessionRow>(
+    // The week's sessions in the order they were opened. Two slots on one day
+    // are two workouts, so they are matched up in order — the first session
+    // belongs to the first slot that day, the second to the second — rather than
+    // every slot pointing at whichever session happens to be latest. A session
+    // beyond the last slot (an extra run) stays with the last slot.
+    const inWeek = ctx.sql.query<SessionRow>(
       `SELECT * FROM train_sessions
-        WHERE program_id = ? AND substr(performed_at, 1, 10) = ?
+        WHERE program_id = ? AND substr(performed_at, 1, 10) BETWEEN ? AND ?
         ORDER BY performed_at, id`,
-      [program.id, dayStart],
+      [program.id, from, to],
     );
     const setsIn = (sessionId: string) =>
       ctx.sql.query<{ n: number }>(
         `SELECT COUNT(*) AS n FROM train_set_results r WHERE r.session_id = ? AND ${NOT_VOIDED}`,
         [sessionId],
       )[0]?.n ?? 0;
-    const dueSlots = slots.filter((s) => s.weekday === weekday);
     const sessionForSlot = (slot: SlotRow): SessionRow | null => {
+      const date = dateOf(slot.weekday);
+      const dueSlots = slots.filter((s) => s.weekday === slot.weekday);
+      const day = inWeek.filter((x) => x.performed_at.slice(0, 10) === date);
       const k = dueSlots.indexOf(slot);
-      if (k < 0) return null;
-      if (k >= todays.length) return null;
-      return k === dueSlots.length - 1 ? todays[todays.length - 1]! : todays[k]!;
+      if (k < 0 || k >= day.length) return null;
+      return k === dueSlots.length - 1 ? day[day.length - 1]! : day[k]!;
     };
     const exercises =
       ctx.sql.query<{ n: number }>(
@@ -3456,7 +3481,10 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
     ])[0];
 
     for (const slot of slots) {
-      const sessionToday = sessionForSlot(slot);
+      const date = dateOf(slot.weekday);
+      const session = sessionForSlot(slot);
+      const sets = session ? setsIn(session.id) : 0;
+      const isToday = date === todayDate;
       out.push({
         programId: program.id,
         programTitle: program.title,
@@ -3464,9 +3492,12 @@ const agendaOp: OperationHandler<z.infer<typeof agendaInput>, AgendaEntry[]> = a
         status: program.status,
         weekday: slot.weekday,
         time: slot.time_of_day,
-        dueToday: slot.weekday === weekday,
-        sessionToday: sessionToday?.id ?? null,
-        setsToday: sessionToday ? setsIn(sessionToday.id) : 0,
+        date,
+        dueToday: isToday,
+        sessionOnDate: session?.id ?? null,
+        setsOnDate: sets,
+        sessionToday: isToday ? (session?.id ?? null) : null,
+        setsToday: isToday ? sets : 0,
         exercises,
       });
     }
