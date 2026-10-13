@@ -66,6 +66,13 @@ const isStaff = (me: CastMember | null) => me?.role === 'admin' || me?.role === 
 
 const DAY_NAMES = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+/** `YYYY-MM-DD` plus n days, in UTC — the same calendar the server places slots on. */
+function addDays(date: string, n: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 /** '1,3,5' → 'Mon · Wed · Fri'; a count → '5× a week'. */
 function recurrenceLabel(days: string | null, perWeek: number | null): string | null {
   if (days) return days.split(',').map((d) => DAY_NAMES[Number(d)]).join(' · ');
@@ -156,6 +163,14 @@ function Counter({ done, total }: { done: number; total: number }) {
 // Today — what the recurring schedule says you owe this week
 // ---------------------------------------------------------------------------
 
+/** What the hero card calls a booking, given how its day stands. */
+function heroLabel(a: AgendaEntry, today: string): string {
+  if (a.sessionOnDate && a.date !== today) return 'Done';
+  if (a.date === today) return 'Up next';
+  if (a.date < today) return 'Missed — do it today?';
+  return 'Planned';
+}
+
 export function TodayScreen({
   me,
   run,
@@ -163,11 +178,26 @@ export function TodayScreen({
   onSetup,
 }: ScreenProps & { onOpen: (id: string) => void; onSetup: () => void }) {
   const [items] = useList<ScheduledItem>(() => api.schedule(), [me?.key]);
-  const [agenda, reloadAgenda] = useList<AgendaEntry>(() => api.agenda(), [me?.key]);
+  // The week on show, as the Monday's date; `weekOffset` pages it. The strip
+  // is a navigator: tap a day to see what is booked on it, arrows move a week.
+  const [weekOffset, setWeekOffset] = useState(0);
+  const todayDate = new Date().toISOString().slice(0, 10);
+  const weekDate = addDays(todayDate, weekOffset * 7);
+  const [fetched, reloadAgenda] = useList<AgendaEntry>(
+    () => api.agenda(weekDate),
+    [me?.key, weekDate],
+  );
+  // While the next week loads the old rows are still held; never show them
+  // under the wrong week.
+  const weekFrom = addDays(weekDate, -((new Date(`${weekDate}T00:00:00Z`).getUTCDay() + 6) % 7));
+  const weekTo = addDays(weekFrom, 6);
+  const agenda = fetched.filter((a) => a.date >= weekFrom && a.date <= weekTo);
+  const [picked, setPicked] = useState<string | null>(null);
   const due = items.filter((i) => i.dueToday);
   const rest = items.filter((i) => !i.dueToday);
-  const booked = agenda.filter((a) => a.dueToday);
-  const upcoming = agenda.filter((a) => !a.dueToday);
+  // Nothing picked = the old Today: what is due today, then the rest of the week.
+  const booked = picked ? agenda.filter((a) => a.date === picked) : agenda.filter((a) => a.dueToday);
+  const upcoming = picked ? [] : agenda.filter((a) => !a.dueToday);
 
   /** Held while `begin` is in flight: a double tap must not open two sessions. */
   const [starting, setStarting] = useState(false);
@@ -181,15 +211,21 @@ export function TodayScreen({
     setStarting(true);
     let sessionId: string | null = null;
     const ok = await run(async () => {
-      const r = await api.begin(entry.programId, entry.sessionToday ?? undefined);
+      // A session already logged on that day is resumed; otherwise a NEW one
+      // opens now. Training a missed or future slot today is just that — the
+      // session is stamped with the moment it happened, never back-dated.
+      // A planned programme is started first, as its own call: that is the one
+      // carrying the manifest guard, and `begin` refuses to do it for you.
+      if (entry.status === 'planned') await api.startProgram(entry.programId);
+      const r = await api.begin(entry.programId, entry.sessionOnDate ?? undefined);
       sessionId = r.session.id;
-    }, entry.sessionToday ? 'Back to it' : 'Session started');
+    }, entry.sessionOnDate ? 'Back to it' : 'Session started');
     setStarting(false);
     reloadAgenda();
     if (ok && sessionId) {
       // The clock is device-local: the server opened (or reused) the session,
       // this starts the one on your phone. Resuming skips the countdown.
-      startSession(entry.programId, sessionId, entry.programTitle, Boolean(entry.sessionToday));
+      startSession(entry.programId, sessionId, entry.programTitle, Boolean(entry.sessionOnDate));
       onOpen(entry.programId);
     }
   };
@@ -223,10 +259,6 @@ export function TodayScreen({
     </button>
   );
 
-  // Which days of this week have something booked — the plan, not a record.
-  const bookedDays = new Set(agenda.map((a) => a.weekday));
-  // ISO weekday, Monday = 1, to match the slots.
-  const todayIso = ((new Date().getDay() + 6) % 7) + 1;
   // The hero's figure does whatever is first on today's list.
   const heroPose: Pose = due[0] ? poseFor(due[0].exerciseName, due[0].unit) : 'press';
 
@@ -238,32 +270,86 @@ export function TodayScreen({
           shorthand zeroes the auto side margins that centre the column on
           desktop, and strands the line in the gutter. */}
       <div className="sub" style={{ marginTop: -6, marginBottom: 16, paddingLeft: 2 }}>
-        {new Date().toLocaleDateString(undefined, {
+        {/* UTC, like every slot date and the "missed" test: one calendar. */}
+        {new Date(`${todayDate}T00:00:00Z`).toLocaleDateString(undefined, {
+          timeZone: 'UTC',
           weekday: 'long',
           day: 'numeric',
           month: 'short',
         })}
       </div>
 
-      {/* The week at a glance: the days you train are inked in, and a runner
-          stands on today. Only drawn once something is booked — seven empty
-          dots say nothing the empty state below does not say better. */}
-      {agenda.length > 0 && (
-        <div className="week" aria-hidden="true">
-          {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((letter, idx) => {
-            const iso = idx + 1;
-            const isToday = iso === todayIso;
-            return (
-              <div key={iso} className="week-day">
-                {isToday ? <Figure pose="run" size={42} /> : <span className="week-letter">{letter}</span>}
-                <span
-                  className={`week-dot${bookedDays.has(iso) ? ' booked' : ''}${isToday ? ' today' : ''}`}
+      {/* The week, as a navigator: arrows page it, a day opens what is booked
+          on it. Dotted = something booked, ink = today, a ring = the day you
+          are looking at. Drawn once anything is booked in the week on show, or
+          whenever you are not on this week (so you can always page back). */}
+      {(agenda.length > 0 || weekOffset !== 0) && (
+        <div className="week-nav">
+          <button
+            type="button"
+            className="week-arrow"
+            aria-label="Previous week"
+            onClick={() => {
+              setWeekOffset(weekOffset - 1);
+              setPicked(null);
+            }}
+          >
+            ‹
+          </button>
+          <div className="week">
+            {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((letter, idx) => {
+              const date = addDays(weekFrom, idx);
+              const isToday = date === todayDate;
+              const entries = agenda.filter((a) => a.date === date);
+              const missed = date < todayDate && entries.some((a) => !a.sessionOnDate);
+              return (
+                <button
+                  type="button"
+                  key={date}
+                  className="week-day"
+                  aria-pressed={picked === date}
+                  aria-label={`${DAY_NAMES[idx + 1]} ${date}${entries.length ? `, ${entries.length} booked` : ''}${missed ? ', missed' : ''}`}
+                  onClick={() => setPicked(picked === date ? null : date)}
                 >
-                  {isToday ? letter : ''}
-                </span>
-              </div>
-            );
-          })}
+                  {isToday ? <Figure pose="run" size={42} /> : <span className="week-letter">{letter}</span>}
+                  <span
+                    className={`week-dot${entries.length ? ' booked' : ''}${isToday ? ' today' : ''}${picked === date ? ' picked' : ''}${missed ? ' missed' : ''}`}
+                  >
+                    {isToday ? letter : ''}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className="week-arrow"
+            aria-label="Next week"
+            onClick={() => {
+              setWeekOffset(weekOffset + 1);
+              setPicked(null);
+            }}
+          >
+            ›
+          </button>
+        </div>
+      )}
+      {weekOffset !== 0 && (
+        <div className="actions" style={{ marginTop: -8, marginBottom: 12 }}>
+          <button
+            className="accent-text"
+            onClick={() => {
+              setWeekOffset(0);
+              setPicked(null);
+            }}
+          >
+            Back to this week
+          </button>
+        </div>
+      )}
+      {picked && booked.length === 0 && (
+        <div className="sub" style={{ marginBottom: 12 }}>
+          Nothing booked on {picked}.
         </div>
       )}
 
@@ -282,24 +368,30 @@ export function TodayScreen({
           <div className="hero-text">
             <div className="hero-meta">
               <span className="badge time">{a.time}</span>
-              <span className="hero-label">Up next</span>
+              <span className="hero-label">{heroLabel(a, todayDate)}</span>
             </div>
             <span className="title big">{a.programTitle}</span>
             <div className="sub mono">
               {a.traineeName ? `${a.traineeName} · ` : ''}
               {a.exercises} exercises
-              {a.setsToday > 0 ? ` · ${a.setsToday} logged today` : ''}
+              {a.setsOnDate > 0 ? ` · ${a.setsOnDate} logged${a.date === todayDate ? ' today' : ''}` : ''}
             </div>
           </div>
           <div className="actions">
             <button className="primary wide" disabled={starting} onClick={() => begin(a)}>
-              {a.sessionToday ? 'Continue' : a.status === 'planned' ? 'Start programme first' : 'Start training'}
+              {a.sessionOnDate
+                ? a.date === todayDate || a.setsOnDate === 0
+                  ? 'Continue'
+                  : 'Open session'
+                : a.date === todayDate
+                    ? 'Start training'
+                    : 'Train it today instead'}
             </button>
           </div>
         </div>
       ))}
 
-      {upcoming.length > 0 && <h2>Booked this week</h2>}
+      {upcoming.length > 0 && <h2>{weekOffset === 0 ? 'Booked this week' : 'Booked that week'}</h2>}
       {upcoming.length > 0 && (
         <div className="list">
           {upcoming.map((a) => (
@@ -372,14 +464,20 @@ function useList<T>(
 ): [T[], () => void, ListState] {
   const [rows, setRows] = useState<T[]>([]);
   const [state, setState] = useState<ListState>('loading');
+  // Only the latest request may land: paging quickly must not let an earlier
+  // response overwrite a later one.
+  const latest = useRef(0);
   const reload = useCallback(() => {
+    const mine = ++latest.current;
     setState('loading');
     load()
       .then((r) => {
+        if (mine !== latest.current) return;
         setRows(r);
         setState('ready');
       })
       .catch(() => {
+        if (mine !== latest.current) return;
         setRows([]);
         setState('error');
       });

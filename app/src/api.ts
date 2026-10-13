@@ -174,7 +174,11 @@ export interface AgendaEntry {
   status: string;
   weekday: number;
   time: string;
+  /** The calendar day (UTC, YYYY-MM-DD) this slot falls on in the week shown. */
+  date: string;
   dueToday: boolean;
+  sessionOnDate: string | null;
+  setsOnDate: number;
   sessionToday: string | null;
   setsToday: number;
   exercises: number;
@@ -546,7 +550,7 @@ export const api = {
   equipment: () => get<Equipment[]>('/equipment'),
   setMyEquipment: (equipment: string[]) => post<unknown>('/me/equipment', { equipment }),
   schedule: () => get<ScheduledItem[]>('/schedule'),
-  agenda: () => get<AgendaEntry[]>('/agenda'),
+  agenda: (week?: string) => get<AgendaEntry[]>(week ? `/agenda?week=${week}` : '/agenda'),
   setSlots: (programId: string, slots: { weekday: number; time: string }[]) =>
     post<{ slots: Slot[] }>(`/programs/${programId}/slots`, { slots }),
   /** No `sessionId` opens a new session; with one, resumes that session. */
