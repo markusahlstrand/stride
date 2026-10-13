@@ -26,6 +26,7 @@ import {
   type Wearable,
   ACTIVITY_KINDS,
   type MeasurementKind,
+  DEVICE_ONLY_KINDS,
   MEASUREMENT_KINDS,
   type Message,
   type ExerciseProgress,
@@ -4312,7 +4313,7 @@ function BodyCard({
         const meta = MEASUREMENT_KINDS[latest.kind];
         const delta = (Number.parseFloat(latest.value) || 0) - (Number.parseFloat(first.value) || 0);
         // Up is good for range and strength, neutral for a weight.
-        const good = latest.kind === 'weight' || latest.kind === 'waist' || latest.kind === 'hips' || latest.kind === 'body-fat' || latest.kind === 'resting-hr' ? null : delta > 0;
+        const good = latest.kind === 'weight' || latest.kind === 'waist' || latest.kind === 'hips' || latest.kind === 'body-fat' || latest.kind === 'resting-hr' || DEVICE_ONLY_KINDS.has(latest.kind) ? null : delta > 0;
         return (
           <div key={key} className="card">
             <div className="row center">
@@ -4352,7 +4353,7 @@ function BodyCard({
         <div className="card">
           <label>what</label>
           <select value={kind} onChange={(e) => setKind(e.target.value as MeasurementKind)}>
-            {(Object.keys(MEASUREMENT_KINDS) as MeasurementKind[]).map((k) => (
+            {(Object.keys(MEASUREMENT_KINDS) as MeasurementKind[]).filter((k) => !DEVICE_ONLY_KINDS.has(k)).map((k) => (
               <option key={k} value={k}>
                 {MEASUREMENT_KINDS[k].label} ({MEASUREMENT_KINDS[k].unit})
               </option>

@@ -623,6 +623,20 @@ is `stride/log-measurement` called **as the signed-in person**. The kernel still
 `result:log` on their own record) and the audit spine still names them — a sync can write exactly
 what that person could have typed, and the test pins the denial.
 
+- **Everything Withings sends is kept, and a second provider has a place.** Each wearable row (and each
+  device measurement) carries the provider's own record as `payload` JSON beside the columns we map from
+  it, bounded at 20 000 characters and returned by `stride/wearable` / `stride/measurements` only with
+  `payload: true`. The tables key on `(trainee, source, the provider's own id)` and `WEARABLE_SOURCES`
+  already lists `garmin` and `apple-health`, so a new provider is an entry there plus a harness that speaks
+  to it — no migration, no permission. Two providers that saw the same night are two rows, each naming its
+  `source`; nothing here merges them. Measure kinds are one vocabulary (`MEASUREMENT_KINDS`), so a blood
+  pressure is `systolic-bp` / `diastolic-bp` whoever took it; `DEVICE_ONLY_KINDS` keeps them out of the
+  hand-entry form. Not stored: intraday series (minute-level heart rate, steps, sleep stages over time) and
+  ECG/AFib, segmental body composition and electrodermal types — each needs its own shape.
+- **`SYNC_COVERAGE` is how a sync learns it now asks for more.** A link below it re-reads its first window
+  once, ignoring cursors, because a cursor says "nothing changed since" about data the old sync never
+  fetched. Bump it whenever the sync starts requesting something new. A token refresh keeps cursors and
+  coverage; it used to drop them.
 - **Tokens are per trainee**, kept in the identity DO's scope config under `withings:<traineeId>`
   (no delete there, so a disconnected link is the empty string). The refresh token ROTATES: the new
   one is saved before the new access token is used, or a failed write strands the connection.

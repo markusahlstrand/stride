@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  isUndecodablePlatformRequest,
   orgId,
   platformActorId,
   principalId,
@@ -99,6 +100,8 @@ export async function drainPlatformRequests(
   const pending = await host.listPlatformRequests(tenant, scope);
   let settled = 0;
   for (const request of pending) {
+    // A journal row that does not decode has no id we can settle by; leave it for a person to look at.
+    if (isUndecodablePlatformRequest(request)) continue;
     try {
       if (request.kind !== 'stride:onboard') {
         throw new Error(`no handler for platform intent kind: ${request.kind}`);

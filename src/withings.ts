@@ -16,6 +16,8 @@
 // WHERE the callback lives. It does not change the operations it calls.
 // ============================================================================
 
+import type { MeasurementKind } from './module.js';
+
 export const WITHINGS_AUTHORIZE_URL = 'https://account.withings.com/oauth2_user/authorize2';
 export const WITHINGS_API = 'https://wbsapi.withings.net';
 /**
@@ -29,11 +31,44 @@ export const FIRST_SYNC_DAYS = 365;
 /** Rows are tagged so a person can tell a scale's reading from one they typed. */
 export const WITHINGS_NOTE = 'Withings';
 
-/** Withings measure type → our controlled vocabulary. Types we have no kind for are skipped. */
-const KIND_OF_TYPE: Record<number, 'weight' | 'body-fat'> = {
+/**
+ * Withings measure type → our controlled vocabulary. Types we have no kind for are skipped — and are not
+ * even asked for, so they are never fetched and then dropped. Units are Withings' own, which the kind in
+ * `MEASUREMENT_KINDS` fixes (the exponent in a reading is applied by `decimalOf`).
+ *
+ * Left out on purpose: the ECG intervals and AFib flags (130–139), segmental body composition (174, 175)
+ * and electrodermal activity (196) — each needs its own shape, not a number under a name, and the raw
+ * payload on the rows we do keep is how a later revision gets them without a new sync design.
+ */
+const KIND_OF_TYPE: Record<number, MeasurementKind> = {
   1: 'weight', // kg
+  4: 'height', // m
+  5: 'fat-free-mass', // kg
   6: 'body-fat', // %
+  8: 'fat-mass', // kg
+  9: 'diastolic-bp', // mmHg
+  10: 'systolic-bp', // mmHg
+  11: 'pulse', // bpm
+  54: 'spo2', // %
+  71: 'body-temp', // °C
+  73: 'skin-temp', // °C
+  76: 'muscle-mass', // kg
+  77: 'hydration', // kg
+  88: 'bone-mass', // kg
+  91: 'pulse-wave-velocity', // m/s
+  123: 'vo2max', // ml/min/kg
+  155: 'vascular-age', // years
+  168: 'extracellular-water', // kg
+  169: 'intracellular-water', // kg
+  170: 'visceral-fat', // index
 };
+
+/**
+ * What a link has been synced FOR. Bump it when a sync starts asking for more than it used to: a link
+ * below this runs one full first-window pull, so history the old sync never fetched is not lost to a
+ * cursor that says "nothing changed since". Every write is idempotent, so the repeat costs time, not rows.
+ */
+export const SYNC_COVERAGE = 2;
 
 export interface WithingsLink {
   /** Withings' id for the account — kept so a reconnect to a DIFFERENT account is visible. */
@@ -50,6 +85,8 @@ export interface WithingsLink {
   lastSyncAt: string | null;
   /** Per dataset, the largest `modified` seen: the next pull asks only for what changed after it. */
   cursors?: Partial<Record<'workouts' | 'sleep' | 'activity', number>>;
+  /** The `SYNC_COVERAGE` this link last completed cleanly. Absent: it predates the field, i.e. coverage 1. */
+  coverage?: number;
 }
 
 /** Whether this link was granted the scope the device's own data needs. */
@@ -133,6 +170,10 @@ const linkFromTokens = (t: TokenBody, now: Date, prev?: WithingsLink): WithingsL
   connectedAt: prev?.connectedAt ?? now.toISOString(),
   lastUpdate: prev?.lastUpdate ?? null,
   lastSyncAt: prev?.lastSyncAt ?? null,
+  // A refresh is not a reconnect: without these every token refresh (every three hours) would forget how far
+  // each dataset had been read and start the first window over.
+  ...(prev?.cursors ? { cursors: prev.cursors } : {}),
+  ...(prev?.coverage !== undefined ? { coverage: prev.coverage } : {}),
 });
 
 /** The consent code → tokens. `redirectUri` must be the registered one, character for character. */
@@ -194,9 +235,13 @@ export function decimalOf(value: number, unit: number): string {
 }
 
 export interface WithingsReading {
-  kind: 'weight' | 'body-fat';
+  kind: MeasurementKind;
   value: string;
   measuredAt: string;
+  /** `<group>:<type>` — a weigh-in is one group of several measures, so the group id alone names none of them. */
+  externalId: string;
+  /** What Withings said, for this one reading: the group's own fields and the measure, as sent. */
+  payload: Record<string, unknown>;
 }
 
 interface MeasureGroup {
@@ -206,6 +251,9 @@ interface MeasureGroup {
   /** Epoch seconds it was last created or changed at Withings: the cursor for the next pull. */
   modified?: number;
   category: number;
+  attrib?: number;
+  deviceid?: string | null;
+  timezone?: string;
   measures: { value: number; type: number; unit: number }[];
 }
 
@@ -220,7 +268,22 @@ export function readingsOf(groups: MeasureGroup[]): WithingsReading[] {
       const value = decimalOf(m.value, m.unit);
       // `log-measurement` refuses anything not above zero; a scale glitch is not worth a failed sync.
       if (value.startsWith('-') || /^0(\.0+)?$/.test(value)) continue;
-      out.push({ kind, value, measuredAt: new Date(g.date * 1000).toISOString() });
+      out.push({
+        kind,
+        value,
+        measuredAt: new Date(g.date * 1000).toISOString(),
+        externalId: `${g.grpid}:${m.type}`,
+        payload: {
+          grpid: g.grpid,
+          date: g.date,
+          modified: g.modified,
+          category: g.category,
+          attrib: g.attrib,
+          deviceid: g.deviceid,
+          timezone: g.timezone,
+          measure: m,
+        },
+      });
     }
   }
   return out;
@@ -389,6 +452,7 @@ export const activityOfWorkout = (w: WorkoutObject) => {
     hrZone1Seconds: optInt(d.hr_zone_1),
     hrZone2Seconds: optInt(d.hr_zone_2),
     hrZone3Seconds: optInt(d.hr_zone_3),
+    payload: w as unknown as Record<string, unknown>,
   });
 };
 
@@ -413,6 +477,7 @@ export const sleepOfSummary = (n: SleepObject) => {
     hrMin: optBpm(d.hr_min),
     hrMax: optBpm(d.hr_max),
     rrAvg: optInt(d.rr_average),
+    payload: n as unknown as Record<string, unknown>,
   });
 };
 
@@ -437,15 +502,19 @@ export const daysOfActivity = (items: ActivityObject[]) => {
       hrAvg: optBpm(a.hr_average),
       hrMin: optBpm(a.hr_min),
       hrMax: optBpm(a.hr_max),
+      payload: a as unknown as Record<string, unknown>,
     }),
   );
 };
 
+// Asked for generously: what we do not map is kept in the row's payload. A field the account's devices do
+// not produce is simply absent from the answer.
 const WORKOUT_FIELDS =
-  'calories,distance,elevation,steps,hr_average,hr_min,hr_max,hr_zone_0,hr_zone_1,hr_zone_2,hr_zone_3';
+  'calories,intensity,manual_distance,manual_calories,hr_average,hr_min,hr_max,hr_zone_0,hr_zone_1,hr_zone_2,hr_zone_3,pause_duration,algo_pause_duration,spo2_average,steps,distance,elevation,pool_laps,strokes,pool_length';
 const SLEEP_FIELDS =
-  'total_timeinbed,total_sleep_time,lightsleepduration,deepsleepduration,remsleepduration,wakeupduration,sleep_efficiency,sleep_score,hr_average,hr_min,hr_max,rr_average';
-const ACTIVITY_FIELDS = 'steps,distance,calories,totalcalories,active,hr_average,hr_min,hr_max';
+  'total_timeinbed,total_sleep_time,lightsleepduration,deepsleepduration,remsleepduration,wakeupduration,sleep_efficiency,sleep_score,hr_average,hr_min,hr_max,rr_average,rr_max,rr_min,breathing_disturbances_intensity,durationtosleep,durationtowakeup,night_events,out_of_bed_count,sleep_latency,wakeup_latency,wakeupcount,snoring,snoringepisodecount,apnea_hypopnea_index,withings_index';
+const ACTIVITY_FIELDS =
+  'steps,distance,elevation,soft,moderate,intense,active,calories,totalcalories,hr_average,hr_min,hr_max,hr_zone_0,hr_zone_1,hr_zone_2,hr_zone_3';
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -611,6 +680,9 @@ export async function syncWithings(a: {
     await store.set(traineeId, link);
   }
 
+  // A link last synced for less than we ask for now re-reads the first window, once, ignoring its cursors.
+  const stale = (link.coverage ?? 1) < SYNC_COVERAGE;
+  if (stale) link = { ...link, lastUpdate: null, cursors: {} };
   const window = link.lastUpdate
     ? { lastUpdate: link.lastUpdate }
     : {
@@ -644,6 +716,9 @@ export async function syncWithings(a: {
       value: r.value,
       measuredAt: r.measuredAt,
       note: WITHINGS_NOTE,
+      source: 'withings',
+      externalId: r.externalId,
+      payload: r.payload,
     });
     have.add(key);
     added++;
@@ -665,6 +740,8 @@ export async function syncWithings(a: {
     ...link,
     lastUpdate: cursor,
     ...(cursors ? { cursors } : {}),
+    // Only a clean pass counts as covered: a dataset that failed has no cursor yet, and wants this again.
+    coverage: problems.length === 0 ? SYNC_COVERAGE : link.coverage ?? 1,
     lastSyncAt: now.toISOString(),
   });
   return { seen: readings.length, added, ...(wearable ? { wearable } : {}), ...(problems.length ? { problems } : {}) };

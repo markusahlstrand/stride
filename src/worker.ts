@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { HTTPException } from 'hono/http-exception';
 import { CloudflareScopeHost, defineScopeDO } from '@substrat-run/adapter-cloudflare';
-import { mountOperations, mountPlatformSurface } from '@substrat-run/vertical-host';
+import { invocationLog, mountOperations, mountPlatformSurface, readRoutedNode } from '@substrat-run/vertical-host';
 import { knownOperations, operations } from './model.js';
 import {
   authorizationServersOf,
@@ -10,7 +10,7 @@ import {
   type AuthProvider,
   type IdentityDO,
 } from '@substrat-run/vertical-auth';
-import { invocationLog, PermissionDenied, readRoutedNode } from '@substrat-run/kernel';
+import { PermissionDenied } from '@substrat-run/kernel';
 import { resolveScopedEnvSpec, z, type PrincipalId, type ScopeId, type TenantId } from '@substrat-run/contracts';
 import { AUTH_CONFIG_KEY, ConfigDO } from './config-do.js';
 import { MODULES, ROLES } from './modules.js';
