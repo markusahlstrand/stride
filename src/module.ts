@@ -15,6 +15,7 @@ import {
   assertAllowed,
   PermissionDenied,
   ulid,
+  undeclaredOperations,
   type GuardPredicate,
   type ModuleRegistration,
   type OperationContext,
@@ -3798,7 +3799,61 @@ export const MEASUREMENT_KINDS = {
   'shoulder-flexion': { unit: 'deg', sided: true, label: 'Shoulder flexion — arm forward and up' },
   'shoulder-abduction': { unit: 'deg', sided: true, label: 'Shoulder abduction — arm out to the side' },
   'shoulder-external-rotation': { unit: 'deg', sided: true, label: 'Shoulder external rotation' },
+  // What a device measures. Typed by hand they are rare, so the log form leaves them out
+  // (DEVICE_ONLY_KINDS); the vocabulary is the same either way, so a Garmin or an Apple
+  // Health reading of a blood pressure lands under the same kind a Withings cuff's does.
+  height: { unit: 'm', sided: false, label: 'Height' },
+  'fat-mass': { unit: 'kg', sided: false, label: 'Fat mass' },
+  'fat-free-mass': { unit: 'kg', sided: false, label: 'Fat-free mass' },
+  'muscle-mass': { unit: 'kg', sided: false, label: 'Muscle mass' },
+  'bone-mass': { unit: 'kg', sided: false, label: 'Bone mass' },
+  hydration: { unit: 'kg', sided: false, label: 'Body water' },
+  'extracellular-water': { unit: 'kg', sided: false, label: 'Extracellular water' },
+  'intracellular-water': { unit: 'kg', sided: false, label: 'Intracellular water' },
+  'visceral-fat': { unit: 'index', sided: false, label: 'Visceral fat index' },
+  'systolic-bp': { unit: 'mmHg', sided: false, label: 'Systolic blood pressure' },
+  'diastolic-bp': { unit: 'mmHg', sided: false, label: 'Diastolic blood pressure' },
+  pulse: { unit: 'bpm', sided: false, label: 'Pulse' },
+  spo2: { unit: '%', sided: false, label: 'Blood oxygen (SpO2)' },
+  'body-temp': { unit: 'C', sided: false, label: 'Body temperature' },
+  'skin-temp': { unit: 'C', sided: false, label: 'Skin temperature' },
+  'pulse-wave-velocity': { unit: 'm/s', sided: false, label: 'Pulse wave velocity' },
+  'vascular-age': { unit: 'years', sided: false, label: 'Vascular age' },
+  vo2max: { unit: 'ml/min/kg', sided: false, label: 'VO2 max' },
 } as const;
+
+/** Kinds a device writes and a person rarely types: left out of the app's log form, still readable and writable. */
+export const DEVICE_ONLY_KINDS: ReadonlySet<string> = new Set([
+  'height', 'fat-mass', 'fat-free-mass', 'muscle-mass', 'bone-mass', 'hydration', 'extracellular-water',
+  'intracellular-water', 'visceral-fat', 'systolic-bp', 'diastolic-bp', 'pulse', 'spo2', 'body-temp',
+  'skin-temp', 'pulse-wave-velocity', 'vascular-age', 'vo2max',
+]);
+
+/**
+ * Where a reading came from. The tables key on (trainee, source, the provider's own id), so adding a
+ * provider is an entry here and a harness that speaks to it — no migration, no new permission.
+ */
+export const WEARABLE_SOURCES = ['withings', 'garmin', 'apple-health'] as const;
+
+/**
+ * The provider's own record, kept beside the columns we map from it so a field we did not map is not a
+ * field we lost. JSON, bounded: it is an escape hatch for a backfill, not a place to put a time series.
+ */
+const MAX_PAYLOAD_CHARS = 20_000;
+const rawPayload = z
+  .record(z.string(), z.unknown())
+  .refine((v) => JSON.stringify(v).length <= MAX_PAYLOAD_CHARS, `payload is over ${MAX_PAYLOAD_CHARS} characters`);
+const payloadText = (p: Record<string, unknown> | undefined): string | null =>
+  p === undefined ? null : JSON.stringify(p);
+/** A stored payload back as the object it was; text that is not JSON is dropped rather than thrown on. */
+const payloadOf = (text: string | null): unknown => {
+  if (text === null) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+};
 
 export type MeasurementKind = keyof typeof MEASUREMENT_KINDS;
 const MEASUREMENT_KIND_KEYS = Object.keys(MEASUREMENT_KINDS) as [MeasurementKind, ...MeasurementKind[]];
@@ -3813,6 +3868,12 @@ export interface MeasurementRow {
   unit: string;
   measured_at: string;
   note: string | null;
+  /** Which provider, when a device took it; null for one typed by hand. */
+  source: string | null;
+  /** The provider's own id for it, for tracing a row back. */
+  external_id: string | null;
+  /** The provider's record as JSON text. The read hands it back as an object, and only when asked for. */
+  payload: string | null;
   logged_by: string;
   created_at: string;
 }
@@ -3825,6 +3886,10 @@ export const logMeasurementInput = z.object({
   /** When it was taken; defaults to now. A weight from this morning is still this morning's. */
   measuredAt: z.string().optional(),
   note: z.string().max(400).optional(),
+  /** Set by a harness that mirrors a provider; a person typing a weight leaves all three out. */
+  source: z.enum(WEARABLE_SOURCES).optional(),
+  externalId: z.string().min(1).max(120).optional(),
+  payload: rawPayload.optional(),
 });
 
 /**
@@ -3833,7 +3898,7 @@ export const logMeasurementInput = z.object({
  * anyone in the gym. A trainee holds it only against their own record, which is
  * why the operation can take a `traineeId` at all.
  */
-const logMeasurementOp: OperationHandler<z.infer<typeof logMeasurementInput>, MeasurementRow> = async (
+const logMeasurementOp: OperationHandler<z.infer<typeof logMeasurementInput>, MeasurementView> = async (
   ctx,
   rawInput,
 ) => {
@@ -3861,9 +3926,12 @@ const logMeasurementOp: OperationHandler<z.infer<typeof logMeasurementInput>, Me
   const measuredAt = input.measuredAt ?? now;
   ctx.sql.exec(
     `INSERT INTO train_measurements
-       (id, trainee_id, kind, side, value, unit, measured_at, note, logged_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, trainee.id, input.kind, side, input.value, kind.unit, measuredAt, input.note ?? null, ctx.principal, now],
+       (id, trainee_id, kind, side, value, unit, measured_at, note, source, external_id, payload, logged_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id, trainee.id, input.kind, side, input.value, kind.unit, measuredAt, input.note ?? null,
+      input.source ?? null, input.externalId ?? null, payloadText(input.payload), ctx.principal, now,
+    ],
   );
   ctx.emit({
     type: 'stride.measurement-logged',
@@ -3880,28 +3948,52 @@ const logMeasurementOp: OperationHandler<z.infer<typeof logMeasurementInput>, Me
       value: input.value,
       unit: kind.unit,
       measuredAt,
+      source: input.source ?? null,
     },
   });
-  return ctx.sql.query<MeasurementRow>('SELECT * FROM train_measurements WHERE id = ?', [id])[0]!;
+  return withoutPayload(ctx.sql.query<MeasurementRow>('SELECT * FROM train_measurements WHERE id = ?', [id])[0]!);
 };
 
 export const traineeIdInput = z.object({
   traineeId: z.string().min(1).describe('Trainee record id: use traineeId from stride/whoami for your own training, or an id from stride/trainees for somebody you may read.'),
 });
 
+export const measurementsInput = traineeIdInput.extend({
+  kind: z.enum(MEASUREMENT_KIND_KEYS).optional().describe('Only this kind of measurement, e.g. "weight" or "systolic-bp".'),
+  source: z.enum(WEARABLE_SOURCES).optional().describe('Only readings a device took, from this provider.'),
+  days: z.number().int().min(1).max(3650).optional().describe('Only the last N days. Omitted: everything.'),
+  payload: z.boolean().default(false).describe("Include each reading's raw provider record as `payload`. Large; off by default."),
+});
+
+/** A measurement as the read returns it: the stored JSON text is only ever handed back as an object, and only on request. */
+export type MeasurementView = Omit<MeasurementRow, 'payload'> & { payload?: unknown };
+const withoutPayload = (r: MeasurementRow): MeasurementView => {
+  const { payload: _drop, ...rest } = r;
+  return rest;
+};
+
 /** Every measurement about one person, oldest first. Narrowed `result:read`. */
-const measurementsOp: OperationHandler<z.infer<typeof traineeIdInput>, MeasurementRow[]> = async (
+const measurementsOp: OperationHandler<z.infer<typeof measurementsInput>, MeasurementView[]> = async (
   ctx,
   rawInput,
 ) => {
-  const input = traineeIdInput.parse(rawInput);
+  const input = measurementsInput.parse(rawInput);
   assertAllowed(
     await ctx.check(TRAIN_PERM.resultRead, { entityType: 'trainee', entityId: input.traineeId }),
   );
-  return ctx.sql.query<MeasurementRow>(
-    'SELECT * FROM train_measurements WHERE trainee_id = ? ORDER BY measured_at, id',
-    [input.traineeId],
+  const where = ['trainee_id = ?'];
+  const args: (string | number)[] = [input.traineeId];
+  if (input.kind) { where.push('kind = ?'); args.push(input.kind); }
+  if (input.source) { where.push('source = ?'); args.push(input.source); }
+  if (input.days !== undefined) {
+    where.push('measured_at >= ?');
+    args.push(new Date(new Date(ctx.now()).getTime() - input.days * 86_400_000).toISOString());
+  }
+  const rows = ctx.sql.query<MeasurementRow>(
+    `SELECT * FROM train_measurements WHERE ${where.join(' AND ')} ORDER BY measured_at, id`,
+    args,
   );
+  return rows.map((r) => (input.payload ? { ...withoutPayload(r), payload: payloadOf(r.payload) } : withoutPayload(r)));
 };
 
 // ---------------------------------------------------------------------------
@@ -3945,7 +4037,6 @@ export type ActivityKind = keyof typeof ACTIVITY_KINDS;
 const ACTIVITY_KIND_KEYS = Object.keys(ACTIVITY_KINDS) as [ActivityKind, ...ActivityKind[]];
 
 /** Sources a wearable row may come from. A new provider is a new entry here, not a new column. */
-const WEARABLE_SOURCES = ['withings'] as const;
 
 const wholeNumber = z.number().int().min(0).max(10_000_000);
 const heartRate = z.number().int().min(20).max(260);
@@ -3970,6 +4061,7 @@ const activityReading = z.object({
   hrZone1Seconds: wholeNumber.optional(),
   hrZone2Seconds: wholeNumber.optional(),
   hrZone3Seconds: wholeNumber.optional(),
+  payload: rawPayload.optional(),
 });
 
 const sleepReading = z.object({
@@ -3990,6 +4082,7 @@ const sleepReading = z.object({
   hrMin: heartRate.optional(),
   hrMax: heartRate.optional(),
   rrAvg: z.number().int().min(1).max(80).optional(),
+  payload: rawPayload.optional(),
 });
 
 const dayReading = z.object({
@@ -4002,6 +4095,7 @@ const dayReading = z.object({
   hrAvg: heartRate.optional(),
   hrMin: heartRate.optional(),
   hrMax: heartRate.optional(),
+  payload: rawPayload.optional(),
 });
 
 export const recordWearableInput = z.object({
@@ -4033,6 +4127,7 @@ export interface ActivityRow {
   hr_zone1_seconds: number | null;
   hr_zone2_seconds: number | null;
   hr_zone3_seconds: number | null;
+  payload: string | null;
   recorded_by: string;
   created_at: string;
   updated_at: string;
@@ -4058,6 +4153,7 @@ export interface SleepNightRow {
   hr_min: number | null;
   hr_max: number | null;
   rr_avg: number | null;
+  payload: string | null;
   recorded_by: string;
   created_at: string;
   updated_at: string;
@@ -4075,6 +4171,7 @@ export interface ActivityDayRow {
   hr_avg: number | null;
   hr_min: number | null;
   hr_max: number | null;
+  payload: string | null;
   recorded_by: string;
   created_at: string;
   updated_at: string;
@@ -4092,6 +4189,12 @@ interface WearableCounts {
 }
 
 type ColumnValue = string | number | null;
+
+/** A reading minus its raw provider record. The record rides the row, not the event: a fat event says what changed in terms a consumer can use. */
+const withoutRaw = <T extends { payload?: unknown }>(r: T): Omit<T, 'payload'> => {
+  const { payload: _raw, ...rest } = r;
+  return rest;
+};
 
 /**
  * Insert a row, or change it if (and only if) a value differs. Returns what happened so the
@@ -4189,6 +4292,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
       hr_zone1_seconds: a.hrZone1Seconds ?? null,
       hr_zone2_seconds: a.hrZone2Seconds ?? null,
       hr_zone3_seconds: a.hrZone3Seconds ?? null,
+      payload: payloadText(a.payload),
       updated_at: now,
     };
     const id = ulid();
@@ -4205,7 +4309,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
         traineeId: trainee.id,
         source: input.source,
         change: result,
-        ...a,
+        ...withoutRaw(a),
       });
     }
   }
@@ -4227,6 +4331,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
       hr_min: n.hrMin ?? null,
       hr_max: n.hrMax ?? null,
       rr_avg: n.rrAvg ?? null,
+      payload: payloadText(n.payload),
       updated_at: now,
     };
     const result = upsertWearableRow(
@@ -4242,7 +4347,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
         traineeId: trainee.id,
         source: input.source,
         change: result,
-        ...n,
+        ...withoutRaw(n),
       });
     }
   }
@@ -4257,6 +4362,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
       hr_avg: d.hrAvg ?? null,
       hr_min: d.hrMin ?? null,
       hr_max: d.hrMax ?? null,
+      payload: payloadText(d.payload),
       updated_at: now,
     };
     const result = upsertWearableRow(
@@ -4272,7 +4378,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
         traineeId: trainee.id,
         source: input.source,
         change: result,
-        ...d,
+        ...withoutRaw(d),
       });
     }
   }
@@ -4282,15 +4388,23 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
 export const wearableInput = z.object({
   traineeId: z.string().min(1).describe('Trainee record id: use traineeId from stride/whoami for your own data, or an id from stride/trainees for somebody you may read.'),
   days: z.number().int().min(1).max(730).default(90).describe('How far back to read, in days. Defaults to 90.'),
+  source: z.enum(WEARABLE_SOURCES).optional().describe('Only this provider. Omitted: every provider connected, one row each — two devices that saw the same night both answer.'),
+  include: z
+    .array(z.enum(['activities', 'sleep', 'days']))
+    .min(1)
+    .optional()
+    .describe('Which datasets to return. Omitted: all three. A long window of all three is a lot of text.'),
+  payload: z.boolean().default(false).describe("Include each row's raw provider record as `payload`: every field the provider sent, mapped or not. Large; off by default."),
 });
 
+type WithPayload<R extends { payload: string | null }> = Omit<R, 'payload'> & { payload?: unknown };
 export interface WearableView {
-  activities: ActivityRow[];
-  sleep: SleepNightRow[];
-  days: ActivityDayRow[];
+  activities: WithPayload<ActivityRow>[];
+  sleep: WithPayload<SleepNightRow>[];
+  days: WithPayload<ActivityDayRow>[];
 }
 
-/** What the person's wearable recorded over the last N days, newest first. Narrowed `result:read`. */
+/** What the person's wearables recorded over the last N days, newest first. Narrowed `result:read`. */
 const wearableOp: OperationHandler<z.infer<typeof wearableInput>, WearableView> = async (ctx, rawInput) => {
   const input = wearableInput.parse(rawInput);
   assertAllowed(
@@ -4298,19 +4412,23 @@ const wearableOp: OperationHandler<z.infer<typeof wearableInput>, WearableView> 
   );
   const since = new Date(new Date(ctx.now()).getTime() - input.days * 86_400_000).toISOString();
   const sinceDay = since.slice(0, 10);
+  const want = new Set(input.include ?? ['activities', 'sleep', 'days']);
+  const from = (table: string, when: string, order: string, floor: string) => {
+    const args: string[] = [input.traineeId, floor];
+    const source = input.source ? (args.push(input.source), ' AND source = ?') : '';
+    return {
+      sql: `SELECT * FROM ${table} WHERE trainee_id = ? AND ${when} >= ?${source} ORDER BY ${order}`,
+      args,
+    };
+  };
+  const shape = <R extends { payload: string | null }>(rows: R[]): WithPayload<R>[] =>
+    rows.map(({ payload, ...rest }) => (input.payload ? { ...rest, payload: payloadOf(payload) } : rest));
+  const read = <R extends { payload: string | null }>(q: { sql: string; args: string[] }, on: boolean) =>
+    on ? shape(ctx.sql.query<R>(q.sql, q.args)) : [];
   return {
-    activities: ctx.sql.query<ActivityRow>(
-      'SELECT * FROM train_activities WHERE trainee_id = ? AND started_at >= ? ORDER BY started_at DESC, id',
-      [input.traineeId, since],
-    ),
-    sleep: ctx.sql.query<SleepNightRow>(
-      'SELECT * FROM train_sleep_nights WHERE trainee_id = ? AND night >= ? ORDER BY night DESC, id',
-      [input.traineeId, sinceDay],
-    ),
-    days: ctx.sql.query<ActivityDayRow>(
-      'SELECT * FROM train_activity_days WHERE trainee_id = ? AND day >= ? ORDER BY day DESC',
-      [input.traineeId, sinceDay],
-    ),
+    activities: read<ActivityRow>(from('train_activities', 'started_at', 'started_at DESC, id', since), want.has('activities')),
+    sleep: read<SleepNightRow>(from('train_sleep_nights', 'night', 'night DESC, id', sinceDay), want.has('sleep')),
+    days: read<ActivityDayRow>(from('train_activity_days', 'day', 'day DESC, source', sinceDay), want.has('days')),
   };
 };
 
@@ -4557,64 +4675,67 @@ export const strideModule: ModuleRegistration = {
   manifest: strideManifest,
   migrations: strideMigrations,
   predicates: { [PROGRAM_IN_REACH]: programInReach },
-  operations: {
+  ...undeclaredOperations(
+    'the declared surface lives in model.ts, which imports this file; each operation parses its own input with the exported Zod schema',
+    {
     ...phasedOperations({ authorTemplate: authorTemplateOp, assignProgram: assignProgramOp, recordSession,
-      canReadExercise, canReadTemplate }) as unknown as Record<string, never>,
-    'stride/equipment': equipmentOp as never,
-    'stride/publish-equipment': publishEquipmentOp as never,
-    'stride/set-my-equipment': setMyEquipmentOp as never,
-    'stride/set-exercise-equipment': setExerciseEquipmentOp as never,
-    'stride/create-coach': createCoachOp as never,
-    'stride/create-trainee': createTraineeOp as never,
-    'stride/assign-to-coach': assignToCoachOp as never,
-    'stride/coaches': coachesOp as never,
-    'stride/trainees': traineesOp as never,
-    'stride/publish-exercise': publishExerciseOp as never,
-    'stride/author-exercise': authorExerciseOp as never,
-    'stride/retire-exercise': retireExerciseOp as never,
-    'stride/describe-exercise': describeExerciseOp as never,
-    'stride/exercises': exercisesOp as never,
-    'stride/my-exercises': myExercisesOp as never,
-    'stride/publish-template': publishTemplateOp as never,
-    'stride/install-starter-library': installStarterLibraryOp as never,
-    'stride/author-template': authorTemplateOp as never,
-    'stride/add-template-item': addTemplateItemOp as never,
-    'stride/remove-template-item': removeTemplateItemOp as never,
-    'stride/share-template': shareTemplateOp as never,
-    'stride/templates': templatesOp as never,
-    'stride/assign-program': assignProgramOp as never,
-    'stride/repeat-program': repeatProgramOp as never,
-    'stride/add-program-item': addProgramItemOp as never,
-    'stride/remove-program-item': removeProgramItemOp as never,
-    'stride/log-session': logSessionOp as never,
-    'stride/log-set': logSetOp as never,
-    'stride/void-set': voidSetOp as never,
-    'stride/complete-program': completeProgramOp as never,
-    'stride/get-program': getProgramOp as never,
-    'stride/my-programs': myProgramsOp as never,
-    'stride/schedule': scheduleOp as never,
-    'stride/agenda': agendaOp as never,
-    'stride/set-program-slots': setProgramSlotsOp as never,
-    'stride/begin': beginOp as never,
-    'stride/invite': inviteOp as never,
-    'stride/invitations': invitationsOp as never,
-    'stride/revoke-invite': revokeInviteOp as never,
-    'stride/accept-invite': acceptInviteOp as never,
-    'stride/set-item-sets': setItemSetsOp as never,
-    'stride/onboard': onboardOp as never,
-    'stride/me': meOp as never,
-    'stride/train-myself': trainMyselfOp as never,
-    'stride/whoami': whoamiOp as never,
-    'stride/threads': threadsOp as never,
-    'stride/messages': messagesOp as never,
-    'stride/post-message': postMessageOp as never,
-    'stride/set-sharing': setSharingOp as never,
-    'stride/my-sharing': mySharingOp as never,
-    'stride/timeline': timelineOp as never,
-    'stride/log-measurement': logMeasurementOp as never,
-    'stride/measurements': measurementsOp as never,
-    'stride/record-wearable': recordWearableOp as never,
-    'stride/wearable': wearableOp as never,
-    'stride/progress': progressOp as never,
-  },
+      canReadExercise, canReadTemplate }),
+    'stride/equipment': equipmentOp,
+    'stride/publish-equipment': publishEquipmentOp,
+    'stride/set-my-equipment': setMyEquipmentOp,
+    'stride/set-exercise-equipment': setExerciseEquipmentOp,
+    'stride/create-coach': createCoachOp,
+    'stride/create-trainee': createTraineeOp,
+    'stride/assign-to-coach': assignToCoachOp,
+    'stride/coaches': coachesOp,
+    'stride/trainees': traineesOp,
+    'stride/publish-exercise': publishExerciseOp,
+    'stride/author-exercise': authorExerciseOp,
+    'stride/retire-exercise': retireExerciseOp,
+    'stride/describe-exercise': describeExerciseOp,
+    'stride/exercises': exercisesOp,
+    'stride/my-exercises': myExercisesOp,
+    'stride/publish-template': publishTemplateOp,
+    'stride/install-starter-library': installStarterLibraryOp,
+    'stride/author-template': authorTemplateOp,
+    'stride/add-template-item': addTemplateItemOp,
+    'stride/remove-template-item': removeTemplateItemOp,
+    'stride/share-template': shareTemplateOp,
+    'stride/templates': templatesOp,
+    'stride/assign-program': assignProgramOp,
+    'stride/repeat-program': repeatProgramOp,
+    'stride/add-program-item': addProgramItemOp,
+    'stride/remove-program-item': removeProgramItemOp,
+    'stride/log-session': logSessionOp,
+    'stride/log-set': logSetOp,
+    'stride/void-set': voidSetOp,
+    'stride/complete-program': completeProgramOp,
+    'stride/get-program': getProgramOp,
+    'stride/my-programs': myProgramsOp,
+    'stride/schedule': scheduleOp,
+    'stride/agenda': agendaOp,
+    'stride/set-program-slots': setProgramSlotsOp,
+    'stride/begin': beginOp,
+    'stride/invite': inviteOp,
+    'stride/invitations': invitationsOp,
+    'stride/revoke-invite': revokeInviteOp,
+    'stride/accept-invite': acceptInviteOp,
+    'stride/set-item-sets': setItemSetsOp,
+    'stride/onboard': onboardOp,
+    'stride/me': meOp,
+    'stride/train-myself': trainMyselfOp,
+    'stride/whoami': whoamiOp,
+    'stride/threads': threadsOp,
+    'stride/messages': messagesOp,
+    'stride/post-message': postMessageOp,
+    'stride/set-sharing': setSharingOp,
+    'stride/my-sharing': mySharingOp,
+    'stride/timeline': timelineOp,
+    'stride/log-measurement': logMeasurementOp,
+    'stride/measurements': measurementsOp,
+    'stride/record-wearable': recordWearableOp,
+    'stride/wearable': wearableOp,
+    'stride/progress': progressOp,
+    },
+  ),
 };

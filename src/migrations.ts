@@ -575,4 +575,27 @@ export const strideMigrations: SqlMigration[] = [
     `,
   },
 
+  {
+    version: '0013-provider-payload',
+    sql: `
+      -- Keep what a provider sent, not only what we mapped from it.
+      --
+      -- Each wearable row and each device measurement gets the provider's own record as JSON
+      -- text, so a field we did not map (a sleep latency, a pool length, a pulse-wave reading)
+      -- is a backfill away rather than lost. The mapped columns stay the contract; this is the
+      -- escape hatch, bounded in the operation (20 000 characters) and returned only on request.
+      --
+      -- Measurements also learn WHERE they came from. Until now a Withings weight was told apart
+      -- from a typed one by the word 'Withings' in the note; a second provider cannot be told
+      -- apart that way. Both columns are NULL for a measurement a person typed, and for every
+      -- row already here. Measurements stay append-only: no key is added, nothing is rewritten.
+      ALTER TABLE train_activities     ADD COLUMN payload TEXT;
+      ALTER TABLE train_sleep_nights   ADD COLUMN payload TEXT;
+      ALTER TABLE train_activity_days  ADD COLUMN payload TEXT;
+
+      ALTER TABLE train_measurements   ADD COLUMN source      TEXT;
+      ALTER TABLE train_measurements   ADD COLUMN external_id TEXT;
+      ALTER TABLE train_measurements   ADD COLUMN payload     TEXT;
+    `,
+  },
 ];
