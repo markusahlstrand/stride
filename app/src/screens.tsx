@@ -183,10 +183,15 @@ export function TodayScreen({
   const [weekOffset, setWeekOffset] = useState(0);
   const todayDate = new Date().toISOString().slice(0, 10);
   const weekDate = addDays(todayDate, weekOffset * 7);
-  const [agenda, reloadAgenda] = useList<AgendaEntry>(
+  const [fetched, reloadAgenda] = useList<AgendaEntry>(
     () => api.agenda(weekDate),
     [me?.key, weekDate],
   );
+  // While the next week loads the old rows are still held; never show them
+  // under the wrong week.
+  const weekFrom = addDays(weekDate, -((new Date(`${weekDate}T00:00:00Z`).getUTCDay() + 6) % 7));
+  const weekTo = addDays(weekFrom, 6);
+  const agenda = fetched.filter((a) => a.date >= weekFrom && a.date <= weekTo);
   const [picked, setPicked] = useState<string | null>(null);
   const due = items.filter((i) => i.dueToday);
   const rest = items.filter((i) => !i.dueToday);
@@ -209,6 +214,9 @@ export function TodayScreen({
       // A session already logged on that day is resumed; otherwise a NEW one
       // opens now. Training a missed or future slot today is just that — the
       // session is stamped with the moment it happened, never back-dated.
+      // A planned programme is started first, as its own call: that is the one
+      // carrying the manifest guard, and `begin` refuses to do it for you.
+      if (entry.status === 'planned') await api.startProgram(entry.programId);
       const r = await api.begin(entry.programId, entry.sessionOnDate ?? undefined);
       sessionId = r.session.id;
     }, entry.sessionOnDate ? 'Back to it' : 'Session started');
@@ -262,7 +270,9 @@ export function TodayScreen({
           shorthand zeroes the auto side margins that centre the column on
           desktop, and strands the line in the gutter. */}
       <div className="sub" style={{ marginTop: -6, marginBottom: 16, paddingLeft: 2 }}>
-        {new Date().toLocaleDateString(undefined, {
+        {/* UTC, like every slot date and the "missed" test: one calendar. */}
+        {new Date(`${todayDate}T00:00:00Z`).toLocaleDateString(undefined, {
+          timeZone: 'UTC',
           weekday: 'long',
           day: 'numeric',
           month: 'short',
@@ -288,7 +298,7 @@ export function TodayScreen({
           </button>
           <div className="week">
             {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((letter, idx) => {
-              const date = addDays(addDays(weekDate, -(((new Date(`${weekDate}T00:00:00Z`).getUTCDay() + 6) % 7))), idx);
+              const date = addDays(weekFrom, idx);
               const isToday = date === todayDate;
               const entries = agenda.filter((a) => a.date === date);
               const missed = date < todayDate && entries.some((a) => !a.sessionOnDate);
@@ -373,9 +383,7 @@ export function TodayScreen({
                 ? a.date === todayDate || a.setsOnDate === 0
                   ? 'Continue'
                   : 'Open session'
-                : a.status === 'planned'
-                  ? 'Start programme first'
-                  : a.date === todayDate
+                : a.date === todayDate
                     ? 'Start training'
                     : 'Train it today instead'}
             </button>
@@ -456,14 +464,20 @@ function useList<T>(
 ): [T[], () => void, ListState] {
   const [rows, setRows] = useState<T[]>([]);
   const [state, setState] = useState<ListState>('loading');
+  // Only the latest request may land: paging quickly must not let an earlier
+  // response overwrite a later one.
+  const latest = useRef(0);
   const reload = useCallback(() => {
+    const mine = ++latest.current;
     setState('loading');
     load()
       .then((r) => {
+        if (mine !== latest.current) return;
         setRows(r);
         setState('ready');
       })
       .catch(() => {
+        if (mine !== latest.current) return;
         setRows([]);
         setState('error');
       });
