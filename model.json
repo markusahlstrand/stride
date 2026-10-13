@@ -750,6 +750,45 @@
               "string",
               "null"
             ]
+          },
+          "target_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "target_zone": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "target_hr_min": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "target_hr_max": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "work_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rest_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amrap": {
+            "type": "number"
           }
         },
         "required": [
@@ -763,7 +802,14 @@
           "notes",
           "recur_days",
           "recur_per_week",
-          "group_key"
+          "group_key",
+          "target_seconds",
+          "target_zone",
+          "target_hr_min",
+          "target_hr_max",
+          "work_seconds",
+          "rest_seconds",
+          "amrap"
         ],
         "additionalProperties": false
       }
@@ -1003,6 +1049,48 @@
               "string",
               "null"
             ]
+          },
+          "rir": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "activity_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_hr": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_zone0_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_zone1_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_zone2_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "hr_zone3_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1018,7 +1106,14 @@
           "logged_at",
           "duration_seconds",
           "avg_hr",
-          "side"
+          "side",
+          "rir",
+          "activity_id",
+          "max_hr",
+          "hr_zone0_seconds",
+          "hr_zone1_seconds",
+          "hr_zone2_seconds",
+          "hr_zone3_seconds"
         ],
         "additionalProperties": false
       }
@@ -1337,6 +1432,45 @@
               "string",
               "null"
             ]
+          },
+          "target_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "target_zone": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "target_hr_min": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "target_hr_max": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "work_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rest_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amrap": {
+            "type": "number"
           }
         },
         "required": [
@@ -1350,7 +1484,14 @@
           "notes",
           "recur_days",
           "recur_per_week",
-          "group_key"
+          "group_key",
+          "target_seconds",
+          "target_zone",
+          "target_hr_min",
+          "target_hr_max",
+          "work_seconds",
+          "rest_seconds",
+          "amrap"
         ],
         "additionalProperties": false
       }
@@ -1439,6 +1580,12 @@
               "string",
               "null"
             ]
+          },
+          "max_hr": {
+            "type": [
+              "number",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1451,7 +1598,8 @@
           "principal_id",
           "goal",
           "days_per_week",
-          "onboarded_at"
+          "onboarded_at",
+          "max_hr"
         ],
         "additionalProperties": false
       },

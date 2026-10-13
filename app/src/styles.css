@@ -1711,3 +1711,28 @@ button.week-day { background: none; border: 0; box-shadow: none; padding: 0; cur
   box-sizing: border-box;
 }
 .focus-foot button { width: 100%; }
+
+/* ---- hybrid training: rest and interval timers, the prescription form, zones ----
+   The timers reuse .holdtimer so a clock looks like a clock wherever it appears. */
+.resttimer .rest-adjust { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 6px; align-items: center; }
+.intervaltimer.running .hold-clock { color: var(--accent-ink); }
+.target-fields > * + * { margin-top: 10px; }
+.zonelist { display: grid; gap: 6px; margin-top: 10px; }
+.zonerow {
+  display: grid;
+  grid-template-columns: 5.5em 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+/* A strip of fill down the left edge says how hard the zone is without leaning on colour alone —
+   the word beside it still says it. */
+.zonerow.z0 { box-shadow: inset 4px 0 0 var(--muted); }
+.zonerow.z1 { box-shadow: inset 8px 0 0 var(--muted); }
+.zonerow.z2 { box-shadow: inset 12px 0 0 var(--accent-ink); }
+.zonerow.z3 { box-shadow: inset 16px 0 0 var(--accent-ink); }
+.pill.from-device { border-style: solid; }
+.zonesplit { margin-top: 4px; }

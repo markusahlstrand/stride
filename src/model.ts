@@ -18,6 +18,7 @@ import {
   logMeasurementInput,
   recordWearableInput,
   wearableInput,
+  setMaxHrInput,
   logSessionInput,
   logSetInput,
   myEquipmentInput,
@@ -423,6 +424,18 @@ export const operations = {
       'What a person’s wearables recorded: workouts with heart-rate zones, nightly sleep and daily activity, newest first, from every connected provider (Withings today; Garmin and Apple Health have a place waiting). Defaults to the last 90 days; narrow by provider or dataset, and ask for the raw provider record with payload.',
     http: { method: 'GET', path: '/trainees/{traineeId}/wearable' },
     input: wearableInput,
+  },
+  // The bpm behind hr_zone0..3, and the maximum they are cut from.
+  'stride/hr-zones': {
+    summary:
+      'The heart-rate zones behind a wearable’s four: light, moderate, intense, maximal, each as a bpm range for this person, cut from their maximum heart rate (set, else the highest a wearable saw).',
+    http: { method: 'GET', path: '/trainees/{traineeId}/hr-zones' },
+    input: traineeIdInput,
+  },
+  'stride/set-max-hr': {
+    summary: 'Set a person’s maximum heart rate so their zones are accurate, or clear it with null.',
+    http: { method: 'POST', path: '/trainees/{traineeId}/max-hr' },
+    input: setMaxHrInput,
   },
   'stride/record-wearable': {
     summary:
