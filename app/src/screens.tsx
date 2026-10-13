@@ -24,6 +24,8 @@ import {
   type Measurement,
   type WithingsStatus,
   type Wearable,
+  type WearableWeek,
+  type HrZones,
   ACTIVITY_KINDS,
   type MeasurementKind,
   DEVICE_ONLY_KINDS,
@@ -45,6 +47,22 @@ import {
   type Summary,
   type Trainee,
 } from './api';
+import {
+  HeartRateZones,
+  IntervalTimer,
+  RestTimer,
+  TargetFields,
+  describeShape,
+  durationText,
+  emptyTarget,
+  isPlain,
+  shapeOfItem,
+  shapeOfScheduled,
+  targetBody,
+  targetProblem,
+  ZONE_NAMES,
+  type TargetForm,
+} from './hybrid';
 import { SendIcon } from './icons';
 import { Figure, poseFor, type Pose } from './figures';
 import { MoveTile, MovementFigures, moveFor } from './moves';
@@ -249,8 +267,12 @@ export function TodayScreen({
         {/* The quantity gets its own line and its own typeface: it is the thing
             you came to read, and mono keeps a column of them aligned. */}
         <div className="quantity">
-          {i.targetSets} × {i.targetReps} {i.unit}
-          {i.targetLoad ? ` @ ${i.targetLoad}` : ''}
+          {describeShape(shapeOfScheduled(i), i.targetSets, i.targetReps, (n) => formatAmount(n, i.unit), null) ?? (
+            <>
+              {i.targetSets} × {i.targetReps} {i.unit}
+              {i.targetLoad ? ` @ ${i.targetLoad}` : ''}
+            </>
+          )}
           {i.laterality === 'unilateral' ? ' · each side' : ''}
         </div>
         <div className="sub">
@@ -840,6 +862,30 @@ function ItemEditor({
     if (ok) onDone();
   };
 
+  // A row asked for by time, zone, intervals or as-many-as-possible has no per-set grid to
+  // rewrite: forcing it through one would turn "45 minutes in zone 2" into "1 metre". It can be
+  // taken out and added again with the right shape.
+  if (!isPlain(shapeOfItem(item))) {
+    return (
+      <div className="item-editor">
+        <div className="sub mono">
+          {describeShape(shapeOfItem(item), item.target_sets, item.target_reps, (n) => formatAmount(n, unit), null)}
+        </div>
+        <div className="sub">
+          This one is prescribed by {item.work_seconds !== null ? 'intervals' : item.amrap ? 'a maximum' : 'time'}, so
+          there are no per-set numbers to edit. To change it, remove it and add it again.
+        </div>
+        <div className="actions">
+          <button className="danger" disabled={busy} onClick={remove}>
+            Remove this exercise
+          </button>
+          <button className="ghost" onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
   const quantity = unit === 'metres' ? 'metres' : unit === 'seconds' ? 'seconds' : 'reps';
   // Here there is room for it, and this is the moment somebody is deciding what
   // number to write — so the load note is open, not behind a "?".
@@ -1052,6 +1098,25 @@ export function ProgramDetailScreen({
   const [cursor, setCursor] = useState<string | null>(null);
   /** Held while `begin` is in flight: a double tap must not open two sessions. */
   const [starting, setStarting] = useState(false);
+  /** A rest between sets or rounds. Device-local and transient, like every clock here. */
+  const [rest, setRest] = useState<{ id: number; seconds: number; label: string } | null>(null);
+  const restPref = useRef<number>(
+    (() => {
+      try {
+        return Number(localStorage.getItem('stride:rest-seconds')) || 60;
+      } catch {
+        return 60;
+      }
+    })(),
+  );
+  const rememberRest = useCallback((seconds: number) => {
+    restPref.current = seconds;
+    try {
+      localStorage.setItem('stride:rest-seconds', String(seconds));
+    } catch {
+      /* the next session starts at a minute again; nothing is lost */
+    }
+  }, []);
   /** The row a set was just logged on — so finishing it moves you along. */
   const advance = useRef<string | null>(null);
   /** The full-screen session's two folds: the ✕ menu and the exercise list. */
@@ -1174,8 +1239,21 @@ export function ProgramDetailScreen({
     tag: string | null,
     /** In the full-screen session: no Edit, no rhythm — only what you log. */
     focus = false,
+    /** Whether this card carries the logger. In a superset only the exercise that is up does. */
+    withLogger = true,
   ) => {
     const done = setsFor(item.id);
+    const shape = shapeOfItem(item);
+    const shaped = !isPlain(shape);
+    /** How one prescribed set reads on its pill — a plain number would say "0" for a timed run. */
+    const targetLabel = (reps: number) =>
+      shape.work !== null
+        ? `${durationText(shape.work)} on`
+        : shape.amrap
+          ? reps > 0 ? `max ≥${reps}` : 'max'
+          : reps <= 0 && shape.seconds !== null
+            ? durationText(shape.seconds)
+            : formatAmount(reps, unit);
     const unit = item.exercise?.unit ?? 'reps';
     const unilateral = item.exercise?.laterality === 'unilateral';
     // One side at a time means two rows of pills, L and R, each numbered from 1
@@ -1304,7 +1382,9 @@ export function ProgramDetailScreen({
                           ? ` · ${formatQuantity(performed.duration_seconds, 'seconds')}`
                           : ''}
                         {performed.avg_hr ? ` · ${performed.avg_hr} bpm` : ''}
-                        {performed.rpe ? ` · RPE ${performed.rpe}` : ''} ✓
+                        {performed.rpe ? ` · RPE ${performed.rpe}` : ''}
+                        {performed.rir !== null && performed.rir !== undefined ? ` · ${performed.rir} left` : ''}
+                        {performed.activity_id ? ' · ⌚' : ''} ✓
                         {/* Logged on the wrong arm, or the wrong number typed.
                             Only ever on a set in the session that is open —
                             which is the only session these pills show.
@@ -1331,7 +1411,7 @@ export function ProgramDetailScreen({
                   if (!target) return null;
                   return (
                     <span key={`t${no}`} className="pill">
-                      {no}: {formatAmount(target.reps, unit)}
+                      {no}: {targetLabel(target.reps)}
                       {target.load ? ` × ${target.load}` : ''}
                       {target.note ? ` · ${target.note}` : ''}
                     </span>
@@ -1342,12 +1422,36 @@ export function ProgramDetailScreen({
           })
         ) : (
           <div className="sub mono">
-            target {item.target_sets} × {formatQuantity(item.target_reps, unit)}{' '}
-            {unit === 'reps' ? 'reps' : unit === 'metres' ? 'm' : ''}
-            {item.target_load ? ` @ ${item.target_load}` : ''}
+            target{' '}
+            {describeShape(shape, item.target_sets, item.target_reps, (n) => formatAmount(n, unit), detail.hrZones) ?? (
+              <>
+                {item.target_sets} × {formatQuantity(item.target_reps, unit)}{' '}
+                {unit === 'reps' ? 'reps' : unit === 'metres' ? 'm' : ''}
+                {item.target_load ? ` @ ${item.target_load}` : ''}
+              </>
+            )}
             {unilateral ? ' · each side' : ''}
           </div>
         )}
+        {shaped && showPills && (
+          <div className="sub mono">
+            {describeShape(shape, item.target_sets, item.target_reps, (n) => formatAmount(n, unit), detail.hrZones)}
+          </div>
+        )}
+        {done
+          .filter((x) => x.activity_id)
+          .map((x) => (
+            <div key={`dev${x.id}`} className="sub mono zonesplit">
+              ⌚ from your watch{x.duration_seconds ? ` · ${durationText(x.duration_seconds)}` : ''}
+              {x.avg_hr ? ` · avg ${x.avg_hr}` : ''}
+              {x.max_hr ? ` · max ${x.max_hr} bpm` : ''}
+              {x.hr_zone0_seconds !== null || x.hr_zone1_seconds !== null || x.hr_zone2_seconds !== null || x.hr_zone3_seconds !== null
+                ? ` · zones ${[x.hr_zone0_seconds, x.hr_zone1_seconds, x.hr_zone2_seconds, x.hr_zone3_seconds]
+                    .map((n, z) => `${z}: ${durationText(n ?? 0)}`)
+                    .join(' · ')}`
+                : ''}
+            </div>
+          ))}
         {lastTime && (
           <div className="sub last-time">
             Last time · {lastTime}
@@ -1357,11 +1461,33 @@ export function ProgramDetailScreen({
         {!focus && recurrenceLabel(item.recur_days, item.recur_per_week) && (
           <div className="sub">{recurrenceLabel(item.recur_days, item.recur_per_week)}</div>
         )}
-        {openSession && (
+        {openSession && withLogger && shape.work !== null && (
+          <IntervalTimer
+            key={`rounds:${item.id}`}
+            work={shape.work}
+            rest={shape.rest ?? 0}
+            rounds={item.target_sets}
+            startRound={done.length + 1}
+            // A round measured in seconds IS its work time, so the timer can write it down
+            // itself. A distance round needs the distance, which only the person knows.
+            onRound={
+              unit === 'seconds'
+                ? async () => {
+                    await run(() => api.logSet(openSession.id, { programItemId: item.id, reps: shape.work!, durationSeconds: shape.work! }));
+                    advance.current = item.id;
+                    reload();
+                  }
+                : undefined
+            }
+          />
+        )}
+        {openSession && withLogger && (
           <SetLogger
             // Remounts after every logged set, so it comes back on the OTHER arm
             // with that arm's numbers rather than still showing the last one.
             key={`${item.id}:${done.length}`}
+            amrap={shape.amrap}
+            defaultDuration={shape.work ?? shape.seconds ?? undefined}
             unit={item.exercise?.unit ?? 'reps'}
             modality={item.exercise?.modality ?? 'strength'}
             loadNote={loadNoteOf(item.exercise?.description ?? null)}
@@ -1390,6 +1516,23 @@ export function ProgramDetailScreen({
               });
               if (gotEarned) setEarned(item.exercise?.name ?? 'That exercise');
               advance.current = item.id;
+              // REST. A superset rests when the round is done — every other exercise in the
+              // block has had its turn — and anything else rests after each set. Not after the
+              // last set of the workout, not after cardio, and not inside an interval block,
+              // which has its own rest built in.
+              const block = groupItems(items).find((g) => g.key && g.items.some((x) => x.id === item.id));
+              const myCount = done.length + 1;
+              const roundOver = block
+                ? block.items.every((x) => x.id === item.id || isDone(x) || setsFor(x.id).length >= myCount)
+                : true;
+              const last = doneSets + 1 >= totalSets;
+              if (roundOver && !last && item.exercise?.modality !== 'cardio' && !shape.amrap && shape.work === null) {
+                setRest({
+                  id: Date.now(),
+                  seconds: restPref.current,
+                  label: block ? `Rest · round ${myCount} done` : 'Rest',
+                });
+              }
               reload();
             }}
           />
@@ -1601,6 +1744,16 @@ export function ProgramDetailScreen({
             </button>
           )}
 
+          {rest && !allDone && (
+            <RestTimer
+              key={rest.id}
+              seconds={rest.seconds}
+              label={rest.label}
+              onChange={rememberRest}
+              onDone={() => setRest(null)}
+            />
+          )}
+
           {earned && (
             <div className="earned-card" onClick={() => setEarned(null)}>
               <Figure pose="cheer" size={120} />
@@ -1641,7 +1794,26 @@ export function ProgramDetailScreen({
               </div>
             </div>
           ) : (
-            current && itemCard(current, null, true)
+            current &&
+            (() => {
+              // A superset is ONE block on screen, its exercises alternating: the one that is
+              // up carries the logger, the others show where they stand.
+              const block = groupItems(items).find((g) => g.key && g.items.some((x) => x.id === current.id));
+              if (!block || block.items.length < 2) return itemCard(current, null, true);
+              const open = block.items.filter((x) => !isDone(x));
+              const fewest = Math.min(...open.map((x) => setsFor(x.id).length));
+              const next = open.find((x) => setsFor(x.id).length === fewest);
+              return (
+                <div className="superset">
+                  <div className="superset-label">
+                    Superset {block.key} · {block.items.length} exercises, back to back — rest after each round
+                  </div>
+                  {block.items.map((x, n) =>
+                    itemCard(x, `${block.key}${n + 1}${x.id === next?.id ? ' · up now' : ''}`, true, x.id === next?.id),
+                  )}
+                </div>
+              );
+            })()
           )}
         </div>
 
@@ -1811,7 +1983,7 @@ export function ProgramDetailScreen({
       )}
 
       {(program.status === 'planned' || program.status === 'in_progress') && (
-        <AddProgramItem programId={program.id} run={run} onAdded={reload} />
+        <AddProgramItem programId={program.id} run={run} onAdded={reload} hrZones={detail.hrZones} />
       )}
 
       <h2>Sessions</h2>
@@ -1907,21 +2079,26 @@ function AddProgramItem({
   programId,
   run,
   onAdded,
+  hrZones = null,
 }: {
   programId: string;
   run: Run;
   onAdded: () => void;
+  /** The bpm behind each zone, so a zone chosen here reads as a range. */
+  hrZones?: HrZones | null;
 }) {
   const [exercises] = useList<Exercise>(() => api.exercises(), [programId]);
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ exerciseId: '', sets: '3', reps: '10', load: '' });
+  const [exerciseId, setExerciseId] = useState('');
+  const [target, setTarget] = useState<TargetForm>(emptyTarget());
+  const f = { exerciseId };
   const [days, setDays] = useState<number[]>([]);
   const [perWeek, setPerWeek] = useState('');
   // What the load box means for the exercise just chosen — a barbell total, one
   // dumbbell or two, where a weight sits on a bridge, or that there is none.
-  const chosenNote = loadNoteOf(
-    exercises.find((e) => e.id === f.exerciseId)?.description ?? null,
-  );
+  const chosen = exercises.find((e) => e.id === f.exerciseId);
+  const chosenNote = loadNoteOf(chosen?.description ?? null);
+  const problem = targetProblem(target);
 
   if (!open) {
     return (
@@ -1936,7 +2113,15 @@ function AddProgramItem({
   return (
     <div className="card">
       <label>exercise</label>
-      <select value={f.exerciseId} onChange={(e) => setF({ ...f, exerciseId: e.target.value })}>
+      <select
+        value={f.exerciseId}
+        onChange={(e) => {
+          setExerciseId(e.target.value);
+          // A cardio exercise is most often asked for by time, so offer that first.
+          const next = exercises.find((x) => x.id === e.target.value);
+          if (next?.modality === 'cardio' && target.mode === 'sets') setTarget({ ...target, mode: 'timed' });
+        }}
+      >
         <option value="">choose…</option>
         {exercises.map((e) => (
           <option key={e.id} value={e.id}>
@@ -1946,21 +2131,18 @@ function AddProgramItem({
           </option>
         ))}
       </select>
-      <div className="setgrid" style={{ marginTop: 10 }}>
-        <div>
-          <label>sets</label>
-          <input inputMode="numeric" value={f.sets} onChange={(e) => setF({ ...f, sets: e.target.value })} />
-        </div>
-        <div>
-          <label>reps</label>
-          <input inputMode="numeric" value={f.reps} onChange={(e) => setF({ ...f, reps: e.target.value })} />
-        </div>
-        <div>
-          <label>load</label>
-          <input inputMode="decimal" value={f.load} onChange={(e) => setF({ ...f, load: e.target.value })} />
-        </div>
+      <div style={{ marginTop: 10 }}>
+        <TargetFields
+          value={target}
+          onChange={setTarget}
+          unit={chosen?.unit ?? 'reps'}
+          unilateral={chosen?.laterality === 'unilateral'}
+          zones={hrZones}
+        />
       </div>
-      {chosenNote && <div className="sub hint load-note">{chosenNote}</div>}
+      {chosenNote && (target.mode === 'sets' || target.mode === 'amrap') && (
+        <div className="sub hint load-note">{chosenNote}</div>
+      )}
       <label>repeat</label>
       <div className="sets">
         {[1, 2, 3, 4, 5, 6, 7].map((d) => (
@@ -1989,21 +2171,21 @@ function AddProgramItem({
       <div className="actions">
         <button
           className="primary"
-          disabled={!f.exerciseId}
+          disabled={!f.exerciseId || problem !== null}
+          title={problem ?? undefined}
           onClick={async () => {
             await run(
               () =>
                 api.addProgramItem(programId, {
                   exerciseId: f.exerciseId,
-                  targetSets: Number(f.sets),
-                  targetReps: Number(f.reps),
-                  ...(f.load ? { targetLoad: f.load } : {}),
+                  ...targetBody(target),
                   ...(days.length > 0 ? { recurDays: [...days].sort().join(',') } : {}),
                   ...(days.length === 0 && perWeek ? { recurPerWeek: Number(perWeek) } : {}),
                 }),
               'Added',
             );
-            setF({ ...f, exerciseId: '', load: '' });
+            setExerciseId('');
+            setTarget({ ...emptyTarget(), mode: target.mode });
             setDays([]);
             setPerWeek('');
             onAdded();
@@ -2150,9 +2332,15 @@ export function SetLogger({
   sides = ['left', 'right'],
   defaultFor,
   onLog,
+  amrap = false,
+  defaultDuration,
 }: {
   unit: string;
   modality: string;
+  /** As many as possible: nothing is prefilled, and the result is whatever was reached. */
+  amrap?: boolean;
+  /** Seconds to prefill the time field with — an interval round is as long as its work. */
+  defaultDuration?: number;
   /** What the load box means for THIS exercise — where the weight sits, whether
    *  it is one dumbbell or two, or that there is nothing to put in it. Behind a
    *  "?" like RPE: mid-set is no place for a paragraph nobody asked for. */
@@ -2168,6 +2356,7 @@ export function SetLogger({
     reps: number;
     load?: string;
     rpe?: string;
+    rir?: number;
     durationSeconds?: number;
     avgHr?: number;
     side?: Side;
@@ -2178,10 +2367,30 @@ export function SetLogger({
   const isCardio = modality === 'cardio';
   const [side, setSide] = useState<Side | undefined>(defaultSide);
   const initial = defaultFor(side);
-  const [amount, setAmount] = useState(isTime ? clockValue(initial.reps) : String(initial.reps));
+  // 0 means "no quantity asked for" (a timed run, an AMRAP with no minimum): an empty box, not a "0" to delete.
+  const [amount, setAmount] = useState(initial.reps <= 0 ? '' : isTime ? clockValue(initial.reps) : String(initial.reps));
   const [load, setLoad] = useState(initial.load ?? '');
-  const [rpe, setRpe] = useState('');
-  const [mins, setMins] = useState('');
+  // How hard it was: RPE (1–10, 10 = nothing left) or reps in reserve (0 = nothing left). The
+  // choice is the person's, so it is remembered; a set carries one of the two, never both.
+  const [effortKind, setEffortKind] = useState<'rpe' | 'rir'>(() => {
+    try {
+      return localStorage.getItem('stride:effort-kind') === 'rir' ? 'rir' : 'rpe';
+    } catch {
+      return 'rpe';
+    }
+  });
+  const [effort, setEffort] = useState('');
+  const switchEffort = () => {
+    const next = effortKind === 'rpe' ? 'rir' : 'rpe';
+    setEffortKind(next);
+    setEffort('');
+    try {
+      localStorage.setItem('stride:effort-kind', next);
+    } catch {
+      /* a private window forgets the choice; nothing is lost */
+    }
+  };
+  const [mins, setMins] = useState(defaultDuration ? clockValue(defaultDuration) : '');
   const [hr, setHr] = useState('');
   const [busy, setBusy] = useState(false);
   // ---- the hold clock ----------------------------------------------------
@@ -2248,7 +2457,7 @@ export function SetLogger({
   const pick = (next: Side) => {
     setSide(next);
     const d = defaultFor(next);
-    setAmount(isTime ? clockValue(d.reps) : String(d.reps));
+    setAmount(d.reps <= 0 ? '' : isTime ? clockValue(d.reps) : String(d.reps));
     setLoad(d.load ?? '');
     reset();
   };
@@ -2278,6 +2487,44 @@ export function SetLogger({
   // Minutes accept "22" and "22:30" alike — a run is timed in both.
   const seconds = mins.trim() ? Math.round(mins.includes(':') ? parseClock(mins) : Number(mins) * 60) : 0;
   const pace = isDistance && quantity > 0 && seconds > 0 ? Math.round((seconds * 1000) / quantity) : null;
+  const effortNumber = Number(effort);
+  /** Typed, and outside what the scale allows. The server refuses it too; saying so here keeps the Log button honest. */
+  const effortBad =
+    effort.trim() !== '' &&
+    (effortKind === 'rpe'
+      ? !(effortNumber >= 1 && effortNumber <= 10)
+      : !(Number.isInteger(effortNumber) && effortNumber >= 0 && effortNumber <= 10));
+  const effortCell = (
+    <div>
+      <div className="fieldhead">
+        <label htmlFor={effortId}>{effortKind === 'rpe' ? 'RPE' : 'reps left'}</label>
+        <button
+          type="button"
+          className="markbtn"
+          onClick={() => setExplainEffort((on) => !on)}
+          aria-expanded={explainEffort}
+          aria-label={effortKind === 'rpe' ? 'what is RPE?' : 'what are reps left?'}
+        >
+          <span className="namelink-mark" aria-hidden="true">?</span>
+        </button>
+        <button
+          type="button"
+          className="markbtn"
+          onClick={switchEffort}
+          aria-label={effortKind === 'rpe' ? 'rate effort in reps left instead' : 'rate effort as RPE instead'}
+        >
+          <span className="namelink-mark" aria-hidden="true">⇄</span>
+        </button>
+      </div>
+      <input
+        id={effortId}
+        inputMode={effortKind === 'rpe' ? 'decimal' : 'numeric'}
+        value={effort}
+        aria-invalid={effortBad || undefined}
+        onChange={(e) => setEffort(e.target.value)}
+      />
+    </div>
+  );
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -2368,27 +2615,29 @@ export function SetLogger({
             />
           </div>
         )}
-        <div>
-          <div className="fieldhead">
-            <label htmlFor={effortId}>{isCardio ? 'avg HR' : 'RPE'}</label>
-            <button
-              type="button"
-              className="markbtn"
-              onClick={() => setExplainEffort((on) => !on)}
-              aria-expanded={explainEffort}
-              aria-label={isCardio ? 'what is average HR?' : 'what is RPE?'}
-            >
-              <span className="namelink-mark" aria-hidden="true">?</span>
-            </button>
+        {isCardio ? (
+          <div>
+            <label htmlFor={effortId + '-hr'}>avg HR</label>
+            <input
+              id={effortId + '-hr'}
+              inputMode="numeric"
+              value={hr}
+              onChange={(e) => setHr(e.target.value)}
+            />
           </div>
-          <input
-            id={effortId}
-            inputMode="numeric"
-            value={isCardio ? hr : rpe}
-            onChange={(e) => (isCardio ? setHr(e.target.value) : setRpe(e.target.value))}
-          />
-        </div>
+        ) : (
+          effortCell
+        )}
       </div>
+      {isCardio && <div className="setgrid effort-row" style={{ gridTemplateColumns: '1fr 2fr' }}>{effortCell}</div>}
+      {amrap && (
+        <div className="sub hint">As many as you can. Log what you reached — there is no target to miss.</div>
+      )}
+      {effortBad && (
+        <div className="sub hint" role="alert">
+          {effortKind === 'rpe' ? 'RPE is from 1 to 10.' : 'Reps left is a whole number from 0 to 10.'}
+        </div>
+      )}
       {timeHint && (
         <div className="sub hint" role="alert">
           Time is <span className="mono">mm:ss</span> — <span className="mono">1:30</span> for
@@ -2398,9 +2647,10 @@ export function SetLogger({
       {explainLoad && loadNote && <div className="sub hint">{loadNote}</div>}
       {explainEffort && (
         <div className="sub hint">
-          {isCardio
-            ? 'Average heart rate for the effort, in beats per minute — whatever your watch or the machine says at the end. Optional.'
-            : 'RPE is rate of perceived exertion: how hard that set felt, from 1 to 10. 10 means you could not have done one more rep, 8 means you had two left. Optional, and a guess is fine — it is there so a set you did at the same weight but much harder does not read as the same set.'}
+          {effortKind === 'rpe'
+            ? 'RPE is rate of perceived exertion: how hard that set felt, from 1 to 10. 10 means you could not have done one more rep, 8 means you had two left. Optional, and a guess is fine — it is there so a set you did at the same weight but much harder does not read as the same set.'
+            : 'Reps left (also called reps in reserve): how many more you could have done when you stopped. 0 means none — you were at your limit; 2 means two more would have been possible. Optional. The ⇄ switches to RPE, the same thing counted from the other end.'}
+          {isCardio ? ' Average HR is beats per minute, whatever your watch or the machine says at the end.' : ''}
         </div>
       )}
       {(pace !== null || (isDistance && quantity >= 1000)) && (
@@ -2412,7 +2662,7 @@ export function SetLogger({
       <div className="actions">
         <button
           className="primary wide"
-          disabled={busy || !Number.isFinite(quantity) || quantity <= 0}
+          disabled={busy || !Number.isFinite(quantity) || quantity <= 0 || effortBad}
           onClick={async () => {
             setBusy(true);
             // Logging ends the hold — the field already mirrors the clock, so
@@ -2421,7 +2671,8 @@ export function SetLogger({
             await onLog({
               reps: Math.round(quantity),
               ...(!isCardio && load ? { load } : {}),
-              ...(!isCardio && rpe ? { rpe } : {}),
+              ...(effort.trim() && effortKind === 'rpe' ? { rpe: effort.trim() } : {}),
+              ...(effort.trim() && effortKind === 'rir' ? { rir: effortNumber } : {}),
               ...(isCardio && seconds > 0 ? { durationSeconds: seconds } : {}),
               ...(isCardio && hr ? { avgHr: Number(hr) } : {}),
               ...(side ? { side } : {}),
@@ -2429,7 +2680,7 @@ export function SetLogger({
             setBusy(false);
           }}
         >
-          Log {isCardio ? 'it' : side ? `${side} set` : 'set'}
+          Log {amrap ? 'result' : isCardio ? 'it' : side ? `${side} set` : 'set'}
         </button>
       </div>
     </div>
@@ -4432,6 +4683,42 @@ function SplitBar({ parts, label }: { parts: { name: string; seconds: number | n
  * somebody the kernel let read it — a coach below "share everything" gets a 403 upstream, and the Body
  * section already says why.
  */
+/** Weeks of what the wearables recorded, newest first — four months in a handful of lines. */
+function WeeklyTotals({ weeks }: { weeks: WearableWeek[] | null }) {
+  if (!weeks || weeks.every((w) => w.workouts === 0)) return null;
+  const shown = weeks.filter((w) => w.workouts > 0).slice(0, 8);
+  return (
+    <>
+      <h2>Week by week</h2>
+      <div className="card">
+        {shown.map((w) => {
+          const zoneTotal = w.zoneSeconds.reduce((a, b) => a + b, 0);
+          return (
+            <div key={w.week} className="weekrow">
+              <div className="row center">
+                <span className="title">Week of {new Date(`${w.week}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}</span>
+                <span className="mono">
+                  {w.workouts} workout{w.workouts === 1 ? '' : 's'} · {spanOf(w.durationSeconds)}
+                  {Number(w.distanceM) > 0 ? ` · ${kmOf(w.distanceM)}` : ''}
+                </span>
+              </div>
+              <div className="sub">
+                {w.byKind.map((k) => `${ACTIVITY_KINDS[k.kind] ?? k.kind} ${k.workouts}`).join(' · ')}
+              </div>
+              {zoneTotal > 0 && (
+                <SplitBar
+                  label="Heart-rate zones"
+                  parts={w.zoneSeconds.map((seconds, z) => ({ name: ZONE_NAMES[z]!.toLowerCase(), seconds }))}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 function WearableSection({ data }: { data: Wearable | null }) {
   if (!data) return null;
   const { activities, sleep, days } = data;
@@ -4612,6 +4899,7 @@ export function ProgressScreen({
   const [progress, setProgress] = useState<Progress | null>(null);
   const [measurements, setMeasurements] = useState<Measurement[] | null>(null);
   const [wearable, setWearable] = useState<Wearable | null>(null);
+  const [weekly, setWeekly] = useState<WearableWeek[] | null>(null);
   const [templates] = useList<Template>(() => api.templates(), [me?.key]);
   const [trainees] = useList<Trainee>(() => api.trainees(), [me?.key]);
   const [busy, setBusy] = useState(false);
@@ -4621,7 +4909,9 @@ export function ProgressScreen({
     api.progress(traineeId).then(setProgress).catch(() => setProgress(null));
     // A 403 here is a decision, not a failure: keep null and say "not shared".
     api.measurements(traineeId).then(setMeasurements).catch(() => setMeasurements(null));
-    api.wearable(traineeId).then(setWearable).catch(() => setWearable(null));
+    // The rows are only for the last few weeks; the long view is weekly totals, a fraction of the size.
+    api.wearable(traineeId, { days: 28, limit: 14 }).then(setWearable).catch(() => setWearable(null));
+    api.wearable(traineeId, { days: 120, summary: true }).then((w) => setWeekly(w.weeks ?? null)).catch(() => setWeekly(null));
   }, [traineeId]);
   useEffect(reload, [reload]);
 
@@ -4729,6 +5019,8 @@ export function ProgressScreen({
         run={run}
         onLogged={reload}
       />
+      <HeartRateZones traineeId={traineeId} canEdit={mine || isStaff(me)} run={run} onChanged={reload} />
+      <WeeklyTotals weeks={weekly} />
       <WearableSection data={wearable} />
       {mine && <WithingsCard run={run} onSynced={reload} />}
     </>
@@ -4809,18 +5101,24 @@ function AddPlanItem({ templateId, run, onAdded }: { templateId: string; run: Ru
   const [exercises] = useList<Exercise>(() => api.exercises(), []);
   const [f, setF] = useState({
     exerciseId: '',
-    sets: '3',
-    reps: '10',
-    load: '',
     days: [] as number[],
     perWeek: '',
   });
+  const [target, setTarget] = useState<TargetForm>(emptyTarget());
   const [busy, setBusy] = useState(false);
   const chosen = exercises.find((e) => e.id === f.exerciseId);
+  const problem = targetProblem(target);
   return (
     <div className="item-editor">
       <label>exercise</label>
-      <select value={f.exerciseId} onChange={(e) => setF({ ...f, exerciseId: e.target.value })}>
+      <select
+        value={f.exerciseId}
+        onChange={(e) => {
+          setF({ ...f, exerciseId: e.target.value });
+          const next = exercises.find((x) => x.id === e.target.value);
+          if (next?.modality === 'cardio' && target.mode === 'sets') setTarget({ ...target, mode: 'timed' });
+        }}
+      >
         <option value="">choose…</option>
         {exercises.map((e) => (
           <option key={e.id} value={e.id}>
@@ -4829,21 +5127,13 @@ function AddPlanItem({ templateId, run, onAdded }: { templateId: string; run: Ru
           </option>
         ))}
       </select>
-      <div className="setgrid">
-        <div>
-          <label>sets{chosen?.laterality === 'unilateral' ? ' / side' : ''}</label>
-          <input inputMode="numeric" value={f.sets} onChange={(e) => setF({ ...f, sets: e.target.value })} />
-        </div>
-        <div>
-          <label>{UNIT_LABEL[chosen?.unit ?? 'reps'] ?? 'reps'}</label>
-          <input inputMode="numeric" value={f.reps} onChange={(e) => setF({ ...f, reps: e.target.value })} />
-        </div>
-        <div>
-          <label>load</label>
-          <input inputMode="decimal" value={f.load} onChange={(e) => setF({ ...f, load: e.target.value })} />
-        </div>
-      </div>
-      {loadNoteOf(chosen?.description ?? null) && (
+      <TargetFields
+        value={target}
+        onChange={setTarget}
+        unit={chosen?.unit ?? 'reps'}
+        unilateral={chosen?.laterality === 'unilateral'}
+      />
+      {(target.mode === 'sets' || target.mode === 'amrap') && loadNoteOf(chosen?.description ?? null) && (
         <div className="sub hint load-note">{loadNoteOf(chosen?.description ?? null)}</div>
       )}
       <label>repeat on</label>
@@ -4874,16 +5164,15 @@ function AddPlanItem({ templateId, run, onAdded }: { templateId: string; run: Ru
       <div className="actions">
         <button
           className="primary"
-          disabled={busy || !f.exerciseId}
+          disabled={busy || !f.exerciseId || problem !== null}
+          title={problem ?? undefined}
           onClick={async () => {
             setBusy(true);
             const ok = await run(
               () =>
                 api.addTemplateItem(templateId, {
                   exerciseId: f.exerciseId,
-                  targetSets: Number(f.sets) || 1,
-                  targetReps: Number(f.reps) || 1,
-                  ...(f.load.trim() ? { targetLoad: f.load.trim() } : {}),
+                  ...targetBody(target),
                   ...(f.days.length ? { recurDays: f.days.join(',') } : {}),
                   ...(f.perWeek.trim() ? { recurPerWeek: Number(f.perWeek) } : {}),
                 }),
