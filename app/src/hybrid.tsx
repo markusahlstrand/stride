@@ -152,9 +152,13 @@ export function RestTimer({
     const t = window.setTimeout(() => done.current(), 1200);
     return () => window.clearTimeout(t);
   }, [left]);
+  // The length as adjusted so far: the prop is where it started, and each press builds on the last.
+  const [length, setLength] = useState(seconds);
   const adjust = (delta: number) => {
+    const next = Math.max(15, length + delta);
+    setLength(next);
     setEndsAt((t) => t + delta * 1000);
-    onChange?.(Math.max(15, seconds + delta));
+    onChange?.(next);
   };
   return (
     <div className={`holdtimer resttimer${left === 0 ? ' hit' : ''}`}>
@@ -293,7 +297,7 @@ export function targetProblem(f: TargetForm): string | null {
 }
 
 /** The body the server takes, for a row built with this form. Call only when `targetProblem` is null. */
-export function targetBody(f: TargetForm): Record<string, unknown> {
+export function targetBody(f: TargetForm, unit?: string): Record<string, unknown> {
   const sets = Number(f.sets);
   if (f.mode === 'interval') {
     return { targetSets: sets, workSeconds: parseSeconds(f.work), restSeconds: f.rest.trim() ? parseSeconds(f.rest) : 0 };
@@ -302,7 +306,8 @@ export function targetBody(f: TargetForm): Record<string, unknown> {
     return {
       targetSets: sets,
       targetSeconds: parseMinutes(f.time),
-      ...(Number(f.reps) > 0 ? { targetReps: Number(f.reps) } : {}),
+      // A hold measured in seconds has its count in `targetSeconds`: the server derives the reps from it.
+      ...(unit !== 'seconds' && Number(f.reps) > 0 ? { targetReps: Number(f.reps) } : {}),
       ...(f.hold === 'zone' ? { targetZone: Number(f.zone) } : {}),
       ...(f.hold === 'range' ? { targetHrMin: Number(f.hrMin), targetHrMax: Number(f.hrMax) } : {}),
     };
@@ -354,7 +359,16 @@ export function TargetFields({
             role="radio"
             aria-checked={value.mode === m.mode}
             className={`pill toggle${value.mode === m.mode ? ' on' : ''}`}
-            onClick={() => set({ mode: m.mode, ...(m.mode === 'amrap' && value.mode !== 'amrap' ? { sets: '1', reps: '' } : {}), ...(value.mode === 'amrap' && m.mode !== 'amrap' ? { sets: '3', reps: '10' } : {}) })}
+            onClick={() =>
+              set({
+                mode: m.mode,
+                ...(m.mode === 'amrap' && value.mode !== 'amrap' ? { sets: '1', reps: '' } : {}),
+                ...(value.mode === 'amrap' && m.mode !== 'amrap' ? { sets: '3', reps: '10' } : {}),
+                // The sets-mode default of 10 reps means nothing on a timed row; going back to sets restores it.
+                ...(m.mode === 'timed' && value.mode !== 'timed' ? { reps: '' } : {}),
+                ...(value.mode === 'timed' && m.mode === 'sets' && !value.reps.trim() ? { reps: '10' } : {}),
+              })
+            }
           >
             {m.label}
           </button>

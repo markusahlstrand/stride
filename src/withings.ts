@@ -70,6 +70,9 @@ const KIND_OF_TYPE: Record<number, MeasurementKind> = {
  */
 export const SYNC_COVERAGE = 2;
 
+/** The things a sync reads, each with its own cursor and its own coverage: one failing must not redo the rest. */
+export type Dataset = 'measures' | 'workouts' | 'sleep' | 'activity';
+
 export interface WithingsLink {
   /** Withings' id for the account — kept so a reconnect to a DIFFERENT account is visible. */
   userid: string;
@@ -85,9 +88,14 @@ export interface WithingsLink {
   lastSyncAt: string | null;
   /** Per dataset, the largest `modified` seen: the next pull asks only for what changed after it. */
   cursors?: Partial<Record<'workouts' | 'sleep' | 'activity', number>>;
-  /** The `SYNC_COVERAGE` this link last completed cleanly. Absent: it predates the field, i.e. coverage 1. */
+  /** The `SYNC_COVERAGE` each dataset was last read in full at. Absent: see `coverage`, else coverage 1. */
+  covered?: Partial<Record<Dataset, number>>;
+  /** Before `covered`, one number for every dataset. Still honoured when a dataset has no entry of its own. */
   coverage?: number;
 }
+
+const coveredAt = (link: Pick<WithingsLink, 'covered' | 'coverage'>, ds: Dataset) =>
+  link.covered?.[ds] ?? link.coverage ?? 1;
 
 /** Whether this link was granted the scope the device's own data needs. */
 export const hasActivityScope = (link: Pick<WithingsLink, 'scope'>) =>
@@ -174,6 +182,7 @@ const linkFromTokens = (t: TokenBody, now: Date, prev?: WithingsLink): WithingsL
   // each dataset had been read and start the first window over.
   ...(prev?.cursors ? { cursors: prev.cursors } : {}),
   ...(prev?.coverage !== undefined ? { coverage: prev.coverage } : {}),
+  ...(prev?.covered ? { covered: prev.covered } : {}),
 });
 
 /** The consent code → tokens. `redirectUri` must be the registered one, character for character. */
@@ -251,9 +260,6 @@ interface MeasureGroup {
   /** Epoch seconds it was last created or changed at Withings: the cursor for the next pull. */
   modified?: number;
   category: number;
-  attrib?: number;
-  deviceid?: string | null;
-  timezone?: string;
   measures: { value: number; type: number; unit: number }[];
 }
 
@@ -262,6 +268,7 @@ export function readingsOf(groups: MeasureGroup[]): WithingsReading[] {
   const out: WithingsReading[] = [];
   for (const g of groups) {
     if (g.category !== 1) continue;
+    const { measures: _siblings, ...rest } = g;
     for (const m of g.measures) {
       const kind = KIND_OF_TYPE[m.type];
       if (!kind) continue;
@@ -273,16 +280,9 @@ export function readingsOf(groups: MeasureGroup[]): WithingsReading[] {
         value,
         measuredAt: new Date(g.date * 1000).toISOString(),
         externalId: `${g.grpid}:${m.type}`,
-        payload: {
-          grpid: g.grpid,
-          date: g.date,
-          modified: g.modified,
-          category: g.category,
-          attrib: g.attrib,
-          deviceid: g.deviceid,
-          timezone: g.timezone,
-          measure: m,
-        },
+        // The whole group as Withings sent it (fields we never named — `created`, `modelid`, `comment`, … —
+        // included), with the one measure this reading came from. The group's other measures are their own rows.
+        payload: { ...rest, measure: m },
       });
     }
   }
@@ -351,8 +351,8 @@ export interface SyncResult {
   problems?: string[];
 }
 
-/** What makes two readings the same one: the same kind, at the same instant, with the same value. */
-const keyOf = (kind: string, measuredAt: string, value: string) => `${kind}|${measuredAt}|${value}`;
+/** What makes two readings the same one: the same provider, kind, instant and value. */
+const keyOf = (source: string, kind: string, measuredAt: string, value: string) => `${source}|${kind}|${measuredAt}|${value}`;
 
 // ---------------------------------------------------------------------------
 // What the device itself recorded: workouts, nights, days
@@ -580,7 +580,7 @@ async function syncWearables(a: {
   scope: Invoker;
   fetch: Fetch;
   now: Date;
-}): Promise<{ counts: { activities: number; sleep: number; days: number }; cursors: NonNullable<WithingsLink['cursors']>; problems: string[] }> {
+}): Promise<{ counts: { activities: number; sleep: number; days: number }; cursors: NonNullable<WithingsLink['cursors']>; problems: string[]; done: Dataset[] }> {
   const { link, traineeId, scope, fetch: fetchFn, now } = a;
   const cursors = { ...(link.cursors ?? {}) };
   const counts = { activities: 0, sleep: 0, days: 0 };
@@ -600,16 +600,18 @@ async function syncWearables(a: {
 
   // Each dataset on its own: a person with a watch and no sleep tracker has nothing to give for sleep, and
   // that must not cost them their workouts. The cursor only moves when its dataset was read in full AND kept.
-  const run = async (name: string, go: () => Promise<void>) => {
+  const done: Dataset[] = [];
+  const run = async (name: string, dataset: Dataset, go: () => Promise<void>) => {
     try {
       await go();
+      done.push(dataset);
     } catch (e) {
       if (!(e instanceof WithingsError)) throw e;
       problems.push(`${name}: ${e.message}`);
     }
   };
 
-  await run('workouts', async () => {
+  await run('workouts', 'workouts', async () => {
     const items = await pullDataset<WorkoutObject>(
       fetchFn,
       link.accessToken,
@@ -628,7 +630,7 @@ async function syncWearables(a: {
     if (next !== undefined) cursors.workouts = next;
   });
 
-  await run('sleep', async () => {
+  await run('sleep', 'sleep', async () => {
     const items = await pullDataset<SleepObject>(
       fetchFn,
       link.accessToken,
@@ -645,7 +647,7 @@ async function syncWearables(a: {
     if (next !== undefined) cursors.sleep = next;
   });
 
-  await run('daily activity', async () => {
+  await run('daily activity', 'activity', async () => {
     const items = await pullDataset<ActivityObject>(
       fetchFn,
       link.accessToken,
@@ -658,7 +660,7 @@ async function syncWearables(a: {
     if (next !== undefined) cursors.activity = next;
   });
 
-  return { counts, cursors, problems };
+  return { counts, cursors, problems, done };
 }
 
 export async function syncWithings(a: {
@@ -680,9 +682,12 @@ export async function syncWithings(a: {
     await store.set(traineeId, link);
   }
 
-  // A link last synced for less than we ask for now re-reads the first window, once, ignoring its cursors.
-  const stale = (link.coverage ?? 1) < SYNC_COVERAGE;
-  if (stale) link = { ...link, lastUpdate: null, cursors: {} };
+  // A dataset last read for less than we ask for now re-reads the first window, once, ignoring its cursor.
+  // Per dataset: one that keeps failing must not make the others repeat a year of pulls on every sync.
+  const was = link;
+  const stale = (ds: Dataset) => coveredAt(was, ds) < SYNC_COVERAGE;
+  const kept = Object.fromEntries(Object.entries(link.cursors ?? {}).filter(([k]) => !stale(k as Dataset)));
+  link = { ...link, lastUpdate: stale('measures') ? null : link.lastUpdate, cursors: kept };
   const window = link.lastUpdate
     ? { lastUpdate: link.lastUpdate }
     : {
@@ -700,15 +705,17 @@ export async function syncWithings(a: {
   const readings = readingsOf(groups);
 
   // Read first, through the operation: the dedupe is whatever the kernel will let this person see.
-  const existing = await scope.invoke<{ kind: string; measured_at: string; value: string }[]>(
+  // Two providers reporting the same number at the same instant are two readings, each with its own source
+  // and payload; rows from before `source` existed were all Withings'.
+  const existing = await scope.invoke<{ kind: string; measured_at: string; value: string; source?: string | null }[]>(
     'stride/measurements',
     { traineeId },
   );
-  const have = new Set(existing.map((m) => keyOf(m.kind, m.measured_at, m.value)));
+  const have = new Set(existing.map((m) => keyOf(m.source ?? 'withings', m.kind, m.measured_at, m.value)));
 
   let added = 0;
   for (const r of readings) {
-    const key = keyOf(r.kind, r.measuredAt, r.value);
+    const key = keyOf('withings', r.kind, r.measuredAt, r.value);
     if (have.has(key)) continue;
     await scope.invoke('stride/log-measurement', {
       traineeId,
@@ -729,19 +736,21 @@ export async function syncWithings(a: {
   let wearable: SyncResult['wearable'];
   let cursors = link.cursors;
   const problems: string[] = [];
+  const done: Dataset[] = ['measures'];
   if (hasActivityScope(link)) {
     const w = await syncWearables({ link, traineeId, scope, fetch: fetchFn, now });
     wearable = w.counts;
     cursors = w.cursors;
     problems.push(...w.problems);
+    done.push(...w.done);
   }
 
   await store.set(traineeId, {
     ...link,
     lastUpdate: cursor,
     ...(cursors ? { cursors } : {}),
-    // Only a clean pass counts as covered: a dataset that failed has no cursor yet, and wants this again.
-    coverage: problems.length === 0 ? SYNC_COVERAGE : link.coverage ?? 1,
+    // Covered once a dataset was read in full. A failed one is not, and wants its first window again.
+    covered: { ...(link.covered ?? {}), ...Object.fromEntries(done.map((ds) => [ds, SYNC_COVERAGE])) },
     lastSyncAt: now.toISOString(),
   });
   return { seen: readings.length, added, ...(wearable ? { wearable } : {}), ...(problems.length ? { problems } : {}) };

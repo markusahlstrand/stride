@@ -2119,7 +2119,7 @@ function AddProgramItem({
           setExerciseId(e.target.value);
           // A cardio exercise is most often asked for by time, so offer that first.
           const next = exercises.find((x) => x.id === e.target.value);
-          if (next?.modality === 'cardio' && target.mode === 'sets') setTarget({ ...target, mode: 'timed' });
+          if (next?.modality === 'cardio' && target.mode === 'sets') setTarget({ ...target, mode: 'timed', reps: '' });
         }}
       >
         <option value="">choose…</option>
@@ -2178,7 +2178,7 @@ function AddProgramItem({
               () =>
                 api.addProgramItem(programId, {
                   exerciseId: f.exerciseId,
-                  ...targetBody(target),
+                  ...targetBody(target, chosen?.unit),
                   ...(days.length > 0 ? { recurDays: [...days].sort().join(',') } : {}),
                   ...(days.length === 0 && perWeek ? { recurPerWeek: Number(perWeek) } : {}),
                 }),
@@ -5116,7 +5116,7 @@ function AddPlanItem({ templateId, run, onAdded }: { templateId: string; run: Ru
         onChange={(e) => {
           setF({ ...f, exerciseId: e.target.value });
           const next = exercises.find((x) => x.id === e.target.value);
-          if (next?.modality === 'cardio' && target.mode === 'sets') setTarget({ ...target, mode: 'timed' });
+          if (next?.modality === 'cardio' && target.mode === 'sets') setTarget({ ...target, mode: 'timed', reps: '' });
         }}
       >
         <option value="">choose…</option>
@@ -5172,7 +5172,7 @@ function AddPlanItem({ templateId, run, onAdded }: { templateId: string; run: Ru
               () =>
                 api.addTemplateItem(templateId, {
                   exerciseId: f.exerciseId,
-                  ...targetBody(target),
+                  ...targetBody(target, exercises.find((x) => x.id === f.exerciseId)?.unit),
                   ...(f.days.length ? { recurDays: f.days.join(',') } : {}),
                   ...(f.perWeek.trim() ? { recurPerWeek: Number(f.perWeek) } : {}),
                 }),

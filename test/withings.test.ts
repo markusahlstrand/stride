@@ -517,7 +517,7 @@ describe('device data: the sync', () => {
     expect(meas.form.get('startdate')).toBeTruthy();
     expect(meas.form.get('meastypes')!.split(',')).toEqual(expect.arrayContaining(['9', '10', '54', '76']));
     expect(fake.calls.find((c) => c.key === '/v2/measure?getworkouts')!.form.has('startdateymd')).toBe(true);
-    expect(store.link!.coverage).toBe(SYNC_COVERAGE);
+    expect(store.link!.covered).toEqual({ measures: SYNC_COVERAGE, workouts: SYNC_COVERAGE, sleep: SYNC_COVERAGE, activity: SYNC_COVERAGE });
 
     const next = device(answers());
     await sync(store, next.fn);
@@ -527,7 +527,7 @@ describe('device data: the sync', () => {
   it('a token refresh is not a reconnect: the cursors and the coverage survive it', async () => {
     const cursors = { workouts: t('2026-10-09T07:00:00.000Z'), sleep: t('2026-10-10T06:00:00.000Z'), activity: t('2026-10-10T23:00:00.000Z') };
     const store = link({
-      userid: '49', expiresAt: '2026-10-11T08:00:30.000Z', coverage: SYNC_COVERAGE, cursors, lastUpdate: t('2026-10-10T00:00:00.000Z'),
+      userid: '49', expiresAt: '2026-10-11T08:00:30.000Z', covered: { measures: SYNC_COVERAGE, workouts: SYNC_COVERAGE, sleep: SYNC_COVERAGE, activity: SYNC_COVERAGE }, cursors, lastUpdate: t('2026-10-10T00:00:00.000Z'),
     });
     const fake = device(answers({
       '/v2/oauth2?requesttoken': body({ userid: 49, access_token: 'a2', refresh_token: 'r2', expires_in: 10_800, scope: 'user.metrics,user.activity' }),
@@ -535,14 +535,42 @@ describe('device data: the sync', () => {
     await sync(store, fake.fn);
     expect(store.link!.accessToken).toBe('a2');
     expect(fake.calls.find((c) => c.key === '/v2/measure?getworkouts')!.form.has('startdateymd')).toBe(false);
-    expect(store.link!.coverage).toBe(SYNC_COVERAGE);
+    expect(store.link!.covered?.workouts).toBe(SYNC_COVERAGE);
   });
 
-  it('a pass that had a problem is not counted as covered, so the next one tries again', async () => {
+  it('a dataset that fails is not counted as covered, and does not make the others repeat their backfill', async () => {
     const store = link({ userid: '47' });
-    const fake = device(answers({ '/v2/sleep?getsummary': () => new Response(JSON.stringify({ status: 2554, error: 'no sleep device' }), { status: 200 }) }));
-    await sync(store, fake.fn);
-    expect(store.link!.coverage ?? 1).toBeLessThan(SYNC_COVERAGE);
+    const failing = () => device(answers({ '/v2/sleep?getsummary': () => new Response(JSON.stringify({ status: 2554, error: 'no sleep device' }), { status: 200 }) }));
+    await sync(store, failing().fn);
+    expect(store.link!.covered).toEqual({ measures: SYNC_COVERAGE, workouts: SYNC_COVERAGE, activity: SYNC_COVERAGE });
+
+    const again = failing();
+    await sync(store, again.fn);
+    const asked = (key: string) => again.calls.find((c) => c.key === key)!.form;
+    expect(asked('/v2/sleep?getsummary').has('startdateymd')).toBe(true); // still owed its first window
+    expect(asked('/v2/measure?getworkouts').has('startdateymd')).toBe(false); // already done: only what changed
+    expect(asked('/v2/measure?getactivity').has('startdateymd')).toBe(false);
+  });
+
+  it('keeps two providers\' identical readings apart, and does not log the same Withings reading twice', async () => {
+    const store = link({ userid: '50' });
+    const same = answers({
+      '/measure?getmeas': body({
+        more: 0,
+        measuregrps: [{ grpid: 777, date: t('2026-10-10T07:00:00.000Z'), modified: t('2026-10-10T07:01:00.000Z'), category: 1, hash_deviceid: 'h', modelid: 51, measures: [{ value: 70100, type: 1, unit: -3 }] }],
+      }),
+    });
+    // Garmin already reported exactly this number at exactly this instant.
+    await vera.invoke('stride/log-measurement', { traineeId: w.veraId, kind: 'weight', value: '70.1', measuredAt: '2026-10-10T07:00:00.000Z', source: 'garmin', externalId: 'g-9' });
+    await sync(store, device(same).fn);
+    await sync(store, device(same).fn); // and again: nothing new
+    const rows = await vera.invoke<{ source: string; payload?: Record<string, unknown> }[]>(
+      'stride/measurements', { traineeId: w.veraId, kind: 'weight', days: 3650, payload: true },
+    );
+    const at = rows.filter((r) => (r as unknown as { measured_at: string }).measured_at === '2026-10-10T07:00:00.000Z');
+    expect(at.map((r) => r.source).sort()).toEqual(['garmin', 'withings']);
+    // Fields the group carried that we never named are still there.
+    expect(at.find((r) => r.source === 'withings')!.payload).toMatchObject({ grpid: 777, hash_deviceid: 'h', modelid: 51 });
   });
 
   it('writes every kind it knows from one weigh-in, tagged with where it came from and what was said', async () => {

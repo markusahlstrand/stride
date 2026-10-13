@@ -80,7 +80,6 @@ describe('hybrid strength + cardio', () => {
     items.range = await add({ exerciseId: runId, targetSets: 1, targetSeconds: 1800, targetHrMin: 130, targetHrMax: 145, recurDays: '6' });
     items.intervals = await add({ exerciseId: runId, targetSets: 6, workSeconds: 120, restSeconds: 120 });
     items.test = await add({ exerciseId: pullId, targetSets: 1, amrap: true });
-    await inv(vera, 'start-placeholder', {}).catch(() => undefined);
     await vera.invoke('workorder/start', { orderId: programId });
     sessionId = (await inv<{ session: { id: string } }>(vera, 'begin', { programId })).session.id;
   });
