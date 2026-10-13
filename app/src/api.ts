@@ -102,6 +102,31 @@ export interface Item {
   recur_per_week: number | null;
   /** Same key = a superset, performed back to back. */
   group_key: string | null;
+  /** Cardio by time: how long, and the zone or bpm range to hold. Never both a zone and a range. */
+  target_seconds: number | null;
+  target_zone: number | null;
+  target_hr_min: number | null;
+  target_hr_max: number | null;
+  /** An interval block: `target_sets` rounds of work then rest. */
+  work_seconds: number | null;
+  rest_seconds: number | null;
+  /** 1 = as many as possible; `target_reps` is then the minimum (0 = none). */
+  amrap: number;
+}
+
+/** The bpm behind a wearable's four zones, for one person. */
+export interface HrZone {
+  zone: number;
+  name: string;
+  minBpm: number | null;
+  maxBpm: number;
+}
+export interface HrZones {
+  traineeId: string;
+  maxHr: number | null;
+  /** `set` = they said so; `observed` = the highest rate a wearable ever recorded. */
+  source: 'set' | 'observed' | null;
+  zones: HrZone[] | null;
 }
 
 export type Goal = 'strength' | 'muscle' | 'endurance' | 'rehab' | 'general';
@@ -200,6 +225,13 @@ export interface ScheduledItem {
   dueToday: boolean;
   doneThisWeek: number;
   targetThisWeek: number;
+  targetSeconds: number | null;
+  targetZone: number | null;
+  targetHrMin: number | null;
+  targetHrMax: number | null;
+  workSeconds: number | null;
+  restSeconds: number | null;
+  amrap: boolean;
 }
 
 /**
@@ -232,6 +264,15 @@ export interface SetResult {
   rpe: string | null;
   duration_seconds: number | null;
   avg_hr: number | null;
+  /** Reps in reserve — the other way to say how hard it was. A set has rpe or rir. */
+  rir: number | null;
+  /** Set when a wearable workout was attached to this item, with what it recorded. */
+  activity_id: string | null;
+  max_hr: number | null;
+  hr_zone0_seconds: number | null;
+  hr_zone1_seconds: number | null;
+  hr_zone2_seconds: number | null;
+  hr_zone3_seconds: number | null;
   /** Which arm, which leg. Set on a unilateral exercise, null otherwise. */
   side: Side | null;
   /** When this set was performed. The server has always sent it; declaring it is
@@ -277,6 +318,8 @@ export interface ProgramDetail {
   slots: Slot[];
   sessions: Session[];
   summary: Summary | null;
+  /** The bpm behind a prescribed zone; null when the reader may not read this person's body. */
+  hrZones: HrZones | null;
 }
 
 // --- the body, and the curve ------------------------------------------------
@@ -295,7 +338,25 @@ export type MeasurementKind =
   | 'grip'
   | 'shoulder-flexion'
   | 'shoulder-abduction'
-  | 'shoulder-external-rotation';
+  | 'shoulder-external-rotation'
+  | 'height'
+  | 'fat-mass'
+  | 'fat-free-mass'
+  | 'muscle-mass'
+  | 'bone-mass'
+  | 'hydration'
+  | 'extracellular-water'
+  | 'intracellular-water'
+  | 'visceral-fat'
+  | 'systolic-bp'
+  | 'diastolic-bp'
+  | 'pulse'
+  | 'spo2'
+  | 'body-temp'
+  | 'skin-temp'
+  | 'pulse-wave-velocity'
+  | 'vascular-age'
+  | 'vo2max';
 
 /** Mirrors MEASUREMENT_KINDS in module.ts: the unit each kind is in, and
  *  whether it belongs to a side. The server refuses anything else. */
@@ -314,7 +375,32 @@ export const MEASUREMENT_KINDS: Record<MeasurementKind, { unit: string; sided: b
   'shoulder-flexion': { unit: 'deg', sided: true, label: 'Shoulder flexion — arm forward and up' },
   'shoulder-abduction': { unit: 'deg', sided: true, label: 'Shoulder abduction — arm out to the side' },
   'shoulder-external-rotation': { unit: 'deg', sided: true, label: 'Shoulder external rotation' },
+  height: { unit: 'm', sided: false, label: 'Height' },
+  'fat-mass': { unit: 'kg', sided: false, label: 'Fat mass' },
+  'fat-free-mass': { unit: 'kg', sided: false, label: 'Fat-free mass' },
+  'muscle-mass': { unit: 'kg', sided: false, label: 'Muscle mass' },
+  'bone-mass': { unit: 'kg', sided: false, label: 'Bone mass' },
+  hydration: { unit: 'kg', sided: false, label: 'Body water' },
+  'extracellular-water': { unit: 'kg', sided: false, label: 'Extracellular water' },
+  'intracellular-water': { unit: 'kg', sided: false, label: 'Intracellular water' },
+  'visceral-fat': { unit: 'index', sided: false, label: 'Visceral fat index' },
+  'systolic-bp': { unit: 'mmHg', sided: false, label: 'Systolic blood pressure' },
+  'diastolic-bp': { unit: 'mmHg', sided: false, label: 'Diastolic blood pressure' },
+  pulse: { unit: 'bpm', sided: false, label: 'Pulse' },
+  spo2: { unit: '%', sided: false, label: 'Blood oxygen (SpO2)' },
+  'body-temp': { unit: 'C', sided: false, label: 'Body temperature' },
+  'skin-temp': { unit: 'C', sided: false, label: 'Skin temperature' },
+  'pulse-wave-velocity': { unit: 'm/s', sided: false, label: 'Pulse wave velocity' },
+  'vascular-age': { unit: 'years', sided: false, label: 'Vascular age' },
+  vo2max: { unit: 'ml/min/kg', sided: false, label: 'VO2 max' },
 };
+
+/** Mirrors DEVICE_ONLY_KINDS in module.ts: what a device takes and a person rarely types, so the log form leaves them out. */
+export const DEVICE_ONLY_KINDS: ReadonlySet<string> = new Set([
+  'height', 'fat-mass', 'fat-free-mass', 'muscle-mass', 'bone-mass', 'hydration', 'extracellular-water',
+  'intracellular-water', 'visceral-fat', 'systolic-bp', 'diastolic-bp', 'pulse', 'spo2', 'body-temp',
+  'skin-temp', 'pulse-wave-velocity', 'vascular-age', 'vo2max',
+]);
 
 export interface WithingsStatus {
   /** False when this deployment has no Withings app — the card stays hidden. */
@@ -374,6 +460,32 @@ export interface Wearable {
   activities: WearableActivity[];
   sleep: WearableNight[];
   days: WearableDay[];
+  weeks?: WearableWeek[];
+}
+export interface WearableWeek {
+  /** The Monday, YYYY-MM-DD. */
+  week: string;
+  workouts: number;
+  durationSeconds: number;
+  distanceM: string;
+  calories: string;
+  zoneSeconds: [number, number, number, number];
+  byKind: { kind: string; workouts: number; durationSeconds: number; distanceM: string }[];
+  nights: number;
+  avgAsleepSeconds: number | null;
+  avgSleepScore: number | null;
+  daysWithSteps: number;
+  steps: number;
+  avgSteps: number | null;
+}
+/** Everything `stride/wearable` can narrow by. `kind` is comma-separated: 'run,cycle'. */
+export interface WearableQuery {
+  days?: number;
+  from?: string;
+  to?: string;
+  kind?: string;
+  summary?: boolean;
+  limit?: number;
 }
 export interface WithingsSyncResult {
   seen: number;
@@ -525,7 +637,16 @@ export const api = {
     b: { kind: MeasurementKind; side?: Side; value: string; measuredAt?: string; note?: string },
   ) => post<Measurement>(`/trainees/${traineeId}/measurements`, b),
   /** What the person's wearable recorded: workouts, nights, days. 403 unless they share everything with you. */
-  wearable: (traineeId: string, days = 90) => get<Wearable>(`/trainees/${traineeId}/wearable?days=${days}`),
+  wearable: (traineeId: string, q: WearableQuery | number = 90) => {
+    const query = typeof q === 'number' ? { days: q } : q;
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) if (v !== undefined) params.set(k, String(v));
+    return get<Wearable>(`/trainees/${traineeId}/wearable?${params}`);
+  },
+  /** The bpm behind each zone, and the maximum they are cut from. */
+  hrZones: (traineeId: string) => get<HrZones>(`/trainees/${traineeId}/hr-zones`),
+  /** Set the maximum heart rate (null clears it). Answers with the new zones. */
+  setMaxHr: (traineeId: string, maxHr: number | null) => post<HrZones>(`/trainees/${traineeId}/max-hr`, { maxHr }),
   progress: (traineeId: string) => get<Progress>(`/trainees/${traineeId}/progress`),
 
   // Withings: always about the SIGNED-IN person's own record, so none of these take an id.

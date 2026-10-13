@@ -18,6 +18,7 @@ import {
   logMeasurementInput,
   recordWearableInput,
   wearableInput,
+  setMaxHrInput,
   logSessionInput,
   logSetInput,
   myEquipmentInput,
@@ -39,6 +40,7 @@ import {
   threadInput,
   timelineInput,
   traineeIdInput,
+  measurementsInput,
   trainMyselfInput,
   voidSetInput,
   agendaInput,
@@ -407,9 +409,9 @@ export const operations = {
   // operation's own input field; the app passes `me.traineeId` for "mine".
   'stride/measurements': {
     summary:
-      'A person’s measurements over time: weight, girths, grip, shoulder range. Append-only.',
+      'A person’s measurements over time, oldest first: weight and body composition, girths, grip, shoulder range, and what devices take (blood pressure, SpO2, temperature, VO2 max). Filter by kind, provider or days. Append-only.',
     http: { method: 'GET', path: '/trainees/{traineeId}/measurements' },
-    input: traineeIdInput,
+    input: measurementsInput,
   },
   'stride/log-measurement': {
     summary: 'Record a measurement of a body. A correction is a new row, never an edit.',
@@ -419,9 +421,21 @@ export const operations = {
   // What a wearable recorded. By TRAINEE for the same reason measurements are.
   'stride/wearable': {
     summary:
-      'What a person’s wearable recorded: workouts with heart-rate zones, nightly sleep and daily steps, newest first. Defaults to the last 90 days.',
+      'What a person’s wearables recorded: workouts with heart-rate zones, nightly sleep and daily activity, newest first, from every connected provider (Withings today; Garmin and Apple Health have a place waiting). Defaults to the last 90 days; narrow by provider or dataset, and ask for the raw provider record with payload.',
     http: { method: 'GET', path: '/trainees/{traineeId}/wearable' },
     input: wearableInput,
+  },
+  // The bpm behind hr_zone0..3, and the maximum they are cut from.
+  'stride/hr-zones': {
+    summary:
+      'The heart-rate zones behind a wearable’s four: light, moderate, intense, maximal, each as a bpm range for this person, cut from their maximum heart rate (set, else the highest a wearable saw).',
+    http: { method: 'GET', path: '/trainees/{traineeId}/hr-zones' },
+    input: traineeIdInput,
+  },
+  'stride/set-max-hr': {
+    summary: 'Set a person’s maximum heart rate so their zones are accurate, or clear it with null.',
+    http: { method: 'POST', path: '/trainees/{traineeId}/max-hr' },
+    input: setMaxHrInput,
   },
   'stride/record-wearable': {
     summary:

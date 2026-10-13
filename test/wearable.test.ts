@@ -95,6 +95,7 @@ describe('wearables', () => {
       activities: { created: 2, updated: 0, unchanged: 0 },
       sleep: { created: 1, updated: 0, unchanged: 0 },
       days: { created: 2, updated: 0, unchanged: 0 },
+      matched: [],
     });
 
     const mine = await read(vera, w.veraId, 730);
@@ -120,6 +121,7 @@ describe('wearables', () => {
       activities: { created: 0, updated: 0, unchanged: 1 },
       sleep: { created: 0, updated: 0, unchanged: 1 },
       days: { created: 0, updated: 0, unchanged: 1 },
+      matched: [],
     });
     expect((await announced()).length).toBe(before); // a sync that found nothing new emits nothing
 
@@ -142,6 +144,46 @@ describe('wearables', () => {
   it('reads only as far back as asked', async () => {
     await record(vera, { activities: [run({ externalId: 'old', startedAt: '2020-01-01T06:00:00.000Z', endedAt: '2020-01-01T06:30:00.000Z', durationSeconds: 1800 })] });
     expect((await read(vera, w.veraId, 90)).activities.some((a) => a.external_id === 'old')).toBe(false);
+  });
+
+  it('keeps the provider\'s own record beside the mapped columns, and hands it back only when asked', async () => {
+    const raw = { id: 'w-p', data: { pool_length: 25, strokes: 812 }, category: 7 };
+    await record(vera, { activities: [run({ externalId: 'w-p', kind: 'swim', startedAt: '2026-10-09T10:00:00.000Z', endedAt: '2026-10-09T10:30:00.000Z', durationSeconds: 1800, payload: raw })] });
+
+    const plain = (await read(vera, w.veraId, 730)).activities.find((a) => a.external_id === 'w-p')!;
+    expect(plain).not.toHaveProperty('payload'); // large, so off unless asked for
+    const full = await vera.invoke<WearableView>('stride/wearable', { traineeId: w.veraId, days: 730, payload: true });
+    expect(full.activities.find((a) => a.external_id === 'w-p')!.payload).toEqual(raw);
+
+    // A revised record is a change, even when no mapped column moved.
+    const again = await record(vera, { activities: [run({ externalId: 'w-p', kind: 'swim', startedAt: '2026-10-09T10:00:00.000Z', endedAt: '2026-10-09T10:30:00.000Z', durationSeconds: 1800, payload: { ...raw, data: { ...raw.data, strokes: 820 } } })] });
+    expect(again.activities.updated).toBe(1);
+
+    // The event says what changed in terms a consumer can use; the raw record rides the row, not the spine.
+    const events = (await vera.invoke<{ type: string; payload: Record<string, unknown> }[]>('stride/timeline', { entityType: 'trainee', entityId: w.veraId })) as unknown as { type: string; payload?: Record<string, unknown> }[];
+    expect(events.filter((e) => e.type === 'stride.activity-recorded').every((e) => !e.payload || !('payload' in e.payload))).toBe(true);
+
+    await expect(record(vera, { days: [day({ day: '2026-09-01', payload: { blob: 'x'.repeat(21_000) } })] })).rejects.toThrow(/payload is over/);
+  });
+
+  it('holds a second provider beside the first: the same night from two devices is two rows, each saying where it is from', async () => {
+    await vera.invoke('stride/record-wearable', { traineeId: w.veraId, source: 'garmin', sleep: [night({ externalId: 'g-1', score: 70 })], days: [day({ steps: 9500 })] });
+    await vera.invoke('stride/record-wearable', { traineeId: w.veraId, source: 'apple-health', days: [day({ steps: 9300 })] });
+
+    const all = await read(vera, w.veraId, 730);
+    expect(all.sleep.filter((n) => n.night === '2026-10-10').map((n) => n.source).sort()).toEqual(['garmin', 'withings']);
+    expect(all.days.filter((d) => d.day === '2026-10-10').map((d) => d.source).sort()).toEqual(['apple-health', 'garmin', 'withings']);
+
+    const onlyGarmin = await vera.invoke<WearableView>('stride/wearable', { traineeId: w.veraId, days: 730, source: 'garmin' });
+    expect(onlyGarmin.sleep.map((n) => n.source)).toEqual(['garmin']);
+    expect(onlyGarmin.activities).toEqual([]);
+  });
+
+  it('returns only the datasets asked for', async () => {
+    const got = await vera.invoke<WearableView>('stride/wearable', { traineeId: w.veraId, days: 730, include: ['sleep'] });
+    expect(got.sleep.length).toBeGreaterThan(0);
+    expect(got.activities).toEqual([]);
+    expect(got.days).toEqual([]);
   });
 
   it('refuses what is not a reading: a float, a negative, an end before the start, an unknown kind or source', async () => {
