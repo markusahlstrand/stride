@@ -389,7 +389,19 @@ export function TodayScreen({
               style={{ '--s': '180px' } as React.CSSProperties}
             />
           )}
-          <div className="hero-text">
+          <div
+            className="hero-text"
+            role="link"
+            tabIndex={0}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onOpen(a.programId)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpen(a.programId);
+              }
+            }}
+          >
             <div className="hero-meta">
               <span className="badge time">{a.time}</span>
               <span className="hero-label">{heroLabel(a, todayDate)}</span>
