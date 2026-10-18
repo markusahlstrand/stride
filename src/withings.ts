@@ -260,6 +260,9 @@ interface MeasureGroup {
   /** Epoch seconds it was last created or changed at Withings: the cursor for the next pull. */
   modified?: number;
   category: number;
+  attrib?: number;
+  deviceid?: string | null;
+  timezone?: string;
   measures: { value: number; type: number; unit: number }[];
 }
 

@@ -494,7 +494,7 @@ export const operations = {
  * instead of as a 404 the first time somebody calls that endpoint.
  */
 export const knownOperations: string[] = [
-  ...Object.keys(strideModule.operations ?? {}),
+  ...Object.keys(strideModule.operations?.handlers ?? {}),
   'workorder/start',
   'workorder/assign',
   'workorder/report-time',
