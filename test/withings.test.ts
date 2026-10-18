@@ -552,6 +552,19 @@ describe('device data: the sync', () => {
     expect(asked('/v2/measure?getactivity').has('startdateymd')).toBe(false);
   });
 
+  it('a dataset that came back empty still gets a cursor, so the next sync is incremental', async () => {
+    const store = link({ userid: '47' });
+    const noSleep = () => device(answers({ '/v2/sleep?getsummary': body({ more: false, series: [] }) }));
+    await sync(store, noSleep().fn);
+    expect(store.link!.cursors!.sleep).toBe(Math.floor(NOW.getTime() / 1000));
+
+    const again = noSleep();
+    await sync(store, again.fn);
+    const asked = again.calls.find((c) => c.key === '/v2/sleep?getsummary')!.form;
+    expect(asked.has('startdateymd')).toBe(false);
+    expect(asked.get('lastupdate')).toBe(String(Math.floor(NOW.getTime() / 1000) - 60));
+  });
+
   it('keeps two providers\' identical readings apart, and does not log the same Withings reading twice', async () => {
     const store = link({ userid: '50' });
     const same = answers({

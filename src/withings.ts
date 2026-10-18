@@ -546,11 +546,13 @@ async function pullDataset<T extends { modified?: number }>(
   throw new WithingsError(`Withings returned more than ${MAX_PAGES} pages of ${path}`);
 }
 
-const newestModified = (items: { modified?: number }[], was: number | undefined): number | undefined =>
+const newestModified = (items: { modified?: number }[], was: number | undefined, now: Date): number =>
+  // A window that succeeded and held nothing is still read: its watermark is now, so the next sync asks
+  // for what changed since, not for another year (and `windowFor` keeps a minute of overlap).
   items.reduce<number | undefined>(
     (max, i) => (i.modified !== undefined && (max === undefined || i.modified > max) ? i.modified : max),
     was,
-  );
+  ) ?? Math.floor(now.getTime() / 1000);
 
 /** First pull: a bounded window. After that: only what changed since the cursor, less a minute of overlap. */
 const windowFor = (cursor: number | undefined, now: Date): Record<string, string> =>
@@ -626,8 +628,7 @@ async function syncWearables(a: {
       problems.push(`workouts: skipped ${items.length - sane.length} that end before they start`);
     }
     await record('activities', sane.map(activityOfWorkout), 200);
-    const next = newestModified(items, cursors.workouts);
-    if (next !== undefined) cursors.workouts = next;
+    cursors.workouts = newestModified(items, cursors.workouts, now);
   });
 
   await run('sleep', 'sleep', async () => {
@@ -643,8 +644,7 @@ async function syncWearables(a: {
       problems.push(`sleep: skipped ${items.length - sane.length} that end before they start`);
     }
     await record('sleep', sane.map(sleepOfSummary), 200);
-    const next = newestModified(items, cursors.sleep);
-    if (next !== undefined) cursors.sleep = next;
+    cursors.sleep = newestModified(items, cursors.sleep, now);
   });
 
   await run('daily activity', 'activity', async () => {
@@ -656,8 +656,7 @@ async function syncWearables(a: {
       (b) => (b.activities as ActivityObject[] | undefined) ?? [],
     );
     await record('days', daysOfActivity(items), 300);
-    const next = newestModified(items, cursors.activity);
-    if (next !== undefined) cursors.activity = next;
+    cursors.activity = newestModified(items, cursors.activity, now);
   });
 
   return { counts, cursors, problems, done };
@@ -697,11 +696,11 @@ export async function syncWithings(a: {
   const groups = await pullGroups(fetchFn, link.accessToken, window);
   // Withings' own advice: the largest `modified` actually processed, over EVERY group returned (also the
   // ones we have no kind for), so a change we skipped is not fetched again for ever. Nothing returned
-  // leaves the cursor where it was.
+  // leaves the cursor where it was; a first window that held nothing starts it at now.
   const cursor = groups.reduce<number | null>(
     (max, g) => (g.modified !== undefined && (max === null || g.modified > max) ? g.modified : max),
     link.lastUpdate,
-  );
+  ) ?? Math.floor(now.getTime() / 1000);
   const readings = readingsOf(groups);
 
   // Read first, through the operation: the dedupe is whatever the kernel will let this person see.

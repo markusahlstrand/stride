@@ -157,7 +157,8 @@ export function RestTimer({
   const adjust = (delta: number) => {
     const next = Math.max(15, length + delta);
     setLength(next);
-    setEndsAt((t) => t + delta * 1000);
+    // Only what was actually applied: at the 15 s floor, −15 changes nothing and must not end the timer early.
+    setEndsAt((t) => t + (next - length) * 1000);
     onChange?.(next);
   };
   return (
