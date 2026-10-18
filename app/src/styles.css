@@ -1244,6 +1244,22 @@ button.week-day { background: none; border: 0; box-shadow: none; padding: 0; cur
     margin-right: auto;
   }
 
+  /* The session bar is a sibling of <main>, so in this row it became a tall dark
+     column on the right. Dock it instead: a footer floating over the content
+     column, clear of the rail, the same width as the column above it. */
+  .session-bar {
+    position: fixed;
+    z-index: 20;
+    left: 236px;
+    right: 0;
+    bottom: 16px;
+    width: calc(100% - 236px - 64px);
+    max-width: 520px;
+    margin: 0 auto;
+  }
+  /* Leave room under the last card so the bar never sits on top of it. */
+  .app:has(.session-bar) main { padding-bottom: 104px; }
+
   /* No tab bar to clear down here, so the toast drops into the corner proper. */
   .banner { left: auto; right: 24px; bottom: 24px; width: 400px; }
 
