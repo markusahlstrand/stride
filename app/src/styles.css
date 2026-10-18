@@ -1736,3 +1736,7 @@ button.week-day { background: none; border: 0; box-shadow: none; padding: 0; cur
 .zonerow.z3 { box-shadow: inset 16px 0 0 var(--accent-ink); }
 .pill.from-device { border-style: solid; }
 .zonesplit { margin-top: 4px; }
+
+/* Section switcher on Progress: one row of equal pills, so a long screen becomes three short ones. */
+.subtabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.subtabs .pill.toggle { flex: 1; justify-content: center; min-height: 42px; font: 700 14px var(--font); }

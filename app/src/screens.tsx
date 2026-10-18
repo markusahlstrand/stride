@@ -4919,6 +4919,7 @@ export function ProgressScreen({
   const [templates] = useList<Template>(() => api.templates(), [me?.key]);
   const [trainees] = useList<Trainee>(() => api.trainees(), [me?.key]);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<'strength' | 'body' | 'activity'>('strength');
 
   const reload = useCallback(() => {
     if (!traineeId) return;
@@ -4988,6 +4989,23 @@ export function ProgressScreen({
           : 'Loading…'}
       </div>
 
+      <div className="subtabs" role="tablist" aria-label="Progress sections">
+        {([['strength', 'Strength'], ['body', 'Body'], ['activity', 'Activity']] as const).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={tab === k}
+            className={`pill toggle${tab === k ? ' on' : ''}`}
+            onClick={() => setTab(k)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'strength' && (
+        <>
       {/* THE BASELINE. Raised and accented: it is the one action on the screen. */}
       <div className="card raised accent">
         <div className="row center">
@@ -5028,6 +5046,10 @@ export function ProgressScreen({
         <ExerciseCurve key={e.exerciseId} e={e} onOpen={onOpen} />
       ))}
 
+        </>
+      )}
+      {tab === 'body' && (
+        <>
       <BodyCard
         traineeId={traineeId}
         rows={measurements ?? []}
@@ -5035,10 +5057,16 @@ export function ProgressScreen({
         run={run}
         onLogged={reload}
       />
+      {mine && <WithingsCard run={run} onSynced={reload} />}
+        </>
+      )}
+      {tab === 'activity' && (
+        <>
       <HeartRateZones traineeId={traineeId} canEdit={mine || isStaff(me)} run={run} onChanged={reload} />
       <WeeklyTotals weeks={weekly} />
       <WearableSection data={wearable} />
-      {mine && <WithingsCard run={run} onSynced={reload} />}
+        </>
+      )}
     </>
   );
 }
