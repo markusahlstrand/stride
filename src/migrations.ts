@@ -650,4 +650,39 @@ export const strideMigrations: SqlMigration[] = [
       CREATE UNIQUE INDEX train_set_results_activity ON train_set_results(activity_id) WHERE activity_id IS NOT NULL;
     `,
   },
+
+  {
+    version: '0015-quick-log',
+    sql: `
+      -- A QUICK LOG: what somebody ate, or did outside a workout — "yoghurt with muesli",
+      -- "pull-up x 5". Free text on purpose: it is a diary line, not a catalogue row, so it
+      -- earns no exercise and prescribes nothing. The list you repeat from is READ OFF these
+      -- rows (the distinct labels, newest first); there is no second table to keep in step.
+      --
+      --   kind      'food' | 'activity'
+      --   quantity  activity only: how many times (a whole number); NULL for food
+      --
+      -- Append-only, like every other fact about a body. A line logged by mistake is VOIDED
+      -- in its own table, never deleted — the logging and the taking back are both in the
+      -- audit spine. Read and written under the narrowed result:read / result:log on the
+      -- trainee record: no new key.
+      CREATE TABLE train_quick_logs (
+        id         TEXT PRIMARY KEY,
+        trainee_id TEXT NOT NULL REFERENCES train_trainees(id),
+        kind       TEXT NOT NULL,
+        label      TEXT NOT NULL,
+        quantity   INTEGER,
+        logged_at  TEXT NOT NULL,
+        logged_by  TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX train_quick_logs_trainee ON train_quick_logs(trainee_id, kind, logged_at);
+
+      CREATE TABLE train_quick_log_voids (
+        log_id    TEXT PRIMARY KEY REFERENCES train_quick_logs(id),
+        voided_by TEXT NOT NULL,
+        voided_at TEXT NOT NULL
+      );
+    `,
+  },
 ];

@@ -41,6 +41,10 @@ import {
   timelineInput,
   traineeIdInput,
   measurementsInput,
+  logQuickInput,
+  quickLogsInput,
+  quickRecentsInput,
+  voidQuickLogInput,
   trainMyselfInput,
   voidSetInput,
   agendaInput,
@@ -417,6 +421,29 @@ export const operations = {
     summary: 'Record a measurement of a body. A correction is a new row, never an edit.',
     http: { method: 'POST', path: '/trainees/{traineeId}/measurements' },
     input: logMeasurementInput,
+  },
+  // The quick log: what was eaten, or done outside a workout. By TRAINEE, on the
+  // measurement keys. The repeat list is read off the lines, not stored.
+  'stride/log-quick': {
+    summary:
+      'Log a food ("Yoghurt with muesli") or an activity with a count ("Pull-up", 5 times) in one step. Append-only; take one back with stride/void-quick-log.',
+    http: { method: 'POST', path: '/trainees/{traineeId}/quick-log' },
+    input: logQuickInput,
+  },
+  'stride/quick-logs': {
+    summary: 'A person’s quick-log lines, newest first, without the ones taken back. Filter by kind or since.',
+    http: { method: 'GET', path: '/trainees/{traineeId}/quick-log' },
+    input: quickLogsInput,
+  },
+  'stride/quick-recents': {
+    summary: 'The list to repeat from: distinct earlier foods or activities, most recent first, with the count last time.',
+    http: { method: 'GET', path: '/trainees/{traineeId}/quick-log/recents' },
+    input: quickRecentsInput,
+  },
+  'stride/void-quick-log': {
+    summary: 'Take back a quick-log line logged by mistake. Voided, never deleted.',
+    http: { method: 'POST', path: '/quick-log/{logId}/void' },
+    input: voidQuickLogInput,
   },
   // What a wearable recorded. By TRAINEE for the same reason measurements are.
   'stride/wearable': {

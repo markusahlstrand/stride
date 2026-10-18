@@ -354,6 +354,25 @@ export const strideEntities = defineEntities({
     }),
     erasable: ['note'],
   },
+  /** A diary line: what was eaten, or done outside a workout. Append-only; the repeat list is read off these. */
+  quickLog: {
+    table: 'train_quick_logs',
+    fields: z.object({
+      id: z.string(),
+      trainee_id: z.string(),
+      kind: z.string(),
+      label: z.string(),
+      quantity: z.number().nullable(),
+      logged_at: z.string(),
+      logged_by: z.string(),
+      created_at: z.string(),
+    }),
+  },
+  /** Taking a diary line back. One row per line; the line itself is never touched. */
+  quickLogVoid: {
+    table: 'train_quick_log_voids', primaryKey: ['log_id'],
+    fields: z.object({ log_id: z.string(), voided_by: z.string(), voided_at: z.string() }),
+  },
   /**
    * What a wearable recorded, mirrored from a provider. Rewritten on sync (a night is
    * revised, a day's steps grow), keyed by the PROVIDER's id. Not on the permission graph:
