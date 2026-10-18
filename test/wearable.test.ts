@@ -227,7 +227,7 @@ describe('wearables', () => {
     expect((await read(vera, w.veraId, 730)).activities.find((a) => a.id === id)!.title).toBeNull();
 
     await expect(bjorn.invoke('stride/name-activity', { activityId: id, title: 'Padel' })).rejects.toThrow(/permission denied: result:log/);
-    await expect(vera.invoke('stride/name-activity', { activityId: 'nope', title: 'Padel' })).rejects.toThrow(/not found/);
+    await expect(vera.invoke('stride/name-activity', { activityId: 'nope', title: 'Padel' })).rejects.toThrow(/permission denied: result:log/);
 
     expect(await vera.invoke('stride/name-activity', { activityId: id, title: '  Padel  ' })).toEqual({ activityId: id, title: 'Padel' });
     // The watch says the same thing again, and then something revised: the name is still there.

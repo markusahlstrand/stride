@@ -88,7 +88,7 @@ describe('quick log', () => {
     expect(food.map((r) => r.label)).not.toContain('Cake');
     const lines = await inv<QuickLogRow[]>(vera, 'quick-logs', { traineeId: w.veraId });
     expect(lines.map((r) => r.id)).not.toContain(oops.id);
-    await expect(inv(vera, 'void-quick-log', { logId: 'nope' })).rejects.toThrow(/not found/);
+    await expect(inv(vera, 'void-quick-log', { logId: 'nope' })).rejects.toThrow(/permission denied: result:log/);
   });
 
   it('is nobody else’s: the denial names the key, and a log id alone reaches no one', async () => {
@@ -108,5 +108,12 @@ describe('quick log', () => {
     const seen = await inv<QuickLogRow[]>(nina, 'quick-logs', { traineeId: w.veraId });
     expect(seen.map((r) => r.label)).toContain('Porridge');
     await vera.invoke('stride/set-sharing', { coachId: w.ninaId, mode: 'assigned' });
+  });
+  it('stores loggedAt as one ISO instant and refuses a line from the future', async () => {
+    const off = await log(vera, { kind: 'food', label: 'Late lunch', loggedAt: '2026-10-14T10:00:00+02:00' });
+    expect(off.logged_at).toBe('2026-10-14T08:00:00.000Z');
+    const dateOnly = await log(vera, { kind: 'food', label: 'Breakfast', loggedAt: '2026-10-14' });
+    expect(dateOnly.logged_at).toBe('2026-10-14T00:00:00.000Z');
+    await expect(log(vera, { kind: 'food', label: 'Tomorrow', loggedAt: '2099-01-01T00:00:00Z' })).rejects.toThrow(/future/);
   });
 });

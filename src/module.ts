@@ -4318,7 +4318,8 @@ export interface QuickLogRow {
 }
 
 /** Lines that have not been taken back. */
-const QUICK_NOT_VOIDED = 'id NOT IN (SELECT log_id FROM train_quick_log_voids)';
+const QUICK_NOT_VOIDED =
+  'NOT EXISTS (SELECT 1 FROM train_quick_log_voids v WHERE v.log_id = train_quick_logs.id)';
 const QUICK_COLUMNS = 'id, trainee_id, kind, label, quantity, logged_at, logged_by, created_at';
 
 export const logQuickInput = z.object({
@@ -4349,7 +4350,13 @@ const logQuickOp: OperationHandler<z.infer<typeof logQuickInput>, QuickLogRow> =
   }
   const id = ulid();
   const now = ctx.now();
-  const loggedAt = input.loggedAt ?? now;
+  // Stored as the one ISO form every comparison and ORDER BY here assumes, so '2026-10-14' or
+  // an offset cannot sort or filter differently from a plain instant. Not in the future: a line
+  // dated years ahead would sit at the top of recents and Today for ever.
+  const loggedAt = input.loggedAt === undefined ? now : new Date(input.loggedAt).toISOString();
+  if (new Date(loggedAt).getTime() > new Date(now).getTime() + 5 * 60_000) {
+    throw new Error('a diary line cannot be from the future');
+  }
   ctx.sql.exec(
     `INSERT INTO train_quick_logs (id, trainee_id, kind, label, quantity, logged_at, logged_by, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -4453,7 +4460,8 @@ const voidQuickLogOp: OperationHandler<
 > = async (ctx, rawInput) => {
   const input = voidQuickLogInput.parse(rawInput);
   const line = ctx.sql.query<QuickLogRow>(`SELECT ${QUICK_COLUMNS} FROM train_quick_logs WHERE id = ?`, [input.logId])[0];
-  if (!line) throw new Error(`quick log not found: ${input.logId}`);
+  // A missing id and somebody else's answer the same way, so an id proves nothing about who has one.
+  if (!line) throw new PermissionDenied('permission denied: result:log');
   assertAllowed(await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: line.trainee_id }));
   const already =
     ctx.sql.query<{ n: number }>('SELECT COUNT(*) AS n FROM train_quick_log_voids WHERE log_id = ?', [line.id])[0]?.n ?? 0;
@@ -4920,7 +4928,7 @@ const nameActivityOp: OperationHandler<
 > = async (ctx, rawInput) => {
   const input = nameActivityInput.parse(rawInput);
   const row = ctx.sql.query<ActivityRow>('SELECT * FROM train_activities WHERE id = ?', [input.activityId])[0];
-  if (!row) throw new Error(`activity not found: ${input.activityId}`);
+  if (!row) throw new PermissionDenied('permission denied: result:log');
   assertAllowed(await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: row.trainee_id }));
   const title = input.title ? input.title.replace(/\s+/g, ' ') : null;
   if (title === row.title) return { activityId: row.id, title };
@@ -5626,6 +5634,7 @@ export const strideModule: ModuleRegistration = {
     'stride/quick-recents': quickRecentsOp,
     'stride/void-quick-log': voidQuickLogOp,
     'stride/record-wearable': recordWearableOp,
+    'stride/name-activity': nameActivityOp,
     'stride/wearable': wearableOp,
     'stride/set-max-hr': setMaxHrOp,
     'stride/hr-zones': hrZonesOp,

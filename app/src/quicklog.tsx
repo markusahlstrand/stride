@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type QuickKind, type QuickLog, type QuickRecent } from './api';
 
 // ============================================================================
@@ -30,9 +30,19 @@ export function QuickLogCard({ traineeId, run }: { traineeId: string; run: Run }
   const [today, setToday] = useState<QuickLog[]>([]);
   const [busy, setBusy] = useState(false);
 
+  // The latest request wins: toggling food/activity quickly must not let a slow answer for the
+  // other kind land under the wrong toggle, where tapping a "recent" would save the wrong line.
+  const latest = useRef(0);
   const reload = useCallback(() => {
-    api.quickRecents(traineeId, kind).then(setRecents).catch(() => setRecents([]));
-    api.quickLogs(traineeId, { since: startOfLocalDay() }).then(setToday).catch(() => setToday([]));
+    const ticket = ++latest.current;
+    const fresh = <T,>(set: (v: T) => void, empty: T) => ({
+      ok: (v: T) => ticket === latest.current && set(v),
+      fail: () => ticket === latest.current && set(empty),
+    });
+    const r = fresh(setRecents, [] as QuickRecent[]);
+    const t = fresh(setToday, [] as QuickLog[]);
+    api.quickRecents(traineeId, kind).then(r.ok).catch(r.fail);
+    api.quickLogs(traineeId, { since: startOfLocalDay() }).then(t.ok).catch(t.fail);
   }, [traineeId, kind]);
   useEffect(reload, [reload]);
 
@@ -48,7 +58,8 @@ export function QuickLogCard({ traineeId, run }: { traineeId: string; run: Run }
   };
 
   const clean = label.trim().replace(/\s+/g, ' ');
-  const submit = () => save({ kind, label: clean, ...(kind === 'activity' ? { quantity: count } : {}) });
+  const canLog = !busy && Boolean(clean) && (kind === 'food' || count >= 1);
+  const submit = () => canLog && save({ kind, label: clean, ...(kind === 'activity' ? { quantity: count } : {}) });
 
   // Food repeats in one tap — the line is undoable right below. An activity needs its
   // number, so a tap loads it (with last time's count) and the stepper decides.
@@ -107,7 +118,7 @@ export function QuickLogCard({ traineeId, run }: { traineeId: string; run: Run }
         value={label}
         maxLength={80}
         onChange={(e) => setLabel(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && clean && kind === 'food' && submit()}
+        onKeyDown={(e) => e.key === 'Enter' && submit()}
         placeholder={kind === 'food' ? 'Yoghurt with muesli' : 'Pull-up'}
       />
       {kind === 'activity' && (
@@ -121,7 +132,10 @@ export function QuickLogCard({ traineeId, run }: { traineeId: string; run: Run }
               id="quick-count"
               inputMode="numeric"
               style={{ width: 72, textAlign: 'center' }}
-              value={count}
+              value={count === 0 ? '' : count}
+              placeholder="1"
+              aria-invalid={count < 1}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
               onChange={(e) => {
                 const n = Number.parseInt(e.target.value.replace(/\D/g, ''), 10);
                 setCount(Number.isFinite(n) ? Math.min(n, 9999) : 0);
@@ -134,10 +148,15 @@ export function QuickLogCard({ traineeId, run }: { traineeId: string; run: Run }
         </>
       )}
       <div className="actions">
-        <button className="primary" disabled={busy || !clean || (kind === 'activity' && count < 1)} onClick={submit}>
+        <button className="primary" disabled={!canLog} onClick={submit}>
           Log
         </button>
       </div>
+      {kind === 'activity' && count < 1 && (
+        <div className="sub" role="status">
+          How many times? Log needs a number of 1 or more.
+        </div>
+      )}
 
       {today.length > 0 && (
         <>

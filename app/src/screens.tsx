@@ -4584,7 +4584,7 @@ function BodyCard({
               aria-expanded={unfolded === key}
               onClick={() => setUnfolded(unfolded === key ? null : key)}
             >
-            <div className="row center">
+            <span className="row center">
               <span className="title">
                 {latest.side && <span className={`side-label ${latest.side}`}>{SIDE_NAME[latest.side]}</span>}
                 {meta?.label ?? latest.kind}
@@ -4592,8 +4592,8 @@ function BodyCard({
               <span className="mono">
                 {latest.value} {latest.unit} <span aria-hidden="true">{unfolded === key ? '▾' : '›'}</span>
               </span>
-            </div>
-            <div className="sub" style={{ marginTop: 4 }}>
+            </span>
+            <span className="sub" style={{ marginTop: 4, display: 'block' }}>
               {list.length > 1 ? (
                 <>
                   <span className={`delta${good === null ? '' : good ? ' up' : ' down'}`}>
@@ -4606,7 +4606,7 @@ function BodyCard({
                 `Measured ${new Date(latest.measured_at).toLocaleDateString()}`
               )}
               {latest.note ? ` · ${latest.note}` : ''}
-            </div>
+            </span>
             </button>
             <Spark values={list.map((m) => Number.parseFloat(m.value) || 0)} lowerIsBetter={good === null ? true : false} />
             {unfolded === key && (
@@ -4795,7 +4795,7 @@ function WorkoutCard({ a, run, onChanged }: { a: WearableActivity; run: Run; onC
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <div className="row center">
+        <span className="row center">
           <span className="title">
             {name}
             {a.title && a.kind !== 'other' ? <span className="sub"> · {ACTIVITY_KINDS[a.kind] ?? a.kind}</span> : null}
@@ -4804,12 +4804,12 @@ function WorkoutCard({ a, run, onChanged }: { a: WearableActivity; run: Run; onC
             {spanOf(a.duration_seconds)}
             {a.distance_m ? ` · ${kmOf(a.distance_m)}` : ''} <span aria-hidden="true">{open ? '▾' : '›'}</span>
           </span>
-        </div>
-        <div className="sub" style={{ marginTop: 4 }}>
+        </span>
+        <span className="sub" style={{ marginTop: 4, display: 'block' }}>
           {new Date(a.started_at).toLocaleDateString()}
           {a.hr_avg ? ` · ${a.hr_avg} bpm average` : ''}
           {a.hr_max ? `, up to ${a.hr_max}` : ''}
-        </div>
+        </span>
       </button>
       <SplitBar
         label="Heart-rate zones"

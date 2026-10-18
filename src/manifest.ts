@@ -134,6 +134,7 @@ export const strideManifest = moduleManifest.parse({
       { type: 'stride.quick-logged', schemaVersion: 1 },
       { type: 'stride.quick-log-voided', schemaVersion: 1 },
       { type: 'stride.activity-recorded', schemaVersion: 1 },
+      { type: 'stride.activity-named', schemaVersion: 1 },
       { type: 'stride.sleep-recorded', schemaVersion: 1 },
       { type: 'stride.activity-day-recorded', schemaVersion: 1 },
       { type: 'stride.template-shared', schemaVersion: 1 },
