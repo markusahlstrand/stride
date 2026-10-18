@@ -1,4 +1,5 @@
 import { SequenceLibrary, PhasedProgram, PhasedToday } from './phased';
+import { QuickLogCard } from './quicklog';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ActiveSession, SessionSummary } from './session';
 import {
@@ -24,6 +25,7 @@ import {
   type Measurement,
   type WithingsStatus,
   type Wearable,
+  type WearableActivity,
   type WearableWeek,
   type HrZones,
   ACTIVITY_KINDS,
@@ -410,6 +412,9 @@ export function TodayScreen({
                     ? 'Start training'
                     : 'Train it today instead'}
             </button>
+            <button className="ghost" onClick={() => onOpen(a.programId)}>
+              See what's in it
+            </button>
           </div>
         </div>
       ))}
@@ -441,6 +446,9 @@ export function TodayScreen({
           ))}
         </div>
       )}
+
+      {/* Whose diary it is is a question with one answer: yours. No record, no card. */}
+      {me?.traineeId && <QuickLogCard key={me.traineeId} traineeId={me.traineeId} run={run} />}
 
       {items.length === 0 && agenda.length === 0 && (
         <div className="empty">
@@ -4506,6 +4514,8 @@ function BodyCard({
   onLogged: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  /** The measurement whose whole history is unfolded, if any (`kind|side`). */
+  const [unfolded, setUnfolded] = useState<string | null>(null);
   const [kind, setKind] = useState<MeasurementKind>('weight');
   const [side, setSide] = useState<Side>('left');
   const [value, setValue] = useState('');
@@ -4567,13 +4577,20 @@ function BodyCard({
         const good = latest.kind === 'weight' || latest.kind === 'waist' || latest.kind === 'hips' || latest.kind === 'body-fat' || latest.kind === 'resting-hr' || DEVICE_ONLY_KINDS.has(latest.kind) ? null : delta > 0;
         return (
           <div key={key} className="card">
+            <button
+              type="button"
+              className="namelink"
+              style={{ display: 'block', width: '100%', textAlign: 'left' }}
+              aria-expanded={unfolded === key}
+              onClick={() => setUnfolded(unfolded === key ? null : key)}
+            >
             <div className="row center">
               <span className="title">
                 {latest.side && <span className={`side-label ${latest.side}`}>{SIDE_NAME[latest.side]}</span>}
                 {meta?.label ?? latest.kind}
               </span>
               <span className="mono">
-                {latest.value} {latest.unit}
+                {latest.value} {latest.unit} <span aria-hidden="true">{unfolded === key ? '▾' : '›'}</span>
               </span>
             </div>
             <div className="sub" style={{ marginTop: 4 }}>
@@ -4590,7 +4607,23 @@ function BodyCard({
               )}
               {latest.note ? ` · ${latest.note}` : ''}
             </div>
+            </button>
             <Spark values={list.map((m) => Number.parseFloat(m.value) || 0)} lowerIsBetter={good === null ? true : false} />
+            {unfolded === key && (
+              <div style={{ marginTop: 10 }} aria-label={`${meta?.label ?? latest.kind} history`}>
+                {[...list].reverse().map((m) => (
+                  <div key={m.id} className="row center" style={{ marginTop: 6 }}>
+                    <span className="sub">
+                      {new Date(m.measured_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {m.note ? ` · ${m.note}` : ''}
+                    </span>
+                    <span className="mono">
+                      {m.value} {m.unit}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
@@ -4719,36 +4752,126 @@ function WeeklyTotals({ weeks }: { weeks: WearableWeek[] | null }) {
   );
 }
 
-function WearableSection({ data }: { data: Wearable | null }) {
+/** What a watch might file under "Other" — one tap to say what it really was. */
+const ACTIVITY_SUGGESTIONS = ['Padel', 'Squash', 'Badminton', 'Table tennis', 'Golf', 'Skating', 'Sailing', 'Housework'];
+
+const clockRange = (a: WearableActivity): string => {
+  const t = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return `${new Date(a.started_at).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })}, ${t(a.started_at)}–${t(a.ended_at)}`;
+};
+
+/** One recorded workout: the summary row is a button; open, it shows everything the device kept and lets the person name it. */
+function WorkoutCard({ a, run, onChanged }: { a: WearableActivity; run: Run; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(a.title ?? '');
+  const [busy, setBusy] = useState(false);
+  const name = a.title ?? ACTIVITY_KINDS[a.kind] ?? 'Workout';
+  const clean = title.trim().replace(/\s+/g, ' ');
+
+  const save = async (next: string | null) => {
+    setBusy(true);
+    const ok = await run(() => api.nameActivity(a.id, next), next ? `Saved as ${next}` : 'Name cleared');
+    setBusy(false);
+    if (ok) {
+      setTitle(next ?? '');
+      onChanged();
+    }
+  };
+  const facts: [string, string][] = [
+    ['Duration', spanOf(a.duration_seconds)],
+    ...(a.distance_m ? [['Distance', kmOf(a.distance_m)] as [string, string]] : []),
+    ...(a.calories ? [['Energy', `${Math.round(Number(a.calories))} kcal`] as [string, string]] : []),
+    ...(a.steps ? [['Steps', a.steps.toLocaleString()] as [string, string]] : []),
+    ...(a.elevation_m ? [['Climb', `${Math.round(Number(a.elevation_m))} m`] as [string, string]] : []),
+    ...(a.hr_avg ? [['Heart rate', `${a.hr_avg} bpm average${a.hr_min ? `, ${a.hr_min}–${a.hr_max ?? '?'}` : a.hr_max ? `, up to ${a.hr_max}` : ''}`] as [string, string]] : []),
+  ];
+
+  return (
+    <div className="card">
+      <button
+        type="button"
+        className="namelink"
+        style={{ display: 'block', width: '100%', textAlign: 'left' }}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <div className="row center">
+          <span className="title">
+            {name}
+            {a.title && a.kind !== 'other' ? <span className="sub"> · {ACTIVITY_KINDS[a.kind] ?? a.kind}</span> : null}
+          </span>
+          <span className="mono">
+            {spanOf(a.duration_seconds)}
+            {a.distance_m ? ` · ${kmOf(a.distance_m)}` : ''} <span aria-hidden="true">{open ? '▾' : '›'}</span>
+          </span>
+        </div>
+        <div className="sub" style={{ marginTop: 4 }}>
+          {new Date(a.started_at).toLocaleDateString()}
+          {a.hr_avg ? ` · ${a.hr_avg} bpm average` : ''}
+          {a.hr_max ? `, up to ${a.hr_max}` : ''}
+        </div>
+      </button>
+      <SplitBar
+        label="Heart-rate zones"
+        parts={[
+          { name: 'light', seconds: a.hr_zone0_seconds },
+          { name: 'moderate', seconds: a.hr_zone1_seconds },
+          { name: 'intense', seconds: a.hr_zone2_seconds },
+          { name: 'maximal', seconds: a.hr_zone3_seconds },
+        ]}
+      />
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          <div className="sub">{clockRange(a)}</div>
+          {facts.map(([k, v]) => (
+            <div key={k} className="row center" style={{ marginTop: 6 }}>
+              <span className="sub">{k}</span>
+              <span className="mono">{v}</span>
+            </div>
+          ))}
+          <label htmlFor={`act-title-${a.id}`}>what was it</label>
+          <input
+            id={`act-title-${a.id}`}
+            value={title}
+            maxLength={60}
+            placeholder={ACTIVITY_KINDS[a.kind] ?? 'Padel'}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && clean && clean !== (a.title ?? '') && void save(clean)}
+          />
+          {a.kind === 'other' && !a.title && (
+            <div className="sets" style={{ marginTop: 8 }} aria-label="Suggestions">
+              {ACTIVITY_SUGGESTIONS.map((x) => (
+                <button key={x} type="button" className="pill toggle" disabled={busy} onClick={() => void save(x)}>
+                  {x}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="actions">
+            <button className="primary" disabled={busy || !clean || clean === (a.title ?? '')} onClick={() => save(clean)}>
+              Save name
+            </button>
+            {a.title && (
+              <button className="ghost" disabled={busy} onClick={() => save(null)}>
+                Back to “{ACTIVITY_KINDS[a.kind] ?? 'Workout'}”
+              </button>
+            )}
+          </div>
+          <div className="sub">The name is yours: a later sync from the watch will not change it.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WearableSection({ data, run, onChanged }: { data: Wearable | null; run: Run; onChanged: () => void }) {
   if (!data) return null;
   const { activities, sleep, days } = data;
   return (
     <>
       {activities.length > 0 && <h2>Workouts</h2>}
       {activities.slice(0, 8).map((a) => (
-        <div key={a.id} className="card">
-          <div className="row center">
-            <span className="title">{ACTIVITY_KINDS[a.kind] ?? 'Workout'}</span>
-            <span className="mono">
-              {spanOf(a.duration_seconds)}
-              {a.distance_m ? ` · ${kmOf(a.distance_m)}` : ''}
-            </span>
-          </div>
-          <div className="sub" style={{ marginTop: 4 }}>
-            {new Date(a.started_at).toLocaleDateString()}
-            {a.hr_avg ? ` · ${a.hr_avg} bpm average` : ''}
-            {a.hr_max ? `, up to ${a.hr_max}` : ''}
-          </div>
-          <SplitBar
-            label="Heart-rate zones"
-            parts={[
-              { name: 'light', seconds: a.hr_zone0_seconds },
-              { name: 'moderate', seconds: a.hr_zone1_seconds },
-              { name: 'intense', seconds: a.hr_zone2_seconds },
-              { name: 'maximal', seconds: a.hr_zone3_seconds },
-            ]}
-          />
-        </div>
+        <WorkoutCard key={a.id} a={a} run={run} onChanged={onChanged} />
       ))}
 
       {sleep.length > 0 && <h2>Sleep</h2>}
@@ -5021,7 +5144,7 @@ export function ProgressScreen({
       />
       <HeartRateZones traineeId={traineeId} canEdit={mine || isStaff(me)} run={run} onChanged={reload} />
       <WeeklyTotals weeks={weekly} />
-      <WearableSection data={wearable} />
+      <WearableSection data={wearable} run={run} onChanged={reload} />
       {mine && <WithingsCard run={run} onSynced={reload} />}
     </>
   );

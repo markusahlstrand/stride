@@ -436,6 +436,9 @@ export interface WearableActivity {
   hr_zone1_seconds: number | null;
   hr_zone2_seconds: number | null;
   hr_zone3_seconds: number | null;
+  elevation_m: string | null;
+  /** The person's own name for it, if they gave one. */
+  title: string | null;
 }
 export interface WearableNight {
   id: string;
@@ -492,6 +495,25 @@ export interface WithingsSyncResult {
   added: number;
   wearable?: { activities: number; sleep: number; days: number };
   problems?: string[];
+}
+
+export type QuickKind = 'food' | 'activity';
+
+export interface QuickLog {
+  id: string;
+  kind: QuickKind;
+  label: string;
+  /** Activity only: how many times. */
+  quantity: number | null;
+  logged_at: string;
+}
+
+export interface QuickRecent {
+  kind: QuickKind;
+  label: string;
+  quantity: number | null;
+  times: number;
+  lastAt: string;
 }
 
 export interface Measurement {
@@ -636,6 +658,20 @@ export const api = {
     traineeId: string,
     b: { kind: MeasurementKind; side?: Side; value: string; measuredAt?: string; note?: string },
   ) => post<Measurement>(`/trainees/${traineeId}/measurements`, b),
+  // The quick log — food, or an activity with a count. BY TRAINEE, like the body.
+  quickLogs: (traineeId: string, q: { kind?: QuickKind; since?: string } = {}) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v !== undefined) params.set(k, String(v));
+    return get<QuickLog[]>(`/trainees/${traineeId}/quick-log?${params}`);
+  },
+  quickRecents: (traineeId: string, kind: QuickKind) =>
+    get<QuickRecent[]>(`/trainees/${traineeId}/quick-log/recents?kind=${kind}`),
+  logQuick: (traineeId: string, b: { kind: QuickKind; label: string; quantity?: number }) =>
+    post<QuickLog>(`/trainees/${traineeId}/quick-log`, b),
+  /** Name a wearable workout ("Padel"); null clears it. A sync never overwrites it. */
+  nameActivity: (activityId: string, title: string | null) =>
+    post<{ activityId: string; title: string | null }>(`/activities/${activityId}/name`, { title }),
+  voidQuickLog: (logId: string) => post<{ voided: string }>(`/quick-log/${logId}/void`, {}),
   /** What the person's wearable recorded: workouts, nights, days. 403 unless they share everything with you. */
   wearable: (traineeId: string, q: WearableQuery | number = 90) => {
     const query = typeof q === 'number' ? { days: q } : q;

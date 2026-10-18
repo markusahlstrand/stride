@@ -129,6 +129,12 @@
               "null"
             ]
           },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "recorded_by": {
             "type": "string"
           },
@@ -160,6 +166,7 @@
           "hr_zone2_seconds",
           "hr_zone3_seconds",
           "payload",
+          "title",
           "recorded_by",
           "created_at",
           "updated_at"
@@ -947,6 +954,78 @@
       },
       "primaryKey": [
         "program_id"
+      ]
+    },
+    "quickLog": {
+      "table": "train_quick_logs",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "trainee_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "logged_at": {
+            "type": "string"
+          },
+          "logged_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "trainee_id",
+          "kind",
+          "label",
+          "quantity",
+          "logged_at",
+          "logged_by",
+          "created_at"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "quickLogVoid": {
+      "table": "train_quick_log_voids",
+      "fields": {
+        "type": "object",
+        "properties": {
+          "log_id": {
+            "type": "string"
+          },
+          "voided_by": {
+            "type": "string"
+          },
+          "voided_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "log_id",
+          "voided_by",
+          "voided_at"
+        ],
+        "additionalProperties": false
+      },
+      "primaryKey": [
+        "log_id"
       ]
     },
     "session": {
