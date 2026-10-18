@@ -81,6 +81,8 @@ export interface TraineeRow {
   goal: string | null;
   days_per_week: number | null;
   onboarded_at: string | null;
+  /** Their own maximum heart rate, if set. NULL: zones fall back to the highest rate a wearable saw. */
+  max_hr: number | null;
   created_at: string;
 }
 
@@ -132,6 +134,17 @@ export interface ItemRow {
   recur_per_week: number | null;
   /** Items sharing a key are a SUPERSET, performed back to back. NULL = alone. */
   group_key: string | null;
+  /** How long the row asks for ("45 min"). On a metres row with `target_reps` 0 it is the whole prescription. */
+  target_seconds: number | null;
+  /** 0..3 — the zone to stay in — or a bpm range; never both. */
+  target_zone: number | null;
+  target_hr_min: number | null;
+  target_hr_max: number | null;
+  /** An INTERVAL block: `target_sets` rounds of `work_seconds` on, `rest_seconds` off. */
+  work_seconds: number | null;
+  rest_seconds: number | null;
+  /** 1 = as many as possible; `target_reps` is then the minimum (0 = none). */
+  amrap: number;
 }
 
 /** A single prescribed set, when the sets differ from one another. */
@@ -183,6 +196,15 @@ export interface SetResultRow {
   avg_hr: number | null;
   /** Which arm, which leg. Required on a unilateral exercise, refused otherwise. */
   side: string | null;
+  /** Reps in reserve, the other way to say how hard it was. A set carries `rpe` or `rir`, not both. */
+  rir: number | null;
+  /** Set when a wearable's activity was attached to a planned item: which one, and what it said. */
+  activity_id: string | null;
+  max_hr: number | null;
+  hr_zone0_seconds: number | null;
+  hr_zone1_seconds: number | null;
+  hr_zone2_seconds: number | null;
+  hr_zone3_seconds: number | null;
   logged_by: string;
   logged_at: string;
 }
@@ -281,6 +303,175 @@ function parseRecurrence(input: { recurDays?: string; recurPerWeek?: number }): 
     return { days: days.join(','), perWeek: null };
   }
   return { days: null, perWeek: input.recurPerWeek ?? null };
+}
+
+
+// ---------------------------------------------------------------------------
+// WHAT A ROW ASKS FOR beyond sets × reps @ load — the hybrid shapes.
+//
+//   duration / zone   "45 min in zone 2", "30 min at 130–145 bpm"   (a run, a ride, rope)
+//   interval          6 rounds × 2 min on / 2 min off, as ONE item
+//   amrap             as many as possible, with an optional minimum  (a pull-up test)
+//
+// They are columns on the item, not new tables: an item is still one exercise with one
+// target_sets, so adherence, the schedule, supersets and the snapshot-at-assignment all keep
+// working without knowing about them. `target_reps` stays NOT NULL; `0` means "no quantity is
+// asked for" and is only allowed where something else is.
+// ---------------------------------------------------------------------------
+
+const bpm = z.number().int().min(30).max(240);
+const shapeFields = {
+  targetSeconds: z.number().int().min(1).max(86_400).optional().describe('How long, in seconds: 2700 for a 45-minute run. On a distance row, leave targetReps out and the time is the whole prescription.'),
+  targetZone: z.number().int().min(0).max(3).optional().describe('Heart-rate zone to stay in, 0 (light) to 3 (maximal). See stride/hr-zones for the bpm behind each. Not together with a bpm range.'),
+  targetHrMin: bpm.optional().describe('Lower end of a bpm range. Needs targetHrMax.'),
+  targetHrMax: bpm.optional().describe('Upper end of a bpm range. Needs targetHrMin.'),
+  workSeconds: z.number().int().min(1).max(3600).optional().describe('An INTERVAL block: seconds on, per round. targetSets is the number of rounds.'),
+  restSeconds: z.number().int().min(0).max(3600).optional().describe('An INTERVAL block: seconds off between rounds. Needs workSeconds.'),
+  amrap: z.boolean().optional().describe('As many as possible. targetReps is then the minimum, and may be 0.'),
+};
+
+interface ShapeColumns {
+  target_reps: number;
+  target_seconds: number | null;
+  target_zone: number | null;
+  target_hr_min: number | null;
+  target_hr_max: number | null;
+  work_seconds: number | null;
+  rest_seconds: number | null;
+  amrap: number;
+}
+
+/** Check a prescription's extra shape against itself and its exercise, and say what to store. */
+function shapeOf(
+  exercise: Pick<ExerciseRow, 'name' | 'unit'>,
+  input: {
+    targetReps?: number;
+    targetSeconds?: number;
+    targetZone?: number;
+    targetHrMin?: number;
+    targetHrMax?: number;
+    workSeconds?: number;
+    restSeconds?: number;
+    amrap?: boolean;
+  },
+): ShapeColumns {
+  const hasRange = input.targetHrMin !== undefined || input.targetHrMax !== undefined;
+  if (hasRange && (input.targetHrMin === undefined || input.targetHrMax === undefined)) {
+    throw new Error('a heart-rate range needs both targetHrMin and targetHrMax');
+  }
+  if (hasRange && input.targetHrMin! >= input.targetHrMax!) {
+    throw new Error('targetHrMin must be below targetHrMax');
+  }
+  if (hasRange && input.targetZone !== undefined) {
+    throw new Error('set a heart-rate zone or a bpm range, never both — they would disagree about the target');
+  }
+  if (input.restSeconds !== undefined && input.workSeconds === undefined) {
+    throw new Error('restSeconds belongs to an interval block — give workSeconds too');
+  }
+  if (input.amrap && input.workSeconds !== undefined) {
+    throw new Error('an item is either an interval block or as-many-as-possible, not both');
+  }
+  const timed = input.targetSeconds !== undefined || input.workSeconds !== undefined;
+  let reps = input.targetReps;
+  if (reps === undefined) {
+    if (exercise.unit === 'seconds' && timed) reps = input.workSeconds ?? input.targetSeconds!;
+    else if (input.amrap || timed) reps = 0;
+    else throw new Error(`${exercise.name}: targetReps is required unless the row is timed or as-many-as-possible`);
+  }
+  if (reps === 0 && !input.amrap && !timed) {
+    throw new Error(`${exercise.name}: targetReps must be positive`);
+  }
+  return {
+    target_reps: reps,
+    target_seconds: input.targetSeconds ?? null,
+    target_zone: input.targetZone ?? null,
+    target_hr_min: input.targetHrMin ?? null,
+    target_hr_max: input.targetHrMax ?? null,
+    work_seconds: input.workSeconds ?? null,
+    rest_seconds: input.workSeconds !== undefined ? (input.restSeconds ?? 0) : null,
+    amrap: input.amrap ? 1 : 0,
+  };
+}
+
+/** The columns `shapeOf` fills, in insert order, for a prepared statement. */
+const SHAPE_SQL = 'target_seconds, target_zone, target_hr_min, target_hr_max, work_seconds, rest_seconds, amrap';
+const SHAPE_MARKS = '?, ?, ?, ?, ?, ?, ?';
+const shapeArgs = (c: ShapeColumns | ItemRow): (string | number | null)[] => [
+  c.target_seconds,
+  c.target_zone,
+  c.target_hr_min,
+  c.target_hr_max,
+  c.work_seconds,
+  c.rest_seconds,
+  c.amrap,
+];
+
+/** The shape, in the camelCase a fat event carries, so a consumer never reads the item back. */
+const shapePayload = (c: ShapeColumns) => ({
+  targetSeconds: c.target_seconds,
+  targetZone: c.target_zone,
+  targetHrMin: c.target_hr_min,
+  targetHrMax: c.target_hr_max,
+  workSeconds: c.work_seconds,
+  restSeconds: c.rest_seconds,
+  amrap: c.amrap === 1,
+});
+
+// ---------------------------------------------------------------------------
+// HEART-RATE ZONES — the bpm behind a wearable's four zones.
+//
+// A device reports seconds in zone 0..3 and nothing about where they begin. These are STRIDE'S
+// OWN cut-offs, as a share of maximum heart rate, labelled with the names the provider gives the
+// zones; they are not the provider's own thresholds, which it does not publish here. Setting the
+// maximum is what makes them the person's own. Integer arithmetic: no float ever picks a bpm.
+// ---------------------------------------------------------------------------
+
+export const HR_ZONES = [
+  { zone: 0, name: 'Light', fromPct: 0, toPct: 60 },
+  { zone: 1, name: 'Moderate', fromPct: 60, toPct: 70 },
+  { zone: 2, name: 'Intense', fromPct: 70, toPct: 85 },
+  { zone: 3, name: 'Maximal', fromPct: 85, toPct: 100 },
+] as const;
+
+export interface HrZone {
+  zone: number;
+  name: string;
+  /** Inclusive; null on the lowest zone, which has no floor. */
+  minBpm: number | null;
+  /** Inclusive; the top zone ends at the maximum itself. */
+  maxBpm: number;
+}
+
+export interface HrZones {
+  traineeId: string;
+  /** The maximum the zones are cut from, or null when there is nothing to cut from yet. */
+  maxHr: number | null;
+  /** `set` = the person said so; `observed` = the highest rate a wearable ever recorded. */
+  source: 'set' | 'observed' | null;
+  zones: HrZone[] | null;
+}
+
+export function zonesFor(maxHr: number): HrZone[] {
+  const edge = (pct: number) => Math.ceil((maxHr * pct) / 100);
+  return HR_ZONES.map((z) => ({
+    zone: z.zone,
+    name: z.name,
+    minBpm: z.zone === 0 ? null : edge(z.fromPct),
+    maxBpm: z.zone === 3 ? maxHr : edge(z.toPct) - 1,
+  }));
+}
+
+function hrZonesOf(ctx: OperationContext, trainee: Pick<TraineeRow, 'id' | 'max_hr'>): HrZones {
+  if (trainee.max_hr) {
+    return { traineeId: trainee.id, maxHr: trainee.max_hr, source: 'set', zones: zonesFor(trainee.max_hr) };
+  }
+  const seen = ctx.sql.query<{ m: number | null }>(
+    'SELECT MAX(hr_max) AS m FROM train_activities WHERE trainee_id = ?',
+    [trainee.id],
+  )[0]?.m;
+  return seen
+    ? { traineeId: trainee.id, maxHr: seen, source: 'observed', zones: zonesFor(seen) }
+    : { traineeId: trainee.id, maxHr: null, source: null, zones: null };
 }
 
 /** ISO weekday, 1 = Monday … 7 = Sunday. UTC — see `scheduleOp`. */
@@ -1031,11 +1222,12 @@ export const templateItemInput = z.object({
   templateId: z.string().min(1),
   exerciseId: z.string().min(1),
   targetSets: z.number().int().positive(),
-  targetReps: z.number().int().positive(),
+  targetReps: z.number().int().min(0).optional(),
   targetLoad: decimalString.optional(),
   notes: z.string().optional(),
   groupKey: z.string().min(1).max(8).optional(),
   ...recurrence,
+  ...shapeFields,
 });
 
 /**
@@ -1074,23 +1266,25 @@ const addTemplateItemOp: OperationHandler<z.infer<typeof templateItemInput>, Ite
     )[0]?.n ?? 0) + 1;
   const id = ulid();
   const recur = parseRecurrence(input);
+  const shape = shapeOf(exercise, input);
   ctx.sql.exec(
     `INSERT INTO train_template_items
        (id, template_id, exercise_id, position, target_sets, target_reps, target_load, notes,
-        recur_days, recur_per_week, group_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        recur_days, recur_per_week, group_key, ${SHAPE_SQL})
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SHAPE_MARKS})`,
     [
       id,
       input.templateId,
       exercise.id,
       position,
       input.targetSets,
-      input.targetReps,
+      shape.target_reps,
       input.targetLoad ?? null,
       input.notes ?? null,
       recur.days,
       recur.perWeek,
       input.groupKey ?? null,
+      ...shapeArgs(shape),
     ],
   );
   ctx.emit({
@@ -1104,10 +1298,11 @@ const addTemplateItemOp: OperationHandler<z.infer<typeof templateItemInput>, Ite
       exerciseId: exercise.id,
       exerciseSlug: exercise.slug,
       targetSets: input.targetSets,
-      targetReps: input.targetReps,
+      targetReps: shape.target_reps,
       targetLoad: input.targetLoad ?? null,
       recurDays: recur.days,
       recurPerWeek: recur.perWeek,
+      ...shapePayload(shape),
     },
   });
   return ctx.sql.query<ItemRow>('SELECT * FROM train_template_items WHERE id = ?', [id])[0]!;
@@ -1645,8 +1840,8 @@ async function fillProgram(
     ctx.sql.exec(
       `INSERT INTO train_program_items
          (id, program_id, exercise_id, position, target_sets, target_reps, target_load, notes,
-          recur_days, recur_per_week, group_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          recur_days, recur_per_week, group_key, ${SHAPE_SQL})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SHAPE_MARKS})`,
       [
         copiedId,
         program.id,
@@ -1659,6 +1854,7 @@ async function fillProgram(
         item.recur_days,
         item.recur_per_week,
         item.group_key,
+        ...shapeArgs(item),
       ],
     );
     // Per-set rows are part of the prescription, so they are snapshot too — a
@@ -1725,6 +1921,11 @@ async function fillProgram(
         targetSets: i.target_sets,
         targetReps: i.target_reps,
         targetLoad: i.target_load,
+        targetSeconds: i.target_seconds,
+        targetZone: i.target_zone,
+        workSeconds: i.work_seconds,
+        restSeconds: i.rest_seconds,
+        amrap: i.amrap === 1,
       })),
     },
   });
@@ -1805,12 +2006,13 @@ export const programItemInput = z.object({
   programId: z.string().min(1),
   exerciseId: z.string().min(1),
   targetSets: z.number().int().positive(),
-  targetReps: z.number().int().positive(),
+  targetReps: z.number().int().min(0).optional(),
   targetLoad: decimalString.optional(),
   notes: z.string().optional(),
   /** Same key on two items makes them a superset: A1, A2, then rest. */
   groupKey: z.string().min(1).max(8).optional(),
   ...recurrence,
+  ...shapeFields,
 });
 
 /**
@@ -1853,23 +2055,25 @@ const addProgramItemOp: OperationHandler<z.infer<typeof programItemInput>, ItemR
     )[0]?.n ?? 0) + 1;
   const id = ulid();
   const recur = parseRecurrence(input);
+  const shape = shapeOf(exercise, input);
   ctx.sql.exec(
     `INSERT INTO train_program_items
        (id, program_id, exercise_id, position, target_sets, target_reps, target_load, notes,
-        recur_days, recur_per_week, group_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        recur_days, recur_per_week, group_key, ${SHAPE_SQL})
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${SHAPE_MARKS})`,
     [
       id,
       input.programId,
       exercise.id,
       position,
       input.targetSets,
-      input.targetReps,
+      shape.target_reps,
       input.targetLoad ?? null,
       input.notes ?? null,
       recur.days,
       recur.perWeek,
       input.groupKey ?? null,
+      ...shapeArgs(shape),
     ],
   );
   ctx.emit({
@@ -1886,10 +2090,11 @@ const addProgramItemOp: OperationHandler<z.infer<typeof programItemInput>, ItemR
       exerciseSlug: exercise.slug,
       position,
       targetSets: input.targetSets,
-      targetReps: input.targetReps,
+      targetReps: shape.target_reps,
       targetLoad: input.targetLoad ?? null,
       recurDays: recur.days,
       recurPerWeek: recur.perWeek,
+      ...shapePayload(shape),
     },
   });
   return ctx.sql.query<ItemRow>('SELECT * FROM train_program_items WHERE id = ?', [id])[0]!;
@@ -2042,7 +2247,18 @@ export const logSetInput = z.object({
     .describe(
       'The weight moved, as a decimal string. On a bodyweight movement it is the ADDED weight only; blank means bodyweight.',
     ),
-  rpe: decimalString.optional().describe('Rate of perceived exertion, 1–10.'),
+  rpe: decimalString
+    .refine((v) => Number(v) >= 1 && Number(v) <= 10, 'RPE is 1 to 10')
+    .optional()
+    .describe('Rate of perceived exertion, 1–10 (10 = nothing left). Or give rir, not both.'),
+  /** Reps in reserve — how many more could have been done. */
+  rir: z
+    .number()
+    .int()
+    .min(0)
+    .max(10)
+    .optional()
+    .describe('Reps in reserve, 0–10: how many more you could have done. 0 = none left. Or give rpe, not both.'),
   /** Optional second number: how long the set took. */
   durationSeconds: z
     .number()
@@ -2100,7 +2316,51 @@ const logSetOp: OperationHandler<
   ])[0];
   if (!exercise) throw new Error(`exercise not found: ${item.exercise_id}`);
   assertPhaseSet(ctx, session.id, item.id, session.program_id);
-  const side = sideFor(exercise, input.side);
+  if (input.rpe !== undefined && input.rir !== undefined) {
+    throw new Error('give rpe or rir for a set, not both — they say the same thing two ways');
+  }
+  return writeSet(ctx, session, item, exercise, {
+    side: sideFor(exercise, input.side),
+    reps: input.reps,
+    load: input.load ?? null,
+    rpe: input.rpe ?? null,
+    rir: input.rir ?? null,
+    durationSeconds: input.durationSeconds ?? null,
+    avgHr: input.avgHr ?? null,
+  });
+};
+
+/** What one performed set says. `activity` is only ever filled by a wearable match. */
+interface SetFacts {
+  side: Side | null;
+  reps: number;
+  load: string | null;
+  rpe: string | null;
+  rir: number | null;
+  durationSeconds: number | null;
+  avgHr: number | null;
+  activity?: {
+    id: string;
+    maxHr: number | null;
+    zones: [number | null, number | null, number | null, number | null];
+  };
+}
+
+/**
+ * Write one set into a session. The permission and status checks belong to the CALLER — a typed
+ * set checks `result:log` on the session, a matched wearable activity checks it on the trainee —
+ * because this is only the part both do the same: number it, store it, EARN the exercise, and say
+ * so in events.
+ */
+function writeSet(
+  ctx: OperationContext,
+  session: SessionRow,
+  item: ItemRow,
+  exercise: ExerciseRow,
+  f: SetFacts,
+): { set: SetResultRow; earned: boolean } {
+  const side = f.side;
+
 
   // Sets are numbered PER SIDE: "set 2, left" — so the left arm's second set
   // and the right arm's second set are both set 2, and the pills line up.
@@ -2133,22 +2393,27 @@ const logSetOp: OperationHandler<
   ctx.sql.exec(
     `INSERT INTO train_set_results
        (id, session_id, program_item_id, exercise_id, set_no, reps, load, rpe,
-        duration_seconds, avg_hr, logged_by, logged_at, side)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        duration_seconds, avg_hr, logged_by, logged_at, side, rir,
+        activity_id, max_hr, hr_zone0_seconds, hr_zone1_seconds, hr_zone2_seconds, hr_zone3_seconds)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       session.id,
       item.id,
       item.exercise_id,
       setNo,
-      input.reps,
-      input.load ?? null,
-      input.rpe ?? null,
-      input.durationSeconds ?? null,
-      input.avgHr ?? null,
+      f.reps,
+      f.load,
+      f.rpe,
+      f.durationSeconds,
+      f.avgHr,
       ctx.principal,
       now,
       side,
+      f.rir,
+      f.activity?.id ?? null,
+      f.activity?.maxHr ?? null,
+      ...(f.activity?.zones ?? [null, null, null, null]),
     ],
   );
 
@@ -2172,11 +2437,15 @@ const logSetOp: OperationHandler<
       exerciseId: item.exercise_id,
       setNo,
       side,
-      reps: input.reps,
-      load: input.load ?? null,
-      rpe: input.rpe ?? null,
-      durationSeconds: input.durationSeconds ?? null,
-      avgHr: input.avgHr ?? null,
+      reps: f.reps,
+      load: f.load,
+      rpe: f.rpe,
+      rir: f.rir,
+      durationSeconds: f.durationSeconds,
+      avgHr: f.avgHr,
+      maxHr: f.activity?.maxHr ?? null,
+      hrZoneSeconds: f.activity?.zones ?? null,
+      activityId: f.activity?.id ?? null,
     },
   });
 
@@ -2197,7 +2466,7 @@ const logSetOp: OperationHandler<
     });
   }
 
-  return { set: ctx.sql.query<SetResultRow>('SELECT * FROM train_set_results WHERE id = ?', [id])[0]!, earned };
+  return { set: ctx.sql.query<SetResultRow>('SELECT * FROM train_set_results WHERE id = ?', [id])[0]!, earned }
 };
 
 export const voidSetInput = z.object({ setId: z.string().min(1) });
@@ -2400,6 +2669,12 @@ export interface ProgramDetail {
   /** When this programme is trained — Wednesday 11:00, and so on. */
   slots: SlotRow[];
   phased: boolean;
+  /**
+   * The bpm behind a prescribed zone, for whoever the programme is for. Null when the reader may
+   * not read that person's body (`result:read` on the trainee record): a maximum heart rate is a
+   * fact about a body, and a prescription saying "zone 2" must not be the way to learn it.
+   */
+  hrZones: HrZones | null;
 }
 
 export const programDetailInput = z.object({
@@ -2477,6 +2752,9 @@ const getProgramOp: OperationHandler<z.infer<typeof programDetailInput>, Program
     }
     readableItems = items.filter((item) => allowed.has(item.id));
   }
+  const mayReadBody = trainee
+    ? (await ctx.check(TRAIN_PERM.resultRead, { entityType: 'trainee', entityId: trainee.id })).allowed
+    : false;
   return {
     phased,
     program: { ...program, traineeName: trainee?.name ?? null },
@@ -2484,6 +2762,7 @@ const getProgramOp: OperationHandler<z.infer<typeof programDetailInput>, Program
     sessions,
     summary,
     slots,
+    hrZones: trainee && mayReadBody ? hrZonesOf(ctx, trainee) : null,
   };
 };
 
@@ -2527,6 +2806,13 @@ export interface ScheduledItem {
   targetSets: number;
   targetReps: number;
   targetLoad: string | null;
+  targetSeconds: number | null;
+  targetZone: number | null;
+  targetHrMin: number | null;
+  targetHrMax: number | null;
+  workSeconds: number | null;
+  restSeconds: number | null;
+  amrap: boolean;
   recurDays: string | null;
   recurPerWeek: number | null;
   /** Is it on today's plan? A per-week count is due until the count is met. */
@@ -2608,6 +2894,13 @@ const scheduleOp: OperationHandler<z.infer<typeof scheduleInput>, ScheduledItem[
         targetSets: item.target_sets,
         targetReps: item.target_reps,
         targetLoad: item.target_load,
+        targetSeconds: item.target_seconds,
+        targetZone: item.target_zone,
+        targetHrMin: item.target_hr_min,
+        targetHrMax: item.target_hr_max,
+        workSeconds: item.work_seconds,
+        restSeconds: item.rest_seconds,
+        amrap: item.amrap === 1,
         recurDays: item.recur_days,
         recurPerWeek: item.recur_per_week,
         dueToday,
@@ -4181,6 +4474,16 @@ export interface WearableRecorded {
   activities: WearableCounts;
   sleep: WearableCounts;
   days: WearableCounts;
+  /** Workouts attached to a planned cardio item by this call, each now a set on that item. */
+  matched: WearableMatch[];
+}
+export interface WearableMatch {
+  activityId: string;
+  externalId: string;
+  programId: string;
+  itemId: string;
+  sessionId: string;
+  setId: string;
 }
 interface WearableCounts {
   created: number;
@@ -4260,6 +4563,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
     activities: { created: 0, updated: 0, unchanged: 0 },
     sleep: { created: 0, updated: 0, unchanged: 0 },
     days: { created: 0, updated: 0, unchanged: 0 },
+    matched: [],
   };
   const announce = (type: string, payload: Record<string, unknown>) =>
     ctx.emit({
@@ -4272,6 +4576,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
       payload,
     });
 
+  const touched: string[] = [];
   for (const a of input.activities) {
     if (new Date(a.endedAt).getTime() < new Date(a.startedAt).getTime()) {
       throw new Error(`an activity cannot end before it starts: ${a.externalId}`);
@@ -4305,6 +4610,7 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
     );
     out.activities[result]++;
     if (result !== 'unchanged') {
+      touched.push(a.externalId);
       announce('stride.activity-recorded', {
         traineeId: trainee.id,
         source: input.source,
@@ -4382,53 +4688,399 @@ const recordWearableOp: OperationHandler<z.infer<typeof recordWearableInput>, We
       });
     }
   }
+
+  // Last, because it reads the rows written above: attach what just landed to the plan.
+  for (const externalId of touched) {
+    const activity = ctx.sql.query<ActivityRow>(
+      'SELECT * FROM train_activities WHERE trainee_id = ? AND source = ? AND external_id = ?',
+      [trainee.id, input.source, externalId],
+    )[0];
+    const matched = activity ? await matchActivity(ctx, trainee, activity) : null;
+    if (matched) out.matched.push({ ...matched, externalId });
+  }
   return out;
+};
+
+// ---------------------------------------------------------------------------
+// MATCHING a wearable workout to the plan.
+//
+// A run that lands in the feed is attached to the cardio item that asked for it that day, and
+// that item gets a SET: distance (or time) as the quantity, the workout's duration, average and
+// max heart rate and the seconds in each zone. So it counts in the session, in adherence and on
+// the curves exactly as a typed set does — and can be taken back with `void-set` if the match was
+// wrong, after which the activity stays unmatched (one set per activity, ever).
+//
+// Deliberately conservative. A wrong guess writes into somebody's training log, so the match is
+// refused unless all of these hold:
+//   · the programme is ordinary (not phased), IN PROGRESS, and the trainee's own — a `planned`
+//     one has not been started, and starting is the manifest guard's job, not ours;
+//   · the exercise is cardio, measured in metres or seconds, its kind fits the workout's, and
+//     the item is not an interval block (a watch records one continuous effort, not six rounds);
+//   · the item is DUE that day: its weekdays, else a weekly count not yet used up, else a booked
+//     slot on that weekday; and nothing was logged on it that day already;
+//   · the workout is recent (14 days) and not older than the programme.
+// Several candidates: the one whose prescribed time is nearest the workout's, then the earliest.
+// ---------------------------------------------------------------------------
+
+const MATCH_WINDOW_DAYS = 14;
+
+/** Which of a wearable's workout kinds an exercise can be. Read off the slug and name, like `poseFor`. */
+const EXERCISE_WORKOUT_KINDS: [RegExp, ActivityKind[]][] = [
+  [/swim/i, ['swim']],
+  [/cycl|bike|spin/i, ['cycle']],
+  [/\brow(ing|er)?\b/i, ['rowing']],
+  [/elliptical|cross.?trainer/i, ['elliptical']],
+  [/hike/i, ['hike', 'walk']],
+  [/walk/i, ['walk', 'hike']],
+  [/\brun|jog|treadmill/i, ['run']],
+  [/rope|skip/i, ['fitness', 'other', 'boxing']],
+];
+
+function workoutKindsOf(exercise: Pick<ExerciseRow, 'slug' | 'name'>): ActivityKind[] {
+  const text = `${exercise.slug} ${exercise.name}`;
+  return EXERCISE_WORKOUT_KINDS.find(([re]) => re.test(text))?.[1] ?? [];
+}
+
+async function matchActivity(
+  ctx: OperationContext,
+  trainee: TraineeRow,
+  activity: ActivityRow,
+): Promise<Omit<WearableMatch, 'externalId'> | null> {
+  const taken = ctx.sql.query<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM train_set_results WHERE activity_id = ?',
+    [activity.id],
+  )[0]?.n;
+  if (taken) return null;
+  const started = new Date(activity.started_at);
+  if (new Date(ctx.now()).getTime() - started.getTime() > MATCH_WINDOW_DAYS * 86_400_000) return null;
+  const day = activity.started_at.slice(0, 10);
+  const weekday = isoWeekday(started);
+  const monday = weekStart(started).toISOString().slice(0, 10);
+  const sunday = new Date(`${monday}T00:00:00Z`);
+  sunday.setUTCDate(sunday.getUTCDate() + 6);
+
+  type Candidate = { program: WorkOrder; item: ItemRow; exercise: ExerciseRow; gap: number };
+  const candidates: Candidate[] = [];
+  for (const program of allOrders(ctx)) {
+    if (program.status !== 'in_progress' || program.customer.entityId !== trainee.id) continue;
+    if (sequenceOf(ctx, program.id)) continue;
+    if (day < program.createdAt.slice(0, 10)) continue;
+    const slotDays = new Set(
+      ctx.sql
+        .query<{ weekday: number }>('SELECT weekday FROM train_program_slots WHERE program_id = ?', [program.id])
+        .map((r) => r.weekday),
+    );
+    for (const item of ctx.sql.query<ItemRow>(
+      'SELECT * FROM train_program_items WHERE program_id = ? ORDER BY position',
+      [program.id],
+    )) {
+      const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [item.exercise_id])[0];
+      if (!exercise || exercise.modality !== 'cardio' || !['metres', 'seconds'].includes(exercise.unit)) continue;
+      if (!workoutKindsOf(exercise).includes(activity.kind)) continue;
+      // A watch records one continuous effort. It is not evidence for six rounds of work and rest.
+      if (item.work_seconds !== null || item.amrap) continue;
+      // Days on which this item already has a live set — typed or matched.
+      const daysDone = ctx.sql
+        .query<{ d: string }>(
+          `SELECT DISTINCT substr(s.performed_at, 1, 10) AS d FROM train_set_results r
+             JOIN train_sessions s ON s.id = r.session_id
+            WHERE r.program_item_id = ? AND ${NOT_VOIDED}`,
+          [item.id],
+        )
+        .map((r) => r.d);
+      if (daysDone.includes(day)) continue;
+      const due = item.recur_days
+        ? item.recur_days.split(',').map(Number).includes(weekday)
+        : item.recur_per_week
+          ? daysDone.filter((d) => d >= monday && d <= sunday.toISOString().slice(0, 10)).length < item.recur_per_week
+          : slotDays.has(weekday);
+      if (!due) continue;
+      candidates.push({
+        program,
+        item,
+        exercise,
+        gap: item.target_seconds ? Math.abs(item.target_seconds - activity.duration_seconds) : 0,
+      });
+    }
+  }
+  const best = candidates.sort((a, b) => a.gap - b.gap)[0];
+  if (!best) return null;
+
+  const reps = best.exercise.unit === 'metres' ? Math.round(Number(activity.distance_m ?? 0)) : activity.duration_seconds;
+  if (!(reps > 0)) return null;
+
+  // The day's session on this programme if there is one, else open it at the workout's own start.
+  const existing = ctx.sql.query<SessionRow>(
+    `SELECT * FROM train_sessions WHERE program_id = ? AND substr(performed_at, 1, 10) = ?
+      ORDER BY performed_at DESC, id DESC`,
+    [best.program.id, day],
+  )[0];
+  const session =
+    existing ??
+    (await recordSession(ctx, {
+      programId: best.program.id,
+      performedAt: activity.started_at,
+      note: `From ${activity.source}`,
+    }));
+
+  const { set } = writeSet(ctx, session, best.item, best.exercise, {
+    side: null,
+    reps,
+    load: null,
+    rpe: null,
+    rir: null,
+    durationSeconds: activity.duration_seconds > 0 ? activity.duration_seconds : null,
+    avgHr: activity.hr_avg,
+    activity: {
+      id: activity.id,
+      maxHr: activity.hr_max,
+      zones: [activity.hr_zone0_seconds, activity.hr_zone1_seconds, activity.hr_zone2_seconds, activity.hr_zone3_seconds],
+    },
+  });
+  ctx.emit({
+    type: 'stride.activity-matched',
+    schemaVersion: 1,
+    entity: { entityType: 'session', entityId: session.id },
+    piiClass: 'pseudonymous',
+    subjectId: dataSubjectId.parse(trainee.id),
+    payload: {
+      activityId: activity.id,
+      source: activity.source,
+      kind: activity.kind,
+      traineeId: trainee.id,
+      programId: best.program.id,
+      itemId: best.item.id,
+      sessionId: session.id,
+      setId: set.id,
+    },
+  });
+  return { activityId: activity.id, programId: best.program.id, itemId: best.item.id, sessionId: session.id, setId: set.id };
+}
+
+
+// ---------------------------------------------------------------------------
+// HEART-RATE ZONES — read and set.
+//
+// Both are by TRAINEE and ride the keys every other fact about a body rides: the narrowed
+// `result:read` to see the zones, the narrowed `result:log` to set the maximum. No new key — a
+// maximum heart rate is no more sensitive than a weight, and a coach reaches it the same way:
+// when the person shares everything.
+// ---------------------------------------------------------------------------
+
+export const setMaxHrInput = z.object({
+  traineeId: z.string().min(1),
+  maxHr: z
+    .number()
+    .int()
+    .min(100)
+    .max(240)
+    .nullable()
+    .describe('Maximum heart rate in beats per minute — measured, not 220 minus age. null clears it, and zones fall back to the highest rate a wearable saw.'),
+});
+
+const setMaxHrOp: OperationHandler<z.infer<typeof setMaxHrInput>, HrZones> = async (ctx, rawInput) => {
+  const input = setMaxHrInput.parse(rawInput);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: input.traineeId }),
+  );
+  const trainee = ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [input.traineeId])[0];
+  if (!trainee) throw new Error(`trainee not found: ${input.traineeId}`);
+  ctx.sql.exec('UPDATE train_trainees SET max_hr = ? WHERE id = ?', [input.maxHr, trainee.id]);
+  const zones = hrZonesOf(ctx, { id: trainee.id, max_hr: input.maxHr });
+  ctx.emit({
+    type: 'stride.max-hr-set',
+    schemaVersion: 1,
+    entity: { entityType: 'trainee', entityId: trainee.id },
+    piiClass: 'pseudonymous',
+    subjectId: dataSubjectId.parse(trainee.id),
+    payload: { traineeId: trainee.id, maxHr: input.maxHr, previous: trainee.max_hr, zones: zones.zones },
+  });
+  return zones;
+};
+
+const hrZonesOp: OperationHandler<z.infer<typeof traineeIdInput>, HrZones> = async (ctx, rawInput) => {
+  const input = traineeIdInput.parse(rawInput);
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultRead, { entityType: 'trainee', entityId: input.traineeId }),
+  );
+  const trainee = ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [input.traineeId])[0];
+  if (!trainee) throw new Error(`trainee not found: ${input.traineeId}`);
+  return hrZonesOf(ctx, trainee);
 };
 
 export const wearableInput = z.object({
   traineeId: z.string().min(1).describe('Trainee record id: use traineeId from stride/whoami for your own data, or an id from stride/trainees for somebody you may read.'),
-  days: z.number().int().min(1).max(730).default(90).describe('How far back to read, in days. Defaults to 90.'),
+  days: z.number().int().min(1).max(730).default(90).describe('How far back to read, in days. Defaults to 90. Ignored when from is given.'),
+  from: calendarDay.optional().describe('First day to read, YYYY-MM-DD (UTC), inclusive. Instead of days.'),
+  to: calendarDay.optional().describe('Last day to read, YYYY-MM-DD (UTC), inclusive. Defaults to today.'),
   source: z.enum(WEARABLE_SOURCES).optional().describe('Only this provider. Omitted: every provider connected, one row each — two devices that saw the same night both answer.'),
   include: z
     .array(z.enum(['activities', 'sleep', 'days']))
     .min(1)
     .optional()
-    .describe('Which datasets to return. Omitted: all three. A long window of all three is a lot of text.'),
-  payload: z.boolean().default(false).describe("Include each row's raw provider record as `payload`: every field the provider sent, mapped or not. Large; off by default."),
+    .describe('Which datasets to return. Omitted: all three — or only activities, when kind is given. A long window of all three is a lot of text.'),
+  kind: z
+    .string()
+    .regex(/^[a-z]+(,[a-z]+)*$/, "workout kinds as 'run' or 'run,cycle'")
+    .refine((v) => v.split(',').every((k) => k in ACTIVITY_KINDS), `kinds are ${Object.keys(ACTIVITY_KINDS).join(', ')}`)
+    .optional()
+    .describe("Only these workout kinds, comma-separated: 'run' or 'run,cycle'. Narrows activities; sleep and days are left out unless include asks for them."),
+  summary: z
+    .boolean()
+    .default(false)
+    .describe('Return weekly totals (ISO weeks, Monday first, UTC) instead of one row per workout, night and day. A fraction of the size: use it for anything longer than a few weeks.'),
+  limit: z.number().int().min(1).max(2000).optional().describe('At most this many rows per dataset, newest first. Not used with summary.'),
+  payload: z.boolean().default(false).describe("Include each row's raw provider record as `payload`: every field the provider sent, mapped or not. Large; off by default. Not used with summary."),
 });
 
 type WithPayload<R extends { payload: string | null }> = Omit<R, 'payload'> & { payload?: unknown };
+
+/** One ISO week of what the wearables recorded. Every total is a sum over exactly the rows `activities`, `sleep` and `days` would have listed. */
+export interface WearableWeek {
+  /** The Monday, YYYY-MM-DD (UTC). */
+  week: string;
+  workouts: number;
+  durationSeconds: number;
+  /** Decimal strings, metres and kilocalories. */
+  distanceM: string;
+  calories: string;
+  /** Seconds in heart-rate zones 0..3, summed over the week's workouts that reported them. */
+  zoneSeconds: [number, number, number, number];
+  byKind: { kind: string; workouts: number; durationSeconds: number; distanceM: string }[];
+  nights: number;
+  /** Mean over the week's nights that reported it; null when none did. */
+  avgAsleepSeconds: number | null;
+  avgSleepScore: number | null;
+  /** Days with steps recorded, their total and their mean. */
+  daysWithSteps: number;
+  steps: number;
+  avgSteps: number | null;
+}
+
 export interface WearableView {
   activities: WithPayload<ActivityRow>[];
   sleep: WithPayload<SleepNightRow>[];
   days: WithPayload<ActivityDayRow>[];
+  /** Only with `summary`. */
+  weeks?: WearableWeek[];
 }
 
-/** What the person's wearables recorded over the last N days, newest first. Narrowed `result:read`. */
+/** Sum of decimal strings in thousandths — integer arithmetic, so a week of distances never passes through a float. */
+function sumDecimals(values: (string | null)[]): string {
+  let t = 0n;
+  for (const v of values) if (v) t += toMilli(v);
+  const whole = t / 1000n;
+  const frac = String(t % 1000n).padStart(3, '0').replace(/0+$/, '');
+  return frac ? `${whole}.${frac}` : String(whole);
+}
+const meanOf = (values: (number | null)[]): number | null => {
+  const have = values.filter((v): v is number => v !== null);
+  return have.length ? Math.round(have.reduce((a, b) => a + b, 0) / have.length) : null;
+};
+
+/** What the person's wearables recorded over a window, newest first — or, with `summary`, a week at a time. Narrowed `result:read`. */
 const wearableOp: OperationHandler<z.infer<typeof wearableInput>, WearableView> = async (ctx, rawInput) => {
   const input = wearableInput.parse(rawInput);
   assertAllowed(
     await ctx.check(TRAIN_PERM.resultRead, { entityType: 'trainee', entityId: input.traineeId }),
   );
-  const since = new Date(new Date(ctx.now()).getTime() - input.days * 86_400_000).toISOString();
-  const sinceDay = since.slice(0, 10);
-  const want = new Set(input.include ?? ['activities', 'sleep', 'days']);
-  const from = (table: string, when: string, order: string, floor: string) => {
-    const args: string[] = [input.traineeId, floor];
+  const now = new Date(ctx.now());
+  const sinceDay = input.from ?? new Date(now.getTime() - input.days * 86_400_000).toISOString().slice(0, 10);
+  const untilDay = input.to ?? now.toISOString().slice(0, 10);
+  if (sinceDay > untilDay) throw new Error('from is after to');
+  // A workout is placed on its UTC start day, a night on the morning it ended, so one window means one thing everywhere.
+  const kinds = input.kind ? input.kind.split(',') : null;
+  const want = new Set(input.include ?? (kinds ? ['activities'] : ['activities', 'sleep', 'days']));
+  const from = (table: string, when: string, order: string, extra = '', extraArgs: string[] = []) => {
+    const args: string[] = [input.traineeId, sinceDay, untilDay, ...extraArgs];
     const source = input.source ? (args.push(input.source), ' AND source = ?') : '';
+    const cap = input.limit && !input.summary ? ` LIMIT ${input.limit}` : '';
     return {
-      sql: `SELECT * FROM ${table} WHERE trainee_id = ? AND ${when} >= ?${source} ORDER BY ${order}`,
+      sql: `SELECT * FROM ${table} WHERE trainee_id = ? AND substr(${when}, 1, 10) BETWEEN ? AND ?${extra}${source} ORDER BY ${order}${cap}`,
       args,
     };
   };
+  const kindClause = kinds ? ` AND kind IN (${kinds.map(() => '?').join(', ')})` : '';
+  const q = {
+    activities: from('train_activities', 'started_at', 'started_at DESC, id', kindClause, kinds ?? []),
+    sleep: from('train_sleep_nights', 'night', 'night DESC, id'),
+    days: from('train_activity_days', 'day', 'day DESC, source'),
+  };
+
+  if (input.summary) {
+    const weeks = new Map<string, WearableWeek>();
+    const weekOf = (day: string): WearableWeek => {
+      const monday = weekStart(new Date(`${day}T00:00:00Z`)).toISOString().slice(0, 10);
+      let w = weeks.get(monday);
+      if (!w) {
+        w = {
+          week: monday, workouts: 0, durationSeconds: 0, distanceM: '0', calories: '0', zoneSeconds: [0, 0, 0, 0],
+          byKind: [], nights: 0, avgAsleepSeconds: null, avgSleepScore: null, daysWithSteps: 0, steps: 0, avgSteps: null,
+        };
+        weeks.set(monday, w);
+      }
+      return w;
+    };
+    const acts = want.has('activities') ? ctx.sql.query<ActivityRow>(q.activities.sql, q.activities.args) : [];
+    const nights = want.has('sleep') ? ctx.sql.query<SleepNightRow>(q.sleep.sql, q.sleep.args) : [];
+    const daily = want.has('days') ? ctx.sql.query<ActivityDayRow>(q.days.sql, q.days.args) : [];
+    const grouped = <T,>(rows: T[], dayOf: (r: T) => string) => {
+      const m = new Map<string, T[]>();
+      for (const r of rows) {
+        const w = weekOf(dayOf(r)).week;
+        m.set(w, [...(m.get(w) ?? []), r]);
+      }
+      return m;
+    };
+    for (const [week, rows] of grouped(acts, (r) => r.started_at.slice(0, 10))) {
+      const w = weeks.get(week)!;
+      w.workouts = rows.length;
+      w.durationSeconds = rows.reduce((n, r) => n + r.duration_seconds, 0);
+      w.distanceM = sumDecimals(rows.map((r) => r.distance_m));
+      w.calories = sumDecimals(rows.map((r) => r.calories));
+      w.zoneSeconds = [0, 1, 2, 3].map((z) =>
+        rows.reduce((n, r) => n + (r[`hr_zone${z}_seconds` as keyof ActivityRow] as number | null ?? 0), 0),
+      ) as WearableWeek['zoneSeconds'];
+      const kindsHere = [...new Set(rows.map((r) => r.kind))].sort();
+      w.byKind = kindsHere.map((kind) => {
+        const of = rows.filter((r) => r.kind === kind);
+        return {
+          kind,
+          workouts: of.length,
+          durationSeconds: of.reduce((n, r) => n + r.duration_seconds, 0),
+          distanceM: sumDecimals(of.map((r) => r.distance_m)),
+        };
+      });
+    }
+    for (const [week, rows] of grouped(nights, (r) => r.night)) {
+      const w = weeks.get(week)!;
+      w.nights = rows.length;
+      w.avgAsleepSeconds = meanOf(rows.map((r) => r.asleep_seconds));
+      w.avgSleepScore = meanOf(rows.map((r) => r.score));
+    }
+    for (const [week, rows] of grouped(daily, (r) => r.day)) {
+      const w = weeks.get(week)!;
+      const stepped = rows.filter((r) => r.steps !== null);
+      w.daysWithSteps = stepped.length;
+      w.steps = stepped.reduce((n, r) => n + r.steps!, 0);
+      w.avgSteps = meanOf(stepped.map((r) => r.steps));
+    }
+    return {
+      activities: [],
+      sleep: [],
+      days: [],
+      weeks: [...weeks.values()].sort((a, b) => b.week.localeCompare(a.week)),
+    };
+  }
+
   const shape = <R extends { payload: string | null }>(rows: R[]): WithPayload<R>[] =>
     rows.map(({ payload, ...rest }) => (input.payload ? { ...rest, payload: payloadOf(payload) } : rest));
-  const read = <R extends { payload: string | null }>(q: { sql: string; args: string[] }, on: boolean) =>
-    on ? shape(ctx.sql.query<R>(q.sql, q.args)) : [];
+  const read = <R extends { payload: string | null }>(query: { sql: string; args: string[] }, on: boolean) =>
+    on ? shape(ctx.sql.query<R>(query.sql, query.args)) : [];
   return {
-    activities: read<ActivityRow>(from('train_activities', 'started_at', 'started_at DESC, id', since), want.has('activities')),
-    sleep: read<SleepNightRow>(from('train_sleep_nights', 'night', 'night DESC, id', sinceDay), want.has('sleep')),
-    days: read<ActivityDayRow>(from('train_activity_days', 'day', 'day DESC, source', sinceDay), want.has('days')),
+    activities: read<ActivityRow>(q.activities, want.has('activities')),
+    sleep: read<SleepNightRow>(q.sleep, want.has('sleep')),
+    days: read<ActivityDayRow>(q.days, want.has('days')),
   };
 };
 
@@ -4735,6 +5387,8 @@ export const strideModule: ModuleRegistration = {
     'stride/measurements': measurementsOp,
     'stride/record-wearable': recordWearableOp,
     'stride/wearable': wearableOp,
+    'stride/set-max-hr': setMaxHrOp,
+    'stride/hr-zones': hrZonesOp,
     'stride/progress': progressOp,
     },
   ),

@@ -598,4 +598,56 @@ export const strideMigrations: SqlMigration[] = [
       ALTER TABLE train_measurements   ADD COLUMN payload     TEXT;
     `,
   },
+
+  {
+    version: '0014-hybrid-training',
+    sql: `
+      -- Strength AND cardio in one plan. Additive only; every column is NULL (or 0) for the rows
+      -- that are already here, and means "as before".
+      --
+      -- A trainee's own maximum heart rate. NULL = not set, and zones are then read off the
+      -- highest rate a wearable ever saw. Read and written under the narrowed result:read /
+      -- result:log on the trainee record, like every other fact about a body: no new key.
+      ALTER TABLE train_trainees ADD COLUMN max_hr INTEGER;
+
+      -- What a cardio row asks for besides a distance, on a template item and on the program
+      -- item it is snapshot into:
+      --   target_seconds   how long ("45 min"). With target_reps = 0 on a metres row, the time is
+      --                    the whole prescription.
+      --   target_zone      0..3, the same four zones a wearable splits a workout into
+      --   target_hr_min/max a bpm range instead of a zone. A zone and a range are never both set.
+      --   work_seconds / rest_seconds
+      --                    an INTERVAL block: target_sets rounds of work then rest, as one item.
+      --   amrap            1 = as many as possible. target_reps is then the minimum (0 = none),
+      --                    so a pull-up test can sit in any session, not only a phased plan.
+      ALTER TABLE train_template_items ADD COLUMN target_seconds INTEGER;
+      ALTER TABLE train_template_items ADD COLUMN target_zone    INTEGER;
+      ALTER TABLE train_template_items ADD COLUMN target_hr_min  INTEGER;
+      ALTER TABLE train_template_items ADD COLUMN target_hr_max  INTEGER;
+      ALTER TABLE train_template_items ADD COLUMN work_seconds   INTEGER;
+      ALTER TABLE train_template_items ADD COLUMN rest_seconds   INTEGER;
+      ALTER TABLE train_template_items ADD COLUMN amrap          INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE train_program_items  ADD COLUMN target_seconds INTEGER;
+      ALTER TABLE train_program_items  ADD COLUMN target_zone    INTEGER;
+      ALTER TABLE train_program_items  ADD COLUMN target_hr_min  INTEGER;
+      ALTER TABLE train_program_items  ADD COLUMN target_hr_max  INTEGER;
+      ALTER TABLE train_program_items  ADD COLUMN work_seconds   INTEGER;
+      ALTER TABLE train_program_items  ADD COLUMN rest_seconds   INTEGER;
+      ALTER TABLE train_program_items  ADD COLUMN amrap          INTEGER NOT NULL DEFAULT 0;
+
+      -- Per-set effort, the other way round: reps in reserve. A set carries rpe OR rir, never both.
+      ALTER TABLE train_set_results ADD COLUMN rir INTEGER;
+
+      -- A set that came from a wearable activity keeps the activity's id and a snapshot of what it
+      -- said (the activity row itself is rewritten on sync; a set is append-only). At most one set
+      -- per activity, voided or not, so a re-sync can never log the same run twice.
+      ALTER TABLE train_set_results ADD COLUMN activity_id      TEXT REFERENCES train_activities(id);
+      ALTER TABLE train_set_results ADD COLUMN max_hr           INTEGER;
+      ALTER TABLE train_set_results ADD COLUMN hr_zone0_seconds INTEGER;
+      ALTER TABLE train_set_results ADD COLUMN hr_zone1_seconds INTEGER;
+      ALTER TABLE train_set_results ADD COLUMN hr_zone2_seconds INTEGER;
+      ALTER TABLE train_set_results ADD COLUMN hr_zone3_seconds INTEGER;
+      CREATE UNIQUE INDEX train_set_results_activity ON train_set_results(activity_id) WHERE activity_id IS NOT NULL;
+    `,
+  },
 ];

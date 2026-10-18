@@ -95,6 +95,7 @@ describe('wearables', () => {
       activities: { created: 2, updated: 0, unchanged: 0 },
       sleep: { created: 1, updated: 0, unchanged: 0 },
       days: { created: 2, updated: 0, unchanged: 0 },
+      matched: [],
     });
 
     const mine = await read(vera, w.veraId, 730);
@@ -120,6 +121,7 @@ describe('wearables', () => {
       activities: { created: 0, updated: 0, unchanged: 1 },
       sleep: { created: 0, updated: 0, unchanged: 1 },
       days: { created: 0, updated: 0, unchanged: 1 },
+      matched: [],
     });
     expect((await announced()).length).toBe(before); // a sync that found nothing new emits nothing
 
