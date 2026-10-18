@@ -4290,6 +4290,200 @@ const measurementsOp: OperationHandler<z.infer<typeof measurementsInput>, Measur
 };
 
 // ---------------------------------------------------------------------------
+// QUICK LOG — what somebody ate, or did outside a workout.
+//
+// "Yoghurt with muesli." "Pull-up x 5." A diary line, not a catalogue row: the label is
+// free text, nothing is prescribed and no exercise is earned (that stays the job of a set
+// logged in a session). The list a person repeats from is READ OFF their own lines —
+// distinct labels, newest first — so there is no second table to keep honest.
+//
+// Same keys as a measurement, for the same reason: a line is a fact about a body with no
+// session to hang from, so it is gated by the NARROWED `result:log` / `result:read` on the
+// trainee record. Append-only; a line logged by mistake is voided, never deleted.
+// ---------------------------------------------------------------------------
+
+export const QUICK_KINDS = ['food', 'activity'] as const;
+export type QuickKind = (typeof QUICK_KINDS)[number];
+
+export interface QuickLogRow {
+  id: string;
+  trainee_id: string;
+  kind: QuickKind;
+  label: string;
+  /** Activity only: how many times. NULL for food. */
+  quantity: number | null;
+  logged_at: string;
+  logged_by: string;
+  created_at: string;
+}
+
+/** Lines that have not been taken back. */
+const QUICK_NOT_VOIDED = 'id NOT IN (SELECT log_id FROM train_quick_log_voids)';
+const QUICK_COLUMNS = 'id, trainee_id, kind, label, quantity, logged_at, logged_by, created_at';
+
+export const logQuickInput = z.object({
+  traineeId: z.string().min(1),
+  kind: z.enum(QUICK_KINDS),
+  label: z
+    .string()
+    .transform((v) => v.trim().replace(/\s+/g, ' '))
+    .pipe(z.string().min(1).max(80))
+    .describe('What it was: "Yoghurt with muesli", "Pull-up". Repeating a label repeats the line.'),
+  quantity: z.number().int().min(1).max(9999).optional().describe('Activity only: how many times.'),
+  loggedAt: z.string().optional().describe('When it happened; defaults to now.'),
+});
+
+const logQuickOp: OperationHandler<z.infer<typeof logQuickInput>, QuickLogRow> = async (ctx, rawInput) => {
+  const input = logQuickInput.parse(rawInput);
+  assertAllowed(await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: input.traineeId }));
+  const trainee = ctx.sql.query<TraineeRow>('SELECT * FROM train_trainees WHERE id = ?', [input.traineeId])[0];
+  if (!trainee) throw new Error(`trainee not found: ${input.traineeId}`);
+  if (input.kind === 'activity' && input.quantity === undefined) {
+    throw new Error('an activity needs a number of times');
+  }
+  if (input.kind === 'food' && input.quantity !== undefined) {
+    throw new Error('food has no number of times — name what it was');
+  }
+  if (input.loggedAt !== undefined && Number.isNaN(new Date(input.loggedAt).getTime())) {
+    throw new Error(`not a date: ${input.loggedAt}`);
+  }
+  const id = ulid();
+  const now = ctx.now();
+  const loggedAt = input.loggedAt ?? now;
+  ctx.sql.exec(
+    `INSERT INTO train_quick_logs (id, trainee_id, kind, label, quantity, logged_at, logged_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, trainee.id, input.kind, input.label, input.quantity ?? null, loggedAt, ctx.principal, now],
+  );
+  ctx.emit({
+    type: 'stride.quick-logged',
+    schemaVersion: 1,
+    entity: { entityType: 'trainee', entityId: trainee.id },
+    // What a person ate is health data about them.
+    piiClass: 'pseudonymous',
+    subjectId: dataSubjectId.parse(trainee.id),
+    payload: {
+      logId: id,
+      traineeId: trainee.id,
+      kind: input.kind,
+      label: input.label,
+      quantity: input.quantity ?? null,
+      loggedAt,
+    },
+  });
+  return ctx.sql.query<QuickLogRow>(`SELECT ${QUICK_COLUMNS} FROM train_quick_logs WHERE id = ?`, [id])[0]!;
+};
+
+export const quickLogsInput = traineeIdInput.extend({
+  kind: z.enum(QUICK_KINDS).optional().describe('Only food, or only activities.'),
+  since: z.string().optional().describe('Only lines logged at or after this instant (ISO). The app sends the start of the local day.'),
+  limit: z.number().int().min(1).max(500).default(100),
+});
+
+/** A person's lines, newest first, without the ones taken back. Narrowed `result:read`. */
+const quickLogsOp: OperationHandler<z.infer<typeof quickLogsInput>, QuickLogRow[]> = async (ctx, rawInput) => {
+  const input = quickLogsInput.parse(rawInput);
+  assertAllowed(await ctx.check(TRAIN_PERM.resultRead, { entityType: 'trainee', entityId: input.traineeId }));
+  if (input.since !== undefined && Number.isNaN(new Date(input.since).getTime())) {
+    throw new Error(`not a date: ${input.since}`);
+  }
+  const where = ['trainee_id = ?', QUICK_NOT_VOIDED];
+  const args: (string | number)[] = [input.traineeId];
+  if (input.kind) { where.push('kind = ?'); args.push(input.kind); }
+  if (input.since !== undefined) { where.push('logged_at >= ?'); args.push(new Date(input.since).toISOString()); }
+  args.push(input.limit);
+  return ctx.sql.query<QuickLogRow>(
+    `SELECT ${QUICK_COLUMNS} FROM train_quick_logs WHERE ${where.join(' AND ')}
+     ORDER BY logged_at DESC, id DESC LIMIT ?`,
+    args,
+  );
+};
+
+export interface QuickRecent {
+  kind: QuickKind;
+  /** The spelling used last. */
+  label: string;
+  /** How many the last time, for an activity. */
+  quantity: number | null;
+  /** How often it has been logged. */
+  times: number;
+  lastAt: string;
+}
+
+export const quickRecentsInput = traineeIdInput.extend({
+  kind: z.enum(QUICK_KINDS),
+  limit: z.number().int().min(1).max(50).default(12),
+});
+
+/**
+ * The list to repeat from: the distinct labels of one kind, most recent first, each with
+ * what it was last time. Folded from the lines themselves — case-insensitively, so
+ * "Pull-up" and "pull-up" are one entry — over the newest 1000, which is far more than a
+ * screen shows and bounds the work.
+ */
+const quickRecentsOp: OperationHandler<z.infer<typeof quickRecentsInput>, QuickRecent[]> = async (ctx, rawInput) => {
+  const input = quickRecentsInput.parse(rawInput);
+  assertAllowed(await ctx.check(TRAIN_PERM.resultRead, { entityType: 'trainee', entityId: input.traineeId }));
+  const rows = ctx.sql.query<QuickLogRow>(
+    `SELECT ${QUICK_COLUMNS} FROM train_quick_logs WHERE trainee_id = ? AND kind = ? AND ${QUICK_NOT_VOIDED}
+     ORDER BY logged_at DESC, id DESC LIMIT 1000`,
+    [input.traineeId, input.kind],
+  );
+  const seen = new Map<string, QuickRecent>();
+  for (const r of rows) {
+    const key = r.label.toLowerCase();
+    const have = seen.get(key);
+    if (have) have.times += 1;
+    else seen.set(key, { kind: r.kind, label: r.label, quantity: r.quantity, times: 1, lastAt: r.logged_at });
+  }
+  return [...seen.values()].slice(0, input.limit);
+};
+
+export const voidQuickLogInput = z.object({ logId: z.string().min(1) });
+
+/**
+ * Take a line back. The line itself is not touched; a row in `train_quick_log_voids` makes
+ * every read skip it. Gated by the narrowed `result:log` on the line's OWN trainee — the
+ * same key on the same entity as writing it, so a log id alone reaches nobody else's.
+ * Taking the same line back twice is one intention, not an error.
+ */
+const voidQuickLogOp: OperationHandler<
+  z.infer<typeof voidQuickLogInput>,
+  { voided: string; alreadyVoided: boolean }
+> = async (ctx, rawInput) => {
+  const input = voidQuickLogInput.parse(rawInput);
+  const line = ctx.sql.query<QuickLogRow>(`SELECT ${QUICK_COLUMNS} FROM train_quick_logs WHERE id = ?`, [input.logId])[0];
+  if (!line) throw new Error(`quick log not found: ${input.logId}`);
+  assertAllowed(await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: line.trainee_id }));
+  const already =
+    ctx.sql.query<{ n: number }>('SELECT COUNT(*) AS n FROM train_quick_log_voids WHERE log_id = ?', [line.id])[0]?.n ?? 0;
+  if (already > 0) return { voided: line.id, alreadyVoided: true };
+  const now = ctx.now();
+  ctx.sql.exec('INSERT INTO train_quick_log_voids (log_id, voided_by, voided_at) VALUES (?, ?, ?)', [
+    line.id,
+    ctx.principal,
+    now,
+  ]);
+  ctx.emit({
+    type: 'stride.quick-log-voided',
+    schemaVersion: 1,
+    entity: { entityType: 'trainee', entityId: line.trainee_id },
+    piiClass: 'pseudonymous',
+    subjectId: dataSubjectId.parse(line.trainee_id),
+    payload: {
+      logId: line.id,
+      traineeId: line.trainee_id,
+      kind: line.kind,
+      label: line.label,
+      quantity: line.quantity,
+      loggedAt: line.logged_at,
+      voidedAt: now,
+    },
+  });
+  return { voided: line.id, alreadyVoided: false };
+};
+
+// ---------------------------------------------------------------------------
 // WEARABLES — what a device recorded: workouts, nights, days.
 //
 // Mirrored from a provider (today Withings) and NOT append-only, deliberately: a
@@ -5385,6 +5579,10 @@ export const strideModule: ModuleRegistration = {
     'stride/timeline': timelineOp,
     'stride/log-measurement': logMeasurementOp,
     'stride/measurements': measurementsOp,
+    'stride/log-quick': logQuickOp,
+    'stride/quick-logs': quickLogsOp,
+    'stride/quick-recents': quickRecentsOp,
+    'stride/void-quick-log': voidQuickLogOp,
     'stride/record-wearable': recordWearableOp,
     'stride/wearable': wearableOp,
     'stride/set-max-hr': setMaxHrOp,

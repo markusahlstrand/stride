@@ -776,6 +776,8 @@ patient.
 | `workorder/start` `/assign` `/report-time` `/report-material` | the engine's own — **behind the guard** |
 | `stride/progress` | everyone — a **walk over sessions**; the curve, per side, and symmetry |
 | `stride/log-measurement` / `stride/measurements` | narrowed `result:log` / `result:read` on the trainee — no new keys |
+| `stride/log-quick` / `stride/quick-logs` / `stride/quick-recents` | narrowed `result:log` / `result:read` on the trainee — no new keys |
+| `stride/void-quick-log` | narrowed `result:log` on the line's own trainee — no new keys |
 | `stride/share-template` / `stride/remove-template-item` | the author (narrowed `template:read`) or an admin; library rows refused |
 
 **`stride/exercises` is one operation that gives three different correct answers**, and

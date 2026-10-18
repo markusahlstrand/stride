@@ -1,4 +1,5 @@
 import { SequenceLibrary, PhasedProgram, PhasedToday } from './phased';
+import { QuickLogCard } from './quicklog';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { ActiveSession, SessionSummary } from './session';
 import {
@@ -441,6 +442,9 @@ export function TodayScreen({
           ))}
         </div>
       )}
+
+      {/* Whose diary it is is a question with one answer: yours. No record, no card. */}
+      {me?.traineeId && <QuickLogCard key={me.traineeId} traineeId={me.traineeId} run={run} />}
 
       {items.length === 0 && agenda.length === 0 && (
         <div className="empty">
