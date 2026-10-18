@@ -221,4 +221,21 @@ describe('wearables', () => {
     // The admin runs the gym and reads everyone's.
     expect((await read(astrid)).activities.length).toBeGreaterThan(0);
   });
+  it('lets the person name a workout, keeps the name through a re-sync, and refuses anyone else', async () => {
+    await record(vera, { activities: [run({ externalId: 'w-padel', kind: 'other', startedAt: '2026-10-11T18:00:00.000Z', endedAt: '2026-10-11T19:00:00.000Z', durationSeconds: 3600 })] });
+    const id = (await read(vera, w.veraId, 730)).activities.find((a) => a.external_id === 'w-padel')!.id;
+    expect((await read(vera, w.veraId, 730)).activities.find((a) => a.id === id)!.title).toBeNull();
+
+    await expect(bjorn.invoke('stride/name-activity', { activityId: id, title: 'Padel' })).rejects.toThrow(/permission denied: result:log/);
+    await expect(vera.invoke('stride/name-activity', { activityId: 'nope', title: 'Padel' })).rejects.toThrow(/not found/);
+
+    expect(await vera.invoke('stride/name-activity', { activityId: id, title: '  Padel  ' })).toEqual({ activityId: id, title: 'Padel' });
+    // The watch says the same thing again, and then something revised: the name is still there.
+    expect((await record(vera, { activities: [run({ externalId: 'w-padel', kind: 'other', startedAt: '2026-10-11T18:00:00.000Z', endedAt: '2026-10-11T19:00:00.000Z', durationSeconds: 3600 })] })).activities.unchanged).toBe(1);
+    await record(vera, { activities: [run({ externalId: 'w-padel', kind: 'other', startedAt: '2026-10-11T18:00:00.000Z', endedAt: '2026-10-11T19:05:00.000Z', durationSeconds: 3900 })] });
+    const after = (await read(vera, w.veraId, 730)).activities.find((a) => a.id === id)!;
+    expect(after).toMatchObject({ title: 'Padel', kind: 'other', duration_seconds: 3900 });
+
+    expect(await vera.invoke('stride/name-activity', { activityId: id, title: null })).toEqual({ activityId: id, title: null });
+  });
 });
