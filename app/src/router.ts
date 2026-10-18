@@ -20,7 +20,8 @@ import { useCallback, useEffect, useState } from 'react';
 export type Route =
   | { name: 'today' }
   | { name: 'workouts' }
-  | { name: 'workout'; id: string }
+  /** `manage`: land on the edit view (rows, schedule) even while a session is running. */
+  | { name: 'workout'; id: string; manage?: boolean }
   /** Plans: the reusable, ownerless prescriptions — yours and the gym's. */
   | { name: 'plans' }
   | { name: 'chat' }
@@ -60,7 +61,9 @@ export function parseRoute(hash: string): Route {
 
   switch (parts[0]) {
     case 'workouts':
-      return parts[1] ? { name: 'workout', id: parts[1] } : { name: 'workouts' };
+      return parts[1]
+        ? { name: 'workout', id: parts[1], ...(q.get('manage') === '1' ? { manage: true } : {}) }
+        : { name: 'workouts' };
     case 'plans':
       return { name: 'plans' };
     case 'chat':
@@ -93,7 +96,7 @@ export function formatRoute(route: Route): string {
     case 'workouts':
       return '#/workouts';
     case 'workout':
-      return `#/workouts/${route.id}`;
+      return `#/workouts/${route.id}${route.manage ? '?manage=1' : ''}`;
     case 'plans':
       return '#/plans';
     case 'chat':

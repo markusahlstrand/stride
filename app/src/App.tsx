@@ -269,6 +269,7 @@ export function App() {
   const staff = me?.role === 'admin' || me?.role === 'coach';
   const tab = tabOf(route, me?.role);
   const openWorkout = (id: string) => navigate({ name: 'workout', id });
+  const viewWorkout = (id: string) => navigate({ name: 'workout', id, manage: true });
   const openThread = (traineeId: string, coachId: string) =>
     navigate({ name: 'thread', traineeId, coachId });
 
@@ -326,6 +327,7 @@ export function App() {
         {route.name === 'workout' ? (
           <ProgramDetailScreen
             programId={route.id}
+            manage={route.manage}
             me={me}
             run={run}
             onBack={() => navigate({ name: 'workouts' })}
@@ -410,6 +412,7 @@ export function App() {
             me={me}
             run={run}
             onOpen={openWorkout}
+            onView={viewWorkout}
             onSetup={() => navigate({ name: 'me' })}
           />
         )}

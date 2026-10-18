@@ -195,8 +195,15 @@ export function TodayScreen({
   me,
   run,
   onOpen,
+  onView,
   onSetup,
-}: ScreenProps & { onOpen: (id: string) => void; onSetup: () => void }) {
+}: ScreenProps & {
+  /** Into a running session (after Start). */
+  onOpen: (id: string) => void;
+  /** Look inside a workout to change it — never starts anything. */
+  onView: (id: string) => void;
+  onSetup: () => void;
+}) {
   const [items] = useList<ScheduledItem>(() => api.schedule(), [me?.key]);
   // The week on show, as the Monday's date; `weekOffset` pages it. The strip
   // is a navigator: tap a day to see what is booked on it, arrows move a week.
@@ -255,7 +262,7 @@ export function TodayScreen({
       key={i.itemId}
       type="button"
       className="card tappable with-fig"
-      onClick={() => onOpen(i.programId)}
+      onClick={() => onView(i.programId)}
     >
       <MoveTile move={moveFor(i.exerciseName, i.unit)} size={62} />
       <div className="grow">
@@ -389,7 +396,19 @@ export function TodayScreen({
               style={{ '--s': '180px' } as React.CSSProperties}
             />
           )}
-          <div className="hero-text">
+          <div
+            className="hero-text"
+            role="link"
+            tabIndex={0}
+            style={{ cursor: 'pointer' }}
+            onClick={() => onView(a.programId)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onView(a.programId);
+              }
+            }}
+          >
             <div className="hero-meta">
               <span className="badge time">{a.time}</span>
               <span className="hero-label">{heroLabel(a, todayDate)}</span>
@@ -411,6 +430,9 @@ export function TodayScreen({
                     ? 'Start training'
                     : 'Train it today instead'}
             </button>
+            <button className="ghost" onClick={() => onView(a.programId)}>
+              See what's in it
+            </button>
           </div>
         </div>
       ))}
@@ -423,7 +445,7 @@ export function TodayScreen({
               key={`${a.programId}-${a.weekday}-${a.time}`}
               type="button"
               className="rowbtn"
-              onClick={() => onOpen(a.programId)}
+              onClick={() => onView(a.programId)}
             >
               <span>
                 <span className="name">{a.programTitle}</span>
@@ -1067,8 +1089,11 @@ export function ProgramDetailScreen({
   onProgress,
   onExercise,
   onOpen,
+  manage = false,
 }: ScreenProps & {
   programId: string;
+  /** Open on the manage view even if a session is running here. */
+  manage?: boolean;
   onBack: () => void;
   onProgress?: (traineeId: string) => void;
   /** Open one exercise's how-to. Optional, so the screen renders without it. */
@@ -1097,7 +1122,10 @@ export function ProgramDetailScreen({
    * is the other view, one tap away. They used to be one long page, which meant
    * someone who had just pressed "start" was looking at a schedule editor.
    */
-  const [view, setView] = useState<'session' | 'manage'>('session');
+  const [view, setView] = useState<'session' | 'manage'>(manage ? 'manage' : 'session');
+  useEffect(() => {
+    if (manage) setView('manage');
+  }, [manage, programId]);
   /** The exercise on screen. Null means "the first one not finished yet". */
   const [cursor, setCursor] = useState<string | null>(null);
   /** Held while `begin` is in flight: a double tap must not open two sessions. */
