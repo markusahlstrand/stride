@@ -51,6 +51,7 @@ describe('quick log', () => {
     await expect(log(vera, { kind: 'activity', label: 'Pull-up', quantity: 0 })).rejects.toThrow();
     await expect(log(vera, { kind: 'activity', label: 'Pull-up', quantity: 2.5 })).rejects.toThrow();
     await expect(log(vera, { kind: 'food', label: 'Apple', loggedAt: 'yesterday-ish' })).rejects.toThrow(/not a date/);
+    await expect(log(vera, { kind: 'food', label: 'Apple', loggedAt: '2099-01-01T00:00:00Z' })).rejects.toThrow(/future/);
   });
 
   it('offers earlier items to repeat: distinct, newest first, with the count last time', async () => {
@@ -88,7 +89,10 @@ describe('quick log', () => {
     expect(food.map((r) => r.label)).not.toContain('Cake');
     const lines = await inv<QuickLogRow[]>(vera, 'quick-logs', { traineeId: w.veraId });
     expect(lines.map((r) => r.id)).not.toContain(oops.id);
-    await expect(inv(vera, 'void-quick-log', { logId: 'nope' })).rejects.toThrow(/not found/);
+    // An unknown id and somebody else's id are refused the same way; only an admin, who may touch
+    // any line, is told it does not exist.
+    await expect(inv(vera, 'void-quick-log', { logId: 'nope' })).rejects.toThrow(/permission denied: result:log/);
+    await expect(inv(await host.getScope(w.astrid, w.t1, w.s1), 'void-quick-log', { logId: 'nope' })).rejects.toThrow(/not found/);
   });
 
   it('is nobody else’s: the denial names the key, and a log id alone reaches no one', async () => {
@@ -108,5 +112,12 @@ describe('quick log', () => {
     const seen = await inv<QuickLogRow[]>(nina, 'quick-logs', { traineeId: w.veraId });
     expect(seen.map((r) => r.label)).toContain('Porridge');
     await vera.invoke('stride/set-sharing', { coachId: w.ninaId, mode: 'assigned' });
+  });
+
+  it('stores when it happened as canonical UTC, so text order is time order', async () => {
+    const odd = await log(vera, { kind: 'food', label: 'Late snack', loggedAt: '2026-10-14T09:30:00+02:00' });
+    expect(odd.logged_at).toBe('2026-10-14T07:30:00.000Z');
+    const dateOnly = await log(vera, { kind: 'food', label: 'Date only', loggedAt: '2026-10-13' });
+    expect(dateOnly.logged_at).toBe('2026-10-13T00:00:00.000Z');
   });
 });

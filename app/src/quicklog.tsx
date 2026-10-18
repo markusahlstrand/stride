@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type QuickKind, type QuickLog, type QuickRecent } from './api';
 
 // ============================================================================
@@ -30,9 +30,14 @@ export function QuickLogCard({ traineeId, run }: { traineeId: string; run: Run }
   const [today, setToday] = useState<QuickLog[]>([]);
   const [busy, setBusy] = useState(false);
 
+  // Only the latest request may land: flipping Food → Activity quickly must not let the slower
+  // food list overwrite the activity one (a food chip on the activity tab would log food).
+  const latest = useRef(0);
   const reload = useCallback(() => {
-    api.quickRecents(traineeId, kind).then(setRecents).catch(() => setRecents([]));
-    api.quickLogs(traineeId, { since: startOfLocalDay() }).then(setToday).catch(() => setToday([]));
+    const mine = ++latest.current;
+    const current = () => mine === latest.current;
+    api.quickRecents(traineeId, kind).then((r) => current() && setRecents(r)).catch(() => current() && setRecents([]));
+    api.quickLogs(traineeId, { since: startOfLocalDay() }).then((r) => current() && setToday(r)).catch(() => current() && setToday([]));
   }, [traineeId, kind]);
   useEffect(reload, [reload]);
 

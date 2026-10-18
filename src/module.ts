@@ -4319,6 +4319,8 @@ export interface QuickLogRow {
 
 /** Lines that have not been taken back. */
 const QUICK_NOT_VOIDED = 'id NOT IN (SELECT log_id FROM train_quick_log_voids)';
+/** A phone's clock may run a little ahead of the host's. */
+const QUICK_CLOCK_SLACK_MS = 5 * 60_000;
 const QUICK_COLUMNS = 'id, trainee_id, kind, label, quantity, logged_at, logged_by, created_at';
 
 export const logQuickInput = z.object({
@@ -4344,12 +4346,18 @@ const logQuickOp: OperationHandler<z.infer<typeof logQuickInput>, QuickLogRow> =
   if (input.kind === 'food' && input.quantity !== undefined) {
     throw new Error('food has no number of times — name what it was');
   }
-  if (input.loggedAt !== undefined && Number.isNaN(new Date(input.loggedAt).getTime())) {
-    throw new Error(`not a date: ${input.loggedAt}`);
+  const now = ctx.now();
+  // Reads sort and filter on `logged_at` as TEXT, so it is stored as canonical UTC ISO whatever
+  // offset or date-only form the caller used. And never later than now: a line dated 2099
+  // would pin itself to the top of the diary and be "last time" in the repeat list for ever.
+  let loggedAt: string = now;
+  if (input.loggedAt !== undefined) {
+    const at = new Date(input.loggedAt).getTime();
+    if (Number.isNaN(at)) throw new Error(`not a date: ${input.loggedAt}`);
+    if (at > new Date(now).getTime() + QUICK_CLOCK_SLACK_MS) throw new Error('a quick-log line cannot be in the future');
+    loggedAt = new Date(at).toISOString();
   }
   const id = ulid();
-  const now = ctx.now();
-  const loggedAt = input.loggedAt ?? now;
   ctx.sql.exec(
     `INSERT INTO train_quick_logs (id, trainee_id, kind, label, quantity, logged_at, logged_by, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -4453,8 +4461,13 @@ const voidQuickLogOp: OperationHandler<
 > = async (ctx, rawInput) => {
   const input = voidQuickLogInput.parse(rawInput);
   const line = ctx.sql.query<QuickLogRow>(`SELECT ${QUICK_COLUMNS} FROM train_quick_logs WHERE id = ?`, [input.logId])[0];
+  // The permission check comes BEFORE "not found", and an unknown id is checked against an
+  // entity nobody holds anything on, so a caller who may not touch the line gets the same
+  // refusal whether it exists or not — a log id is no probe into another trainee's diary.
+  assertAllowed(
+    await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: line?.trainee_id ?? input.logId }),
+  );
   if (!line) throw new Error(`quick log not found: ${input.logId}`);
-  assertAllowed(await ctx.check(TRAIN_PERM.resultLog, { entityType: 'trainee', entityId: line.trainee_id }));
   const already =
     ctx.sql.query<{ n: number }>('SELECT COUNT(*) AS n FROM train_quick_log_voids WHERE log_id = ?', [line.id])[0]?.n ?? 0;
   if (already > 0) return { voided: line.id, alreadyVoided: true };
