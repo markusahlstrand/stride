@@ -1195,6 +1195,12 @@
           "hr_zone3_seconds"
         ],
         "additionalProperties": false
+      },
+      "erasable": [
+        "note"
+      ],
+      "erasure": {
+        "mode": "custom"
       }
     },
     "setVoid": {

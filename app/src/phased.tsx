@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, type CastMember, type Exercise, type ProgramDetail, type Template, type Trainee } from './api';
 import type { SequencePlan, PhaseDay, PhaseWorkout, PhaseGoal } from '../../src/phased-plan.js';
 import type { PhasedProgramView } from '../../src/phased.js';
@@ -147,16 +147,23 @@ export function SequenceLibrary({ plans, exercises, me, run, onChanged, onOpen }
     {plans.filter((p) => p.phased).map((p) => <SequenceCard key={p.id} template={p} exercises={exercises} me={me} run={run} onChanged={onChanged} onOpen={onOpen} />)}
   </section>;
 }
-export function PhasedToday({ onOpen, run }: { onOpen: (id: string) => void; run: Run }) {
+export function PhasedToday({ onOpen, run }: { onOpen: (id: string, occurrenceId?: string) => void; run: Run }) {
   const [entries, setEntries] = useState<Awaited<ReturnType<typeof api.phasedToday>>>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const reload = useCallback(() => { api.phasedToday().then((rows) => { setEntries(rows); setError(''); }).catch((e) => setError(String(e))); }, []);
+  const request = useRef(0);
+  const reload = useCallback(() => {
+    const current = ++request.current;
+    api.phasedToday().then((rows) => {
+      if (current !== request.current) return;
+      setEntries(rows); setError('');
+    }).catch((e) => { if (current === request.current) setError(String(e)); });
+  }, []);
   useEffect(() => {
     reload();
     const timer = window.setInterval(reload, 60000);
     window.addEventListener('focus', reload);
-    return () => { clearInterval(timer); window.removeEventListener('focus', reload); };
+    return () => { ++request.current; clearInterval(timer); window.removeEventListener('focus', reload); };
   }, [reload]);
   const begin = async (programId: string, occurrenceId: string) => {
     if (busy) return;
@@ -168,7 +175,7 @@ export function PhasedToday({ onOpen, run }: { onOpen: (id: string) => void; run
     }, 'Session ready');
     setBusy(false);
     reload();
-    if (ok) onOpen(programId);
+    if (ok) onOpen(programId, occurrenceId);
   };
   return <section aria-label="Phased workouts today">
     {error && <p role="alert">Could not load phased programmes: {error} <button className="ghost" onClick={reload}>Retry</button></p>}
@@ -190,9 +197,9 @@ function RestTimer({ seconds }: { seconds: number }) {
   useEffect(() => { if (!until) return; const tick = () => setLeft(Math.max(0, Math.ceil((until - Date.now()) / 1000))); tick(); const t = setInterval(tick, 250); return () => clearInterval(t); }, [until]);
   return <div className="row center"><button type="button" className="ghost small" onClick={() => { setUntil(Date.now() + seconds * 1000); setLeft(seconds); }}>Start {seconds}s rest</button>{until && <output aria-live="off">{left ? `${left}s remaining` : 'Rest complete'}</output>}</div>;
 }
-export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail }: { detail: ProgramDetail; run: Run; onBack: () => void; onProgress?: (id: string) => void; reloadDetail: () => void }) {
+export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail, occurrenceId }: { detail: ProgramDetail; run: Run; onBack: () => void; onProgress?: (id: string) => void; reloadDetail: () => void; occurrenceId?: string }) {
   const [view, setView] = useState<PhasedProgramView | null>(null); const [error, setError] = useState('');
-  const [selected, setSelected] = useState(''); const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [selected, setSelected] = useState(occurrenceId ?? ''); const [exercises, setExercises] = useState<Exercise[]>([]);
   const [shiftOnResume, setShiftOnResume] = useState(false);
   const [edit, setEdit] = useState<PhaseWorkout | null>(null); const [date, setDate] = useState(dateToday); const [busy, setBusy] = useState(false);
   const reload = useCallback(async () => { try { setView(await api.phasedProgram(detail.program.id)); setError(''); } catch (e) { setError(String(e)); } }, [detail.program.id]);
@@ -243,7 +250,7 @@ export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail }:
         const next = item.sets[logged.length];
         return <div className="phase-session-item" key={`${day.id}-${i}`}><h3>{ex?.name ?? 'Exercise'}{item.groupKey ? ` · Superset ${item.groupKey}` : ''}</h3><p>{item.notes}</p>
           <ol>{item.sets.map((s, j) => <li key={j}>{s.side ? `${s.side}: ` : ''}{s.mode === 'amrap' ? `As many ${ex?.unit ?? 'reps'} as possible${s.reps ? ` (minimum ${s.reps})` : ''}` : s.reps === 0 && s.targetSeconds ? 'Timed set' : `${s.reps} ${ex?.unit ?? 'reps'}`}{s.load ? ` @ ${s.load} kg` : ''}{s.targetSeconds ? ` · ${s.targetSeconds}s duration` : ''}{s.targetZone !== undefined ? ` · ${zoneText(s.targetZone, detail.hrZones)}` : ''}{s.targetHrMin !== undefined ? ` · ${s.targetHrMin}–${s.targetHrMax} bpm` : ''} · Rest {s.restSeconds}s {s.note}</li>)}</ol>
-          {logged.map((s) => <div className="row center" key={s.id}><span>Logged: {s.side ? `${s.side} · ` : ''}{s.reps} {ex?.unit ?? 'reps'}{s.load ? ` @ ${s.load} kg` : ''}{s.note ? ` · ${s.note}` : ''}</span>{manageable && <button className="ghost small" onClick={() => mutate(() => api.voidSet(s.id), 'Set taken back')}>Undo set</button>}</div>)}
+          {logged.map((s) => <div className="row center" key={s.id}><span>Logged: {s.side ? `${s.side} · ` : ''}{s.reps} {ex?.unit ?? 'reps'}{s.load ? ` @ ${s.load} kg` : ''}{s.duration_seconds ? ` · ${s.duration_seconds}s` : ''}{s.note ? ` · ${s.note}` : ''}</span>{manageable && <button className="ghost small" onClick={() => mutate(() => api.voidSet(s.id), 'Set taken back')}>Undo set</button>}</div>)}
           {day.status === 'started' && manageable && next && <><SetLogger key={`${day.id}-${i}-${logged.length}`} unit={ex?.unit ?? 'reps'} modality={ex?.modality ?? 'strength'} loadNote={loadNoteOf(ex?.description ?? null)} defaultSide={next.side} defaultDuration={next.targetSeconds}
             defaultFor={(side) => { const prescribed = item.sets.filter((s) => s.side === side); const count = logged.filter((s) => (s.side ?? undefined) === side).length; const s = prescribed[count] ?? next; return { reps: s.mode === 'amrap' && s.reps === 0 ? 1 : s.reps, load: s.load ?? null }; }}
             onLog={async (body) => { await mutate(() => api.logSet(day.sessionId!, { ...body, programItemId: day.itemIds[i] }), 'Set logged'); }} />

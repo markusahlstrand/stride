@@ -277,6 +277,8 @@ export const strideEntities = defineEntities({
       hr_zone2_seconds: z.number().nullable(),
       hr_zone3_seconds: z.number().nullable(),
     }),
+    erasable: ['note'],
+    erasure: { mode: 'custom' },
   },
 
   /**

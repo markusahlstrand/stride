@@ -2241,7 +2241,7 @@ export const logSetInput = z.object({
   reps: z
     .number()
     .int()
-    .positive()
+    .min(0)
     .describe(
       "How many, in the exercise's OWN unit — reps, seconds or metres. Rowing 5000 is 5000 metres; a 90-second plank is 90.",
     ),
@@ -2278,6 +2278,8 @@ export const logSetInput = z.object({
       'Which side. REQUIRED on a unilateral exercise and refused on a bilateral one — optional here because only the exercise knows which it is.',
     )
     .optional(),
+}).refine((s) => s.reps > 0 || (s.reps === 0 && !!s.durationSeconds), {
+  message: 'A zero quantity needs a positive duration', path: ['reps'],
 });
 
 /**
@@ -2443,7 +2445,6 @@ function writeSet(
       exerciseId: item.exercise_id,
       setNo,
       side,
-      note: f.note ?? null,
       reps: f.reps,
       load: f.load,
       rpe: f.rpe,
@@ -5540,6 +5541,11 @@ const programInReach: GuardPredicate = async (ctx, _config, input) => {
 export const strideModule: ModuleRegistration = {
   manifest: strideManifest,
   migrations: strideMigrations,
+  onSubjectErased(ctx, { subjectId }) {
+    // A set belongs to the trainee on its session, not necessarily the person who logged it.
+    ctx.sql.exec(`UPDATE train_set_results SET note = NULL WHERE note IS NOT NULL
+      AND session_id IN (SELECT id FROM train_sessions WHERE trainee_id = ?)`, [subjectId]);
+  },
   predicates: { [PROGRAM_IN_REACH]: programInReach },
   ...undeclaredOperations(
     'the declared surface lives in model.ts, which imports this file; each operation parses its own input with the exported Zod schema',

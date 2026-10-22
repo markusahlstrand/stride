@@ -75,6 +75,11 @@ describe('phased programmes: snapshots, calendar, achievements and isolation', (
     expect(detail.items[0]).toMatchObject({ target_seconds: 1800, target_zone: 0 });
     const today = await invoke<{ programId: string; canManage: boolean; days: PhasedProgramView['days'] }[]>(vera, 'phased-today', {});
     expect(today.find((p) => p.programId === assigned.programId)).toMatchObject({ canManage: true, days: [expect.objectContaining({ id: occurrenceId, status: 'started', sessionId: after.days[0].sessionId })] });
+    const logged = await invoke<{ set: SetResultRow }>(vera, 'log-set', { sessionId: after.days[0].sessionId, programItemId: after.days[0].itemIds[0], reps: 0, durationSeconds: 1800 });
+    expect(logged.set).toMatchObject({ reps: 0, duration_seconds: 1800 });
+    for (const durationSeconds of [undefined, 0, -1, 86401]) {
+      await expect(invoke(vera, 'log-set', { sessionId: after.days[0].sessionId, programItemId: after.days[0].itemIds[0], reps: 0, durationSeconds })).rejects.toThrow();
+    }
     const outsiders = await invoke<{ programId: string }[]>(bjorn, 'phased-today', {});
     expect(outsiders.some((p) => p.programId === assigned.programId)).toBe(false);
   });

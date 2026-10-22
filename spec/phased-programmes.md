@@ -230,8 +230,13 @@ to the same gym and the member's existing sharing permissions. No money is invol
   update. Clearing the override restores the observed maximum, which can include spikes.
 - Another trainee cannot read or start the programme: the HTTP response is 403.
 
-Logged sets accept an optional `note` (up to 1000 characters), included in the
-set-logged event and displayed beside the result in ordinary and phased sessions.
+Logged sets accept an optional `note` (up to 1000 characters), kept out of immutable
+events and displayed beside the result in ordinary and phased sessions.
 Migration 0017 adds one nullable column; existing rows have no note. Notes follow
-the existing session result permissions and append-only correction rules.
+the existing session result permissions and append-only correction rules. Subject
+erasure blanks notes through the session’s trainee without deleting set facts.
 To test, log a set with "negative push-up", reload and check the note remains.
+
+Today links include the occurrence id as `?day=…`, so Start/Continue opens the
+selected workout even when several sessions are started on the same date.
+A zero quantity can be logged only with a valid positive duration.
