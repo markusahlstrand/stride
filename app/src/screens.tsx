@@ -289,7 +289,7 @@ export function TodayScreen({
   return (
     <>
       <h1>Today</h1>
-      <PhasedToday key={me?.key} onOpen={onOpen} />
+      <PhasedToday key={me?.key} onOpen={onOpen} run={run} />
       {/* Top and bottom only, here and under every other title: a `margin`
           shorthand zeroes the auto side margins that centre the column on
           desktop, and strands the line in the gutter. */}
@@ -1454,6 +1454,9 @@ export function ProgramDetailScreen({
             {describeShape(shape, item.target_sets, item.target_reps, (n) => formatAmount(n, unit), detail.hrZones)}
           </div>
         )}
+        {done.filter((x) => x.note).map((x) => (
+          <p className="sub" key={`note-${x.id}`}>Set {x.set_no}{x.side ? ` · ${x.side}` : ''}: {x.note}</p>
+        ))}
         {done
           .filter((x) => x.activity_id)
           .map((x) => (
@@ -2370,6 +2373,7 @@ export function SetLogger({
   defaultFor: (side: Side | undefined) => { reps: number; load: string | null };
   onLog: (body: {
     reps: number;
+    note?: string;
     load?: string;
     rpe?: string;
     rir?: number;
@@ -2385,6 +2389,7 @@ export function SetLogger({
   const initial = defaultFor(side);
   // 0 means "no quantity asked for" (a timed run, an AMRAP with no minimum): an empty box, not a "0" to delete.
   const [amount, setAmount] = useState(initial.reps <= 0 ? '' : isTime ? clockValue(initial.reps) : String(initial.reps));
+  const [note, setNote] = useState('');
   const [load, setLoad] = useState(initial.load ?? '');
   // How hard it was: RPE (1–10, 10 = nothing left) or reps in reserve (0 = nothing left). The
   // choice is the person's, so it is remembered; a set carries one of the two, never both.
@@ -2675,6 +2680,9 @@ export function SetLogger({
           {pace !== null ? ` · ${formatPace(pace)}` : ''}
         </div>
       )}
+      <label>Set note (optional)
+        <input value={note} maxLength={1000} onChange={(e) => setNote(e.target.value)} placeholder="e.g. negative push-up" />
+      </label>
       <div className="actions">
         <button
           className="primary wide"
@@ -2686,6 +2694,7 @@ export function SetLogger({
             setStartedAt(null);
             await onLog({
               reps: Math.round(quantity),
+              ...(note.trim() ? { note: note.trim() } : {}),
               ...(!isCardio && load ? { load } : {}),
               ...(effort.trim() && effortKind === 'rpe' ? { rpe: effort.trim() } : {}),
               ...(effort.trim() && effortKind === 'rir' ? { rir: effortNumber } : {}),

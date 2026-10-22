@@ -88,6 +88,16 @@ describe('hybrid strength + cardio', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('stores optional notes on ordinary results, including null for an omitted note', async () => {
+    const noted = await inv<{ set: SetResultRow }>(vera, 'log-set', { sessionId, programItemId: items.test.id, reps: 1, note: 'negative push-up' });
+    expect(noted.set.note).toBe('negative push-up');
+    expect((await detail()).sessions.find((s) => s.id === sessionId)!.sets.find((s) => s.id === noted.set.id)!.note).toBe('negative push-up');
+    const plain = await inv<{ set: SetResultRow }>(vera, 'log-set', { sessionId, programItemId: items.test.id, reps: 1 });
+    expect(plain.set.note).toBeNull();
+    await inv(vera, 'void-set', { setId: noted.set.id });
+    await inv(vera, 'void-set', { setId: plain.set.id });
+  });
+
   it('a cardio row can be prescribed by time and zone, or by a bpm range, instead of a distance', () => {
     expect(items.easy).toMatchObject({ target_seconds: 2700, target_zone: 2, target_reps: 0, target_hr_min: null });
     expect(items.range).toMatchObject({ target_seconds: 1800, target_zone: null, target_hr_min: 130, target_hr_max: 145 });

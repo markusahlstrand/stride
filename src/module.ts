@@ -189,6 +189,8 @@ export interface SetResultRow {
    * cardio needed no separate table.
    */
   reps: number;
+  /** Optional context recorded with this performed set. */
+  note: string | null;
   load: string | null;
   rpe: string | null;
   /** How long it took. The second number a 5 km row needs and a set does not. */
@@ -2232,6 +2234,7 @@ const recordSession: OperationHandler<z.infer<typeof logSessionInput>, SessionRo
 const NOT_VOIDED = 'NOT EXISTS (SELECT 1 FROM train_set_voids v WHERE v.set_id = r.id)';
 
 export const logSetInput = z.object({
+  note: z.string().trim().max(1000).optional().describe("Optional note about this performed set, such as negative push-up."),
   sessionId: z.string().min(1),
   programItemId: z.string().min(1),
   /** The quantity, in the exercise's own unit — reps, seconds or metres. */
@@ -2327,11 +2330,13 @@ const logSetOp: OperationHandler<
     rir: input.rir ?? null,
     durationSeconds: input.durationSeconds ?? null,
     avgHr: input.avgHr ?? null,
+    note: input.note || null,
   });
 };
 
 /** What one performed set says. `activity` is only ever filled by a wearable match. */
 interface SetFacts {
+  note?: string | null;
   side: Side | null;
   reps: number;
   load: string | null;
@@ -2394,8 +2399,8 @@ function writeSet(
     `INSERT INTO train_set_results
        (id, session_id, program_item_id, exercise_id, set_no, reps, load, rpe,
         duration_seconds, avg_hr, logged_by, logged_at, side, rir,
-        activity_id, max_hr, hr_zone0_seconds, hr_zone1_seconds, hr_zone2_seconds, hr_zone3_seconds)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        activity_id, max_hr, hr_zone0_seconds, hr_zone1_seconds, hr_zone2_seconds, hr_zone3_seconds, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       session.id,
@@ -2414,6 +2419,7 @@ function writeSet(
       f.activity?.id ?? null,
       f.activity?.maxHr ?? null,
       ...(f.activity?.zones ?? [null, null, null, null]),
+      f.note ?? null,
     ],
   );
 
@@ -2437,6 +2443,7 @@ function writeSet(
       exerciseId: item.exercise_id,
       setNo,
       side,
+      note: f.note ?? null,
       reps: f.reps,
       load: f.load,
       rpe: f.rpe,

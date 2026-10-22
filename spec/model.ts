@@ -261,6 +261,7 @@ export const strideEntities = defineEntities({
       exercise_id: z.string(),
       set_no: z.number(),
       reps: z.number(),
+      note: z.string().nullable(),
       load: z.string().nullable(),
       rpe: z.string().nullable(),
       logged_by: z.string(),
