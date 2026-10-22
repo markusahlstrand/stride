@@ -268,7 +268,7 @@ export function App() {
 
   const staff = me?.role === 'admin' || me?.role === 'coach';
   const tab = tabOf(route, me?.role);
-  const openWorkout = (id: string) => navigate({ name: 'workout', id });
+  const openWorkout = (id: string, occurrenceId?: string) => navigate({ name: 'workout', id, occurrenceId });
   const openThread = (traineeId: string, coachId: string) =>
     navigate({ name: 'thread', traineeId, coachId });
 
@@ -325,7 +325,9 @@ export function App() {
       <main>
         {route.name === 'workout' ? (
           <ProgramDetailScreen
+            key={`${route.id}/${route.occurrenceId ?? ''}`}
             programId={route.id}
+            occurrenceId={route.occurrenceId}
             me={me}
             run={run}
             onBack={() => navigate({ name: 'workouts' })}

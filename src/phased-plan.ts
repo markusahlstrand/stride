@@ -15,8 +15,18 @@ const goal = z.object({
 export const phaseSet = z.object({
   mode: z.enum(['fixed', 'amrap']), reps: z.number().int().min(0).max(1000000),
   load: z.string().regex(/^\d+(\.\d+)?$/).optional(), side: z.enum(['left', 'right']).optional(),
+  targetSeconds: z.number().int().min(1).max(86400).optional(),
+  targetZone: z.number().int().min(0).max(3).optional(),
+  targetHrMin: z.number().int().min(30).max(250).optional(),
+  targetHrMax: z.number().int().min(30).max(250).optional(),
   restSeconds: z.number().int().min(0).max(3600), note: z.string().max(1000).optional(),
-}).refine((s) => s.mode === 'amrap' || s.reps > 0, 'Fixed sets need a positive quantity; AMRAP may have no minimum (0)');
+}).superRefine((s, ctx) => {
+  const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+  if (s.mode === 'fixed' && s.reps === 0 && !s.targetSeconds) issue('Fixed sets need a quantity or duration');
+  if ((s.targetHrMin === undefined) !== (s.targetHrMax === undefined)) issue('Provide both ends of the bpm range');
+  if (s.targetHrMin !== undefined && s.targetHrMax! < s.targetHrMin) issue('Maximum bpm must be at least minimum bpm');
+  if (s.targetZone !== undefined && s.targetHrMin !== undefined) issue('Choose a zone or a bpm range, never both');
+});
 export const phaseWorkout = z.object({
   name: z.string().min(1).max(120),
   items: z.array(z.object({
@@ -76,6 +86,7 @@ export const beginSequenceInput = z.object({ programId: id, occurrenceId: id });
 export const controlSequenceInput = z.object({
   programId: id, revision: z.number().int().min(0).describe('Current revision from phased-program; prevents duplicate changes.'),
   action: z.enum(['pause', 'resume', 'skip', 'reschedule', 'repeat-day', 'repeat-phase', 'advance', 'change-track', 'finish-session', 'edit-future']),
+  resumeSchedule: z.enum(['keep-dates', 'shift-dates']).optional().describe('Resume preserves dates by default. Explicit shift-dates moves unstarted days on/after the pause date, carrying their edited prescriptions.'),
   occurrenceId: id.optional(), date: localDate.optional(), phaseIndex: z.number().int().min(0).optional(),
   trackKey: id.optional(), assessmentSetId: id.optional(), workout: phaseWorkout.optional(),
 });
