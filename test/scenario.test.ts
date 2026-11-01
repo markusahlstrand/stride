@@ -2075,6 +2075,34 @@ describe('training scenario', () => {
     await expect(
       astrid.invoke('stride/describe-exercise', { exerciseId: his.id, description: 'mine now' }),
     ).rejects.toThrow(/only its owner can describe it/);
+
+    // THE OWNER'S DOOR. A private exercise is described by whoever authored it,
+    // with no publish key — the refusal above used to be the ONLY answer, so
+    // nobody could ever write the how-to of their own exercise.
+    const described = await bjorn.invoke<ExerciseRow>('stride/describe-exercise', {
+      exerciseId: his.id,
+      description: 'Swing, clean, press — one bell, no rest.',
+    });
+    expect(described.description).toBe('Swing, clean, press — one bell, no rest.');
+    // A coach cannot reach it either, and not through the publish key.
+    await expect(
+      nina.invoke('stride/describe-exercise', { exerciseId: his.id, description: 'no' }),
+    ).rejects.toThrow(/only its owner can describe it/);
+
+    // And an admin who trains is an owner like anybody else: what they authored
+    // on their own trainee record is theirs to describe.
+    const own = await astrid.invoke<ExerciseRow>('stride/author-exercise', {
+      slug: 'astrid-door-stretch',
+      name: 'Door stretch (Astrid)',
+      modality: 'rehab',
+      unit: 'seconds',
+    });
+    expect(own.owner_trainee_id).not.toBeNull();
+    const astridDescribed = await astrid.invoke<ExerciseRow>('stride/describe-exercise', {
+      exerciseId: own.id,
+      description: 'Forearm on the frame, step through.',
+    });
+    expect(astridDescribed.description).toBe('Forearm on the frame, step through.');
   });
 
   it('37. TAKING A SET BACK: the wrong arm is a void, not a deletion', async () => {

@@ -1036,9 +1036,16 @@ export const describeExerciseInput = z.object({
 });
 
 /**
- * Rewrite a LIBRARY exercise's how-to. Admin only, and deliberately refused on
- * an exercise somebody owns: a coach's or a member's private exercise is theirs
- * to describe, and `library:publish` is not a licence to edit it.
+ * Rewrite an exercise's how-to. Two doors, one per kind of row:
+ *
+ *  - a LIBRARY exercise (no owner) needs `library:publish` — admin only;
+ *  - an OWNED exercise is described by its owner and nobody else: the caller's
+ *    own coach or trainee record must be the one in the owner column.
+ *    `library:publish` is not a licence to edit somebody's private exercise.
+ *
+ * Ownership is read off the COLUMNS, not the `exercise → trainee` walk, because
+ * earning an exercise makes the same edge — performing a coach's drill does
+ * not make its words yours to rewrite.
  *
  * It exists because `install-starter-library` skips a slug that is already
  * there — correct, since overwriting would destroy a gym's own edits — which
@@ -1051,16 +1058,23 @@ const describeExerciseOp: OperationHandler<
   z.infer<typeof describeExerciseInput>,
   ExerciseRow
 > = async (ctx, rawInput) => {
-  assertAllowed(await ctx.check(TRAIN_PERM.libraryPublish));
+  assertAllowed(await ctx.check(TRAIN_PERM.libraryAuthor));
   const input = describeExerciseInput.parse(rawInput);
   const exercise = ctx.sql.query<ExerciseRow>('SELECT * FROM train_exercises WHERE id = ?', [
     input.exerciseId,
   ])[0];
   if (!exercise) throw new Error(`exercise not found: ${input.exerciseId}`);
   if (exercise.owner_coach_id || exercise.owner_trainee_id) {
-    throw new Error(
-      `${exercise.slug} belongs to whoever authored it — only its owner can describe it`,
-    );
+    const mine =
+      (exercise.owner_coach_id !== null && exercise.owner_coach_id === coachOf(ctx)?.id) ||
+      (exercise.owner_trainee_id !== null && exercise.owner_trainee_id === traineeOf(ctx)?.id);
+    if (!mine) {
+      throw new PermissionDenied(
+        `permission denied: ${exercise.slug} belongs to whoever authored it — only its owner can describe it`,
+      );
+    }
+  } else {
+    assertAllowed(await ctx.check(TRAIN_PERM.libraryPublish));
   }
   ctx.sql.exec('UPDATE train_exercises SET description = ? WHERE id = ?', [
     input.description,
