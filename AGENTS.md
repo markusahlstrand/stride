@@ -225,7 +225,9 @@ identical and in order, with the new text carrying on after them. A bare prefix 
 the same and was not — it could not tell a grown catalogue from a gym whose own shorter line
 merely began like ours, and would have replaced words nobody kept a copy of. A gym's own
 words, and anyone's private exercise, are left alone; `stride/describe-exercise` by hand is
-the path for everything the installer declines to touch. Guarded by test 36.
+the path for everything the installer declines to touch: a library row needs `library:publish`,
+a private one is described by its owner alone — read off the owner COLUMN, never the
+`exercise → trainee` walk, because earning an exercise makes that same edge. Guarded by test 36.
 
 **Notation that is obvious once you know it is opaque until somebody says so.** A set pill
 ("1: 10 × 50"), RPE, avg HR — each carries a mint `?` that opens one plain sentence in
