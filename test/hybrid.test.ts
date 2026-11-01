@@ -1,3 +1,6 @@
+import Database from 'better-sqlite3';
+import { platformActorId } from '@substrat-run/contracts';
+import { ulid } from '@substrat-run/kernel';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -86,6 +89,16 @@ describe('hybrid strength + cardio', () => {
   afterAll(async () => {
     await host.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('stores optional notes on ordinary results, including null for an omitted note', async () => {
+    const noted = await inv<{ set: SetResultRow }>(vera, 'log-set', { sessionId, programItemId: items.test.id, reps: 1, note: 'negative push-up' });
+    expect(noted.set.note).toBe('negative push-up');
+    expect((await detail()).sessions.find((s) => s.id === sessionId)!.sets.find((s) => s.id === noted.set.id)!.note).toBe('negative push-up');
+    const plain = await inv<{ set: SetResultRow }>(vera, 'log-set', { sessionId, programItemId: items.test.id, reps: 1 });
+    expect(plain.set.note).toBeNull();
+    await inv(vera, 'void-set', { setId: noted.set.id });
+    await inv(vera, 'void-set', { setId: plain.set.id });
   });
 
   it('a cardio row can be prescribed by time and zone, or by a bpm range, instead of a distance', () => {
@@ -271,4 +284,28 @@ describe('hybrid strength + cardio', () => {
       await expect(inv(bjorn, 'wearable', { traineeId: w.veraId, summary: true })).rejects.toThrow(/permission denied/);
     });
   });
+  it('erases notes by the session trainee, including coach-authored and voided notes, without touching other trainees or set facts', async () => {
+    const subjectSet = await inv<{ set: SetResultRow }>(nina, 'log-set', { sessionId, programItemId: items.test.id, reps: 2, note: 'private rehab context' });
+    const voided = await inv<{ set: SetResultRow }>(vera, 'log-set', { sessionId, programItemId: items.test.id, reps: 1, note: 'mistaken note' });
+    await inv(vera, 'void-set', { setId: voided.set.id });
+    const otherProgram = await inv<{ program: WorkOrder }>(bjorn, 'assign-program', { title: 'Other trainee', kind: 'conditioning' });
+    const otherItem = await inv<ItemRow>(bjorn, 'add-program-item', { programId: otherProgram.program.id, exerciseId: runId, targetSets: 1, targetReps: 1000 });
+    await bjorn.invoke('workorder/start', { orderId: otherProgram.program.id });
+    const otherSession = await inv<{ session: { id: string } }>(bjorn, 'begin', { programId: otherProgram.program.id });
+    const otherSet = await inv<{ set: SetResultRow }>(bjorn, 'log-set', { sessionId: otherSession.session.id, programItemId: otherItem.id, reps: 1000, note: 'keep this note' });
+    const db = new Database(join(dir, `${w.t1}__${w.s1}.sqlite`), { readonly: true });
+    try {
+      const payload = db.prepare("SELECT payload FROM _substrat_outbox WHERE type = 'stride.set-logged' AND entity_id = ? ORDER BY rowid DESC LIMIT 1").get(sessionId) as { payload: string };
+      expect(JSON.parse(payload.payload)).not.toHaveProperty('note');
+      const actor = platformActorId.parse(ulid());
+      await host.admin.shredSubject(actor, w.t1, w.s1, w.veraId);
+      const row = (id: string) => db.prepare('SELECT note, reps FROM train_set_results WHERE id = ?').get(id);
+      expect(row(subjectSet.set.id)).toEqual({ note: null, reps: 2 });
+      expect(row(voided.set.id)).toEqual({ note: null, reps: 1 });
+      expect(row(otherSet.set.id)).toEqual({ note: 'keep this note', reps: 1000 });
+      await host.admin.shredSubject(actor, w.t1, w.s1, w.veraId);
+      expect(row(subjectSet.set.id)).toEqual({ note: null, reps: 2 });
+    } finally { db.close(); }
+  });
+
 });

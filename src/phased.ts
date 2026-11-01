@@ -221,6 +221,9 @@ export function phasedOperations(deps: Dependencies) {
       ctx.sql.exec(`INSERT INTO train_program_items (id, program_id, exercise_id, position, target_sets, target_reps, target_load, notes, recur_days, recur_per_week, group_key)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)`,
       [id, s.program_id, item.exerciseId, position, Math.ceil(item.sets.length / sides.size), item.sets[0].reps, item.sets[0].load ?? null, item.notes ?? null, item.groupKey ?? null]);
+      const first = item.sets[0];
+      ctx.sql.exec('UPDATE train_program_items SET target_seconds = ?, target_zone = ?, target_hr_min = ?, target_hr_max = ? WHERE id = ?',
+        [first.targetSeconds ?? null, first.targetZone ?? null, first.targetHrMin ?? null, first.targetHrMax ?? null, id]);
       const counts = new Map<string, number>();
       for (const set of item.sets) {
         const key = set.side ?? ''; const no = (counts.get(key) ?? 0) + 1; counts.set(key, no);
@@ -244,7 +247,7 @@ export function phasedOperations(deps: Dependencies) {
     const pending = (d: DayRow) => !d.session_id && ['pending', 'rest'].includes(d.status);
     const date = () => { if (!input.date || input.date < today) throw new Error('Choose today or a future date'); return input.date; };
     const requireDay = () => { if (!day) throw new Error('occurrenceId: choose a scheduled workout'); return day; };
-    // Resume shifts every pending day on or after paused_on, so a date chosen while paused would be moved twice.
+    // Schedule changes while paused require resuming first; resuming preserves dates unless explicitly shifted.
     if (s.paused_on && ['reschedule', 'repeat-day', 'repeat-phase', 'advance'].includes(input.action))
       throw new Error('Resume this programme before changing its schedule');
     if (input.action === 'pause') {
@@ -253,7 +256,7 @@ export function phasedOperations(deps: Dependencies) {
     } else if (input.action === 'resume') {
       if (!s.paused_on) throw new Error('Programme is not paused');
       const shift = dateDistance(s.paused_on, today);
-      for (const d of days.filter((d) => pending(d) && d.scheduled_date >= s.paused_on!))
+      for (const d of days.filter((d) => input.resumeSchedule === 'shift-dates' && pending(d) && d.scheduled_date >= s.paused_on!))
         ctx.sql.exec('UPDATE train_program_days SET scheduled_date = ? WHERE id = ?', [shiftDate(d.scheduled_date, shift), d.id]);
       ctx.sql.exec('UPDATE train_program_sequences SET paused_on = NULL WHERE program_id = ?', [s.program_id]);
     } else if (['skip', 'reschedule', 'edit-future'].includes(input.action)) {
@@ -318,7 +321,7 @@ export function phasedOperations(deps: Dependencies) {
       const program = getWorkOrder(ctx, row.program_id);
       if (!['planned', 'in_progress'].includes(program.status)) continue;
       const view = await readPhasedProgram(ctx, { programId: row.program_id });
-      result.push({ programId: row.program_id, title: program.title, today: view.today, timezone: view.timezone, pausedOn: view.pausedOn,
+      result.push({ programId: row.program_id, title: program.title, today: view.today, timezone: view.timezone, pausedOn: view.pausedOn, canManage: view.canManage,
         days: view.days.filter((d) => d.date === view.today) });
     }
     return result;

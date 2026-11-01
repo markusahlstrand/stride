@@ -77,7 +77,22 @@ concrete argument schemas from the same declarations. An assistant can answer bo
 
 A fixed schedule advances its calendar position by local date, including rest days.
 Missed workouts remain visible as missed; there is no automatic catch-up session.
-Pause/resume shifts unstarted future days. History and performed timestamps stay put.
+Resume preserves calendar dates by default (`resumeSchedule: "keep-dates"`, also the default
+when omitted). Missed days remain missed. An explicit `"shift-dates"` moves unstarted days
+on or after the pause date by the pause duration; the UI requires confirmation. In both
+modes, edits belong to the occurrence id and move with it; logged sessions stay put.
+
+Today reads `/phased-today` alongside `/agenda` and `/schedule`, using each phased
+programme's timezone. Its per-occurrence Start/Continue action calls the idempotent
+phased begin operation, starting a planned work order first. `canManage` controls the
+UI affordance; the existing narrowed server permission checks remain authoritative.
+
+Each phased set may include `targetSeconds`, plus either `targetZone` (Stride's 0–3
+bands) or both `targetHrMin` and `targetHrMax`. Quantity may be zero when duration
+is the prescription. The occurrence JSON keeps every set's target; the ordinary item
+projection carries the first set's target. The phased programme displays personalised
+bpm ranges and exposes the existing maximum-HR override. These estimated bands do
+not claim to reproduce the wearable vendor's undisclosed zone thresholds.
 A repeat creates a new occurrence, rather than reopening or relabelling the old one.
 
 For achievement-led phases, recommend a visible milestone and explicit confirmation
@@ -198,3 +213,30 @@ Design approval requested: does the flow above cover the intended first version,
 including assessment-based tracks, rest intervals, AMRAP sets, and explicit
 confirmation before milestone advancement or a track change? Access stays confined
 to the same gym and the member's existing sharing permissions. No money is involved.
+
+
+## Regression checks for Today, resume and cardio (2026-10-21)
+
+- With a due pending phased day, Today offers Start workout; after starting it,
+  Continue workout reuses that occurrence's session. Dates follow the programme's timezone.
+- Edit and reschedule an unstarted day, pause, advance the clock, then resume:
+  its id, date and prescription stay intact by default. Missed days remain missed.
+- Opt into shifting dates: confirm the warning, check only unstarted occurrences
+  on/after the pause date moved, and their edited prescriptions followed their ids.
+- In a phased workout editor, prescribe quantity 0, duration 1800 seconds and zone 0,
+  or a complete 120–140 bpm range. Save, assign and start; the session keeps the targets.
+  A zone plus range, half a range and an inverted range are rejected.
+- In the programme's heart-rate card, set a maximum; verify the displayed bpm bands
+  update. Clearing the override restores the observed maximum, which can include spikes.
+- Another trainee cannot read or start the programme: the HTTP response is 403.
+
+Logged sets accept an optional `note` (up to 1000 characters), kept out of immutable
+events and displayed beside the result in ordinary and phased sessions.
+Migration 0017 adds one nullable column; existing rows have no note. Notes follow
+the existing session result permissions and append-only correction rules. Subject
+erasure blanks notes through the session’s trainee without deleting set facts.
+To test, log a set with "negative push-up", reload and check the note remains.
+
+Today links include the occurrence id as `?day=…`, so Start/Continue opens the
+selected workout even when several sessions are started on the same date.
+A zero quantity can be logged only with a valid positive duration.

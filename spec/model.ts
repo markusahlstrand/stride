@@ -261,6 +261,7 @@ export const strideEntities = defineEntities({
       exercise_id: z.string(),
       set_no: z.number(),
       reps: z.number(),
+      note: z.string().nullable(),
       load: z.string().nullable(),
       rpe: z.string().nullable(),
       logged_by: z.string(),
@@ -276,6 +277,8 @@ export const strideEntities = defineEntities({
       hr_zone2_seconds: z.number().nullable(),
       hr_zone3_seconds: z.number().nullable(),
     }),
+    erasable: ['note'],
+    erasure: { mode: 'custom' },
   },
 
   /**

@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 import { mountOperations, mcpToolName } from '@substrat-run/vertical-host';
 import { MODULES, seedStride, type StrideWorld } from '../src/seed.js';
 import { operations, knownOperations } from '../src/model.js';
-import { sequencePlan, dateInZone, shiftDate, type SequencePlan } from '../src/phased-plan.js';
+import { sequencePlan, phaseSet, dateInZone, shiftDate, type SequencePlan } from '../src/phased-plan.js';
 import type { PhasedProgramView } from '../src/phased.js';
 import type { ProgramDetail, ProgressView, ProgramSummaryRow, SetResultRow } from '../src/module.js';
 
@@ -47,6 +47,42 @@ describe('phased programmes: snapshots, calendar, achievements and isolation', (
     expect(dateInZone('2026-03-29T22:30:00Z', 'Europe/Madrid')).toBe('2026-03-30');
     expect(shiftDate('2026-03-29', 1)).toBe('2026-03-30');
   });
+  it('validates duration-only prescriptions and exclusive, complete HR targets', () => {
+    const timed = { mode: 'fixed', reps: 0, restSeconds: 0, targetSeconds: 1800, targetZone: 0 };
+    expect(phaseSet.parse(timed)).toEqual(timed);
+    expect(phaseSet.safeParse({ ...timed, targetSeconds: undefined }).success).toBe(false);
+    expect(phaseSet.safeParse({ ...timed, targetHrMin: 120, targetHrMax: 140 }).success).toBe(false);
+    expect(phaseSet.safeParse({ ...timed, targetZone: undefined, targetHrMin: 120 }).success).toBe(false);
+    expect(phaseSet.safeParse({ ...timed, targetZone: undefined, targetHrMin: 150, targetHrMax: 140 }).success).toBe(false);
+    expect(phaseSet.safeParse({ ...timed, targetZone: undefined, targetHrMin: 120, targetHrMax: 140 }).success).toBe(true);
+  });
+  it('keeps per-set cardio targets through assignment and session start', async () => {
+    const timed = structuredClone(plan); timed.tracks = [timed.tracks[0]];
+    timed.phases = [timed.phases[0]]; timed.phases[0].progression = 'scheduled';
+    timed.phases[0].days = { easy: [{ name: 'Timed workout', rest: false, workouts: [{ name: 'Easy cardio', items: [{ exerciseId: w.squatId, sets: [
+      { mode: 'fixed', reps: 0, restSeconds: 0, targetSeconds: 1800, targetZone: 0 },
+      { mode: 'fixed', reps: 0, restSeconds: 0, targetSeconds: 600, targetHrMin: 120, targetHrMax: 140 },
+    ] }] }] }] };
+    const saved = await invoke<{ templateId: string }>(vera, 'save-phased-plan', { plan: timed });
+    const assigned = await invoke<{ programId: string }>(vera, 'assign-phased-plan', { templateId: saved.templateId, startDate: '2026-03-28', timezone: 'Europe/Stockholm', trackKey: 'easy' });
+    const v = await invoke<PhasedProgramView>(vera, 'phased-program', assigned);
+    const occurrenceId = v.days[0].id;
+    await vera.invoke('workorder/start', { orderId: assigned.programId });
+    await invoke(vera, 'begin-phased-session', { ...assigned, occurrenceId });
+    const after = await invoke<PhasedProgramView>(vera, 'phased-program', assigned);
+    expect(after.days[0].prescription.workout!.items[0].sets).toEqual(timed.phases[0].days.easy[0].workouts[0].items[0].sets);
+    const detail = await invoke<ProgramDetail>(vera, 'get-program', assigned);
+    expect(detail.items[0]).toMatchObject({ target_seconds: 1800, target_zone: 0 });
+    const today = await invoke<{ programId: string; canManage: boolean; days: PhasedProgramView['days'] }[]>(vera, 'phased-today', {});
+    expect(today.find((p) => p.programId === assigned.programId)).toMatchObject({ canManage: true, days: [expect.objectContaining({ id: occurrenceId, status: 'started', sessionId: after.days[0].sessionId })] });
+    const logged = await invoke<{ set: SetResultRow }>(vera, 'log-set', { sessionId: after.days[0].sessionId, programItemId: after.days[0].itemIds[0], reps: 0, durationSeconds: 1800 });
+    expect(logged.set).toMatchObject({ reps: 0, duration_seconds: 1800 });
+    for (const durationSeconds of [undefined, 0, -1, 86401]) {
+      await expect(invoke(vera, 'log-set', { sessionId: after.days[0].sessionId, programItemId: after.days[0].itemIds[0], reps: 0, durationSeconds })).rejects.toThrow();
+    }
+    const outsiders = await invoke<{ programId: string }[]>(bjorn, 'phased-today', {});
+    expect(outsiders.some((p) => p.programId === assigned.programId)).toBe(false);
+  });
   it('saves and assigns a snapshot; others cannot edit or assign for Vera', async () => {
     const saved = await invoke<{ templateId: string }>(vera, 'save-phased-plan', { plan }); templateId = saved.templateId;
     await expect(invoke(bjorn, 'save-phased-plan', { templateId, revision: 1, plan })).rejects.toThrow(/permission denied/);
@@ -71,7 +107,12 @@ describe('phased programmes: snapshots, calendar, achievements and isolation', (
     await expect(invoke(vera, 'log-session', { programId })).rejects.toThrow(/phased programme/);
     await expect(invoke(vera, 'set-item-sets', { itemId: first.itemIds[0], sets: [{ reps: 999 }] })).rejects.toThrow(/phased programme/);
     await expect(invoke(vera, 'remove-program-item', { itemId: first.itemIds[0] })).rejects.toThrow(/phased programme/);
-    const result = await invoke<{ set: SetResultRow }>(vera, 'log-set', { sessionId: first.sessionId, programItemId: first.itemIds[0], reps: 10, load: '20' }); loggedSet = result.set.id;
+    const result = await invoke<{ set: SetResultRow }>(vera, 'log-set', { sessionId: first.sessionId, programItemId: first.itemIds[0], reps: 10, load: '20', note: '  negative push-up  ' }); loggedSet = result.set.id;
+    expect(result.set.note).toBe('negative push-up');
+    const detail = await invoke<ProgramDetail>(vera, 'get-program', { programId });
+    expect(detail.sessions.find((s) => s.id === first.sessionId)!.sets.find((s) => s.id === loggedSet)!.note).toBe('negative push-up');
+    await expect(invoke(bjorn, 'log-set', { sessionId: first.sessionId, programItemId: first.itemIds[0], reps: 1, note: 'intrusion' })).rejects.toThrow(/result:log/);
+    await expect(invoke(vera, 'log-set', { sessionId: first.sessionId, programItemId: first.itemIds[0], reps: 1, note: 'x'.repeat(1001) })).rejects.toThrow();
     const after = await view(); expect(after.goal).toMatchObject({ value: 10, achieved: true });
     expect(after.recommendation).toMatchObject({ trackKey: 'hard', reps: 10 });
     expect(after.days[0].prescription.workout!.items[0].sets[0]).toMatchObject({ mode: 'amrap', reps: 0, restSeconds: 90 });
@@ -105,13 +146,19 @@ describe('phased programmes: snapshots, calendar, achievements and isolation', (
     await expect(invoke(vera, 'begin-phased-session', { programId, occurrenceId: future.id })).rejects.toThrow(/not scheduled today/);
   });
   it('pauses across daylight saving, shifts only future days, records skips and rejects duplicate edits', async () => {
+    const beforePause = await view();
+    await change('pause'); clock.set('2026-03-29T10:00:00Z');
+    await change('resume');
+    expect((await view()).days).toEqual(beforePause.days.map((d) => ({ ...d, missed: d.date < '2026-03-29' && d.status === 'pending' })));
+    clock.set('2026-03-28T11:00:00Z');
     await change('pause'); clock.set('2026-03-30T10:00:00Z');
     const old = await view(); expect(old.today).toBe('2026-03-30');
     await expect(change('reschedule', { occurrenceId: old.days.find((d) => d.phaseIndex === 1)!.id, date: '2026-04-02' })).rejects.toThrow(/Resume this programme/);
     await expect(change('repeat-phase', { phaseIndex: 0, date: '2026-04-02' })).rejects.toThrow(/Resume this programme/);
-    await change('resume'); const v = await view();
+    await change('resume', { resumeSchedule: 'shift-dates' }); const v = await view();
     expect(v.days.find((d) => d.phaseIndex === 1)!.date).toBe('2026-04-01');
     expect(v.days[0].date).toBe('2026-03-28');
+    expect(v.days.find((d) => d.phaseIndex === 1)!.prescription).toEqual(beforePause.days.find((d) => d.phaseIndex === 1)!.prescription);
     const future = v.days.find((d) => d.phaseIndex === 1)!;
     await change('reschedule', { occurrenceId: future.id, date: '2026-03-30' });
     await expect(invoke(vera, 'control-phased-program', { programId, revision: v.revision, action: 'reschedule', occurrenceId: future.id, date: '2026-03-30' })).rejects.toThrow(/Reload/);

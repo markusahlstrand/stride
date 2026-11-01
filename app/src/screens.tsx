@@ -196,7 +196,7 @@ export function TodayScreen({
   run,
   onOpen,
   onSetup,
-}: ScreenProps & { onOpen: (id: string) => void; onSetup: () => void }) {
+}: ScreenProps & { onOpen: (id: string, occurrenceId?: string) => void; onSetup: () => void }) {
   const [items] = useList<ScheduledItem>(() => api.schedule(), [me?.key]);
   // The week on show, as the Monday's date; `weekOffset` pages it. The strip
   // is a navigator: tap a day to see what is booked on it, arrows move a week.
@@ -289,7 +289,7 @@ export function TodayScreen({
   return (
     <>
       <h1>Today</h1>
-      <PhasedToday key={me?.key} onOpen={onOpen} />
+      <PhasedToday key={me?.key} onOpen={onOpen} run={run} />
       {/* Top and bottom only, here and under every other title: a `margin`
           shorthand zeroes the auto side margins that centre the column on
           desktop, and strands the line in the gutter. */}
@@ -1073,6 +1073,7 @@ function summaryOf(
 
 export function ProgramDetailScreen({
   programId,
+  occurrenceId,
   me,
   run,
   onBack,
@@ -1081,6 +1082,7 @@ export function ProgramDetailScreen({
   onOpen,
 }: ScreenProps & {
   programId: string;
+  occurrenceId?: string;
   onBack: () => void;
   onProgress?: (traineeId: string) => void;
   /** Open one exercise's how-to. Optional, so the screen renders without it. */
@@ -1187,7 +1189,7 @@ export function ProgramDetailScreen({
   if (!detail) return <div className="empty">
           <Figure pose="rest" size={132} />Not visible to {me?.name ?? 'you'}.</div>;
 
-  if (detail.phased) return <PhasedProgram detail={detail} run={run} onBack={onBack} onProgress={onProgress} reloadDetail={reload} />;
+  if (detail.phased) return <PhasedProgram occurrenceId={occurrenceId} detail={detail} run={run} onBack={onBack} onProgress={onProgress} reloadDetail={reload} />;
 
   const { program, items, sessions, summary, slots } = detail;
   const openSession = openSessionOf(detail, live);
@@ -1454,6 +1456,9 @@ export function ProgramDetailScreen({
             {describeShape(shape, item.target_sets, item.target_reps, (n) => formatAmount(n, unit), detail.hrZones)}
           </div>
         )}
+        {(openSession ? done : sessions.flatMap((s) => s.sets.filter((x) => x.program_item_id === item.id))).filter((x) => x.note).map((x) => (
+          <p className="sub" key={`note-${x.id}`}>Set {x.set_no}{x.side ? ` · ${x.side}` : ''}: {x.note}</p>
+        ))}
         {done
           .filter((x) => x.activity_id)
           .map((x) => (
@@ -2370,6 +2375,7 @@ export function SetLogger({
   defaultFor: (side: Side | undefined) => { reps: number; load: string | null };
   onLog: (body: {
     reps: number;
+    note?: string;
     load?: string;
     rpe?: string;
     rir?: number;
@@ -2385,6 +2391,7 @@ export function SetLogger({
   const initial = defaultFor(side);
   // 0 means "no quantity asked for" (a timed run, an AMRAP with no minimum): an empty box, not a "0" to delete.
   const [amount, setAmount] = useState(initial.reps <= 0 ? '' : isTime ? clockValue(initial.reps) : String(initial.reps));
+  const [note, setNote] = useState('');
   const [load, setLoad] = useState(initial.load ?? '');
   // How hard it was: RPE (1–10, 10 = nothing left) or reps in reserve (0 = nothing left). The
   // choice is the person's, so it is remembered; a set carries one of the two, never both.
@@ -2496,12 +2503,15 @@ export function SetLogger({
     const clock = /^(\d+):([0-5]?\d)$/.exec(t);
     return clock ? Number(clock[1]) * 60 + Number(clock[2]) : Number.NaN;
   };
-  const quantity = isTime ? parseClock(amount) : Number(amount);
+  const quantity = amount.trim() === '' ? 0 : isTime ? parseClock(amount) : Number(amount);
   /** Something is typed, and it is not a time. Say so rather than greying out
    *  the only button on the card and leaving them to guess why. */
   const timeHint = isTime && amount.trim() !== '' && !Number.isFinite(quantity);
   // Minutes accept "22" and "22:30" alike — a run is timed in both.
   const seconds = mins.trim() ? Math.round(mins.includes(':') ? parseClock(mins) : Number(mins) * 60) : 0;
+  const validDuration = Number.isInteger(seconds) && seconds > 0 && seconds <= 86400;
+  const durationBad = mins.trim() !== '' && !validDuration;
+  const canLogQuantity = Number.isFinite(quantity) && (quantity > 0 || (quantity === 0 && validDuration));
   const pace = isDistance && quantity > 0 && seconds > 0 ? Math.round((seconds * 1000) / quantity) : null;
   const effortNumber = Number(effort);
   /** Typed, and outside what the scale allows. The server refuses it too; saying so here keeps the Log button honest. */
@@ -2595,8 +2605,8 @@ export function SetLogger({
         </div>
         {isCardio ? (
           <div>
-            <label>time</label>
-            <input
+            <label htmlFor={amountId + '-duration'}>time</label>
+            <input id={amountId + '-duration'}
               inputMode="text"
               placeholder="mm:ss"
               value={mins}
@@ -2645,6 +2655,11 @@ export function SetLogger({
           effortCell
         )}
       </div>
+      {!isCardio && defaultDuration && <label>Duration (mm:ss)
+        <input inputMode="text" value={mins} onChange={(e) => setMins(e.target.value)} />
+      </label>}
+      {defaultDuration && <p className="sub">Distance or quantity is optional when a duration is recorded.</p>}
+      {durationBad && <p className="sub" role="alert">Enter a duration between 0:01 and 1440:00.</p>}
       {isCardio && <div className="setgrid effort-row" style={{ gridTemplateColumns: '1fr 2fr' }}>{effortCell}</div>}
       {amrap && (
         <div className="sub hint">As many as you can. Log what you reached — there is no target to miss.</div>
@@ -2675,10 +2690,13 @@ export function SetLogger({
           {pace !== null ? ` · ${formatPace(pace)}` : ''}
         </div>
       )}
+      <label>Set note (optional)
+        <input value={note} maxLength={1000} onChange={(e) => setNote(e.target.value)} placeholder="e.g. negative push-up" />
+      </label>
       <div className="actions">
         <button
           className="primary wide"
-          disabled={busy || !Number.isFinite(quantity) || quantity <= 0 || effortBad}
+          disabled={busy || !canLogQuantity || durationBad || effortBad}
           onClick={async () => {
             setBusy(true);
             // Logging ends the hold — the field already mirrors the clock, so
@@ -2686,10 +2704,11 @@ export function SetLogger({
             setStartedAt(null);
             await onLog({
               reps: Math.round(quantity),
+              ...(note.trim() ? { note: note.trim() } : {}),
               ...(!isCardio && load ? { load } : {}),
               ...(effort.trim() && effortKind === 'rpe' ? { rpe: effort.trim() } : {}),
               ...(effort.trim() && effortKind === 'rir' ? { rir: effortNumber } : {}),
-              ...(isCardio && seconds > 0 ? { durationSeconds: seconds } : {}),
+              ...(validDuration ? { durationSeconds: seconds } : {}),
               ...(isCardio && hr ? { avgHr: Number(hr) } : {}),
               ...(side ? { side } : {}),
             });

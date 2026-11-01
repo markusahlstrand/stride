@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, type CastMember, type Exercise, type ProgramDetail, type Template, type Trainee } from './api';
 import type { SequencePlan, PhaseDay, PhaseWorkout, PhaseGoal } from '../../src/phased-plan.js';
 import type { PhasedProgramView } from '../../src/phased.js';
 import { examplePlan } from './phased-examples';
 import { SetLogger, loadNoteOf } from './screens';
+import { HeartRateZones, zoneText } from './hybrid';
 
 type Run = (fn: () => Promise<unknown>, ok?: string) => Promise<boolean>;
 const clone = <T,>(x: T): T => structuredClone(x);
@@ -24,17 +25,21 @@ function GoalEditor({ value, onChange, exercises, label }: { value?: PhaseGoal; 
 }
 export function WorkoutEditor({ workout, onChange, exercises }: { workout: PhaseWorkout; onChange: (w: PhaseWorkout) => void; exercises: Exercise[] }) {
   const change = (fn: (w: PhaseWorkout) => void) => { const w = clone(workout); fn(w); onChange(w); };
-  return <div className="phase-workout"><label>Workout name<input value={workout.name} onChange={(e) => change((w) => { w.name = e.target.value; })} /></label>
+  return <div className="phase-workout"><p className="sub">For a timed run, ride or rope set, enter a duration and set quantity to 0 when no distance/count is prescribed. Zones use Stride’s four bands (0–3); personalised bpm ranges are shown in the assigned programme.</p><label>Workout name<input value={workout.name} onChange={(e) => change((w) => { w.name = e.target.value; })} /></label>
     {workout.items.map((item, i) => { const ex = exercises.find((e) => e.id === item.exerciseId); return <fieldset key={i}><legend>Exercise {i + 1}</legend>
       <ExerciseSelect value={item.exerciseId} exercises={exercises} onChange={(id) => change((w) => { w.items[i].exerciseId = id; w.items[i].sets.forEach((s) => { s.side = exercises.find((e) => e.id === id)?.laterality === 'unilateral' ? 'left' : undefined; }); })} />
       <div className="phase-grid"><label>Superset group (optional)<input value={item.groupKey ?? ''} onChange={(e) => change((w) => { w.items[i].groupKey = e.target.value || undefined; })} /></label>
         <label>Instructions<input value={item.notes ?? ''} onChange={(e) => change((w) => { w.items[i].notes = e.target.value; })} /></label></div>
       {item.sets.map((set, j) => <div className="phase-set" key={j}><strong>Set {j + 1}</strong><div className="phase-grid">
         <label>Target type<select value={set.mode} onChange={(e) => change((w) => { w.items[i].sets[j].mode = e.target.value as 'fixed' | 'amrap'; })}><option value="fixed">Fixed quantity</option><option value="amrap">As many as possible</option></select></label>
-        <label>{set.mode === 'amrap' ? 'Minimum (0 = none)' : 'Quantity'} · {ex?.unit ?? 'reps'}<input type="number" min={set.mode === 'amrap' ? 0 : 1} value={set.reps} onChange={(e) => change((w) => { w.items[i].sets[j].reps = Number(e.target.value); })} /></label>
+        <label>{set.mode === 'amrap' ? 'Minimum (0 = none)' : 'Quantity'} · {ex?.unit ?? 'reps'}<input type="number" min={set.mode === 'amrap' || set.targetSeconds ? 0 : 1} value={set.reps} onChange={(e) => change((w) => { w.items[i].sets[j].reps = Number(e.target.value); })} /></label>
         <label>Load (kg, optional)<input inputMode="decimal" value={set.load ?? ''} onChange={(e) => change((w) => { w.items[i].sets[j].load = e.target.value || undefined; })} /></label>
         <label>Rest after set (seconds)<input type="number" min="0" max="3600" value={set.restSeconds} onChange={(e) => change((w) => { w.items[i].sets[j].restSeconds = Number(e.target.value); })} /></label>
         {ex?.laterality === 'unilateral' && <label>Side<select value={set.side ?? 'left'} onChange={(e) => change((w) => { w.items[i].sets[j].side = e.target.value as 'left' | 'right'; })}><option>left</option><option>right</option></select></label>}
+        <label>Duration (seconds, optional)<input type="number" min="1" max="86400" value={set.targetSeconds ?? ''} onChange={(e) => change((w) => { w.items[i].sets[j].targetSeconds = e.target.value ? Number(e.target.value) : undefined; })} /></label>
+        <label>Target zone (optional)<select value={set.targetZone ?? ''} onChange={(e) => change((w) => { const row = w.items[i].sets[j]; row.targetZone = e.target.value === '' ? undefined : Number(e.target.value); if (row.targetZone !== undefined) { row.targetHrMin = undefined; row.targetHrMax = undefined; } })}><option value="">No zone / use bpm range</option>{['Light', 'Moderate', 'Intense', 'Maximal'].map((name, zone) => <option key={zone} value={zone}>Zone {zone} · {name}</option>)}</select></label>
+        <label>Target bpm from<input type="number" min="30" max="250" disabled={set.targetZone !== undefined} value={set.targetHrMin ?? ''} onChange={(e) => change((w) => { w.items[i].sets[j].targetHrMin = e.target.value ? Number(e.target.value) : undefined; })} /></label>
+        <label>Target bpm to<input type="number" min="30" max="250" disabled={set.targetZone !== undefined} value={set.targetHrMax ?? ''} onChange={(e) => change((w) => { w.items[i].sets[j].targetHrMax = e.target.value ? Number(e.target.value) : undefined; })} /></label>
         <label>Set note<input value={set.note ?? ''} onChange={(e) => change((w) => { w.items[i].sets[j].note = e.target.value; })} /></label>
       </div><button type="button" className="ghost small" disabled={item.sets.length === 1} onClick={() => change((w) => { w.items[i].sets.splice(j, 1); })}>Remove set {j + 1}</button></div>)}
       <div className="actions"><button type="button" className="ghost" disabled={item.sets.length >= 40} onClick={() => change((w) => { w.items[i].sets.push(clone(item.sets.at(-1)!)); })}>Add set</button>
@@ -50,7 +55,7 @@ function PlanPreview({ plan, exercises }: { plan: SequencePlan; exercises: Exerc
     {plan.phases.map((phase, ph) => <details key={ph} open={ph === 0}><summary>{ph + 1}. {phase.name} · {phase.progression === 'milestone' ? 'confirm milestone to advance' : 'scheduled'}</summary>
       <p>{phase.notes}</p>{(phase.days[key] ?? []).map((day, d) => <div key={d} className="phase-preview-day"><strong>{day.name} {day.rest ? '· Rest' : ''}</strong>
         {day.workouts.map((w, wi) => <div key={wi}><b>{w.name}</b>{w.items.map((item, i) => <p key={i}>{exercises.find((e) => e.id === item.exerciseId)?.name ?? 'Choose exercise'}{item.groupKey ? ` · Superset ${item.groupKey}` : ''}<br />
-          {item.sets.map((s, j) => <span key={j}>{j > 0 ? ' / ' : ''}{s.side ? `${s.side} ` : ''}{s.mode === 'amrap' ? `AMRAP${s.reps ? ` ≥ ${s.reps}` : ''}` : s.reps}{s.load ? ` @ ${s.load} kg` : ''} · rest {s.restSeconds}s</span>)}</p>)}</div>)}
+          {item.sets.map((s, j) => <span key={j}>{j > 0 ? ' / ' : ''}{s.side ? `${s.side} ` : ''}{s.mode === 'amrap' ? `AMRAP${s.reps ? ` ≥ ${s.reps}` : ''}` : s.reps}{s.load ? ` @ ${s.load} kg` : ''}{s.targetSeconds ? ` · ${s.targetSeconds}s duration` : ''}{s.targetZone !== undefined ? ` · zone ${s.targetZone}` : ''}{s.targetHrMin !== undefined ? ` · ${s.targetHrMin}–${s.targetHrMax} bpm` : ''} · rest {s.restSeconds}s</span>)}</p>)}</div>)}
       </div>)}</details>)}
   </div>;
 }
@@ -142,21 +147,60 @@ export function SequenceLibrary({ plans, exercises, me, run, onChanged, onOpen }
     {plans.filter((p) => p.phased).map((p) => <SequenceCard key={p.id} template={p} exercises={exercises} me={me} run={run} onChanged={onChanged} onOpen={onOpen} />)}
   </section>;
 }
-export function PhasedToday({ onOpen }: { onOpen: (id: string) => void }) {
+export function PhasedToday({ onOpen, run }: { onOpen: (id: string, occurrenceId?: string) => void; run: Run }) {
   const [entries, setEntries] = useState<Awaited<ReturnType<typeof api.phasedToday>>>([]);
   const [error, setError] = useState('');
-  useEffect(() => { api.phasedToday().then(setEntries).catch((e) => setError(String(e))); }, []);
-  if (error) return <p role="alert">Could not load phased programmes: {error}</p>;
-  return <>{entries.map((p) => <button className="card tappable" key={p.programId} onClick={() => onOpen(p.programId)}><strong>{p.title}</strong><span className="sub">{p.pausedOn ? 'Paused' : p.days.length === 0 ? 'No session scheduled today · view programme' : p.days.map((d) => `${d.prescription.phase} · ${d.prescription.name}${d.locked ? ' · milestone required' : ''}`).join(' / ')} · {p.timezone}</span></button>)}</>;
+  const [busy, setBusy] = useState(false);
+  const request = useRef(0);
+  const reload = useCallback(() => {
+    const current = ++request.current;
+    api.phasedToday().then((rows) => {
+      if (current !== request.current) return;
+      setEntries(rows); setError('');
+    }).catch((e) => { if (current === request.current) setError(String(e)); });
+  }, []);
+  useEffect(() => {
+    reload();
+    const timer = window.setInterval(reload, 60000);
+    window.addEventListener('focus', reload);
+    return () => { ++request.current; clearInterval(timer); window.removeEventListener('focus', reload); };
+  }, [reload]);
+  const begin = async (programId: string, occurrenceId: string) => {
+    if (busy) return;
+    setBusy(true);
+    const ok = await run(async () => {
+      const detail = await api.program(programId);
+      if (detail.program.status === 'planned') await api.startProgram(programId);
+      await api.beginPhasedSession(programId, occurrenceId);
+    }, 'Session ready');
+    setBusy(false);
+    reload();
+    if (ok) onOpen(programId, occurrenceId);
+  };
+  return <section aria-label="Phased workouts today">
+    {error && <p role="alert">Could not load phased programmes: {error} <button className="ghost" onClick={reload}>Retry</button></p>}
+    {entries.filter((p) => p.days.length > 0).map((p) => <div className="card" key={p.programId}>
+      <button className="namelink" onClick={() => onOpen(p.programId)}>{p.title}</button>
+      <p className="sub">{p.timezone}{p.pausedOn ? ' · Paused' : ''}</p>
+      {p.days.map((d) => <div key={d.id}><strong>{d.prescription.day} · {d.prescription.name}</strong>
+        {d.locked && <p>Milestone required</p>}
+        {d.prescription.rest ? <p>Rest day</p> : <div className="actions">
+          {p.canManage && !p.pausedOn && !d.locked && ['pending', 'started'].includes(d.status) && <button className="primary" disabled={busy} onClick={() => begin(p.programId, d.id)}>{d.status === 'started' ? 'Continue workout' : 'Start workout'}</button>}
+          <button className="ghost" onClick={() => onOpen(p.programId)}>View programme</button>
+        </div>}
+      </div>)}
+    </div>)}
+  </section>;
 }
 function RestTimer({ seconds }: { seconds: number }) {
   const [until, setUntil] = useState<number | null>(null); const [left, setLeft] = useState(0);
   useEffect(() => { if (!until) return; const tick = () => setLeft(Math.max(0, Math.ceil((until - Date.now()) / 1000))); tick(); const t = setInterval(tick, 250); return () => clearInterval(t); }, [until]);
   return <div className="row center"><button type="button" className="ghost small" onClick={() => { setUntil(Date.now() + seconds * 1000); setLeft(seconds); }}>Start {seconds}s rest</button>{until && <output aria-live="off">{left ? `${left}s remaining` : 'Rest complete'}</output>}</div>;
 }
-export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail }: { detail: ProgramDetail; run: Run; onBack: () => void; onProgress?: (id: string) => void; reloadDetail: () => void }) {
+export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail, occurrenceId }: { detail: ProgramDetail; run: Run; onBack: () => void; onProgress?: (id: string) => void; reloadDetail: () => void; occurrenceId?: string }) {
   const [view, setView] = useState<PhasedProgramView | null>(null); const [error, setError] = useState('');
-  const [selected, setSelected] = useState(''); const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [selected, setSelected] = useState(occurrenceId ?? ''); const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [shiftOnResume, setShiftOnResume] = useState(false);
   const [edit, setEdit] = useState<PhaseWorkout | null>(null); const [date, setDate] = useState(dateToday); const [busy, setBusy] = useState(false);
   const reload = useCallback(async () => { try { setView(await api.phasedProgram(detail.program.id)); setError(''); } catch (e) { setError(String(e)); } }, [detail.program.id]);
   useEffect(() => { void reload(); api.exercises().then(setExercises).catch(() => {}); }, [reload]);
@@ -171,8 +215,14 @@ export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail }:
   return <div className="phase-program"><button className="back" onClick={onBack}>‹ Workouts / Programmes</button><h1>{detail.program.title}</h1>
     <p className="sub">{view.plan.tracks.find((t) => t.key === view.trackKey)?.name} · {view.timezone} · {detail.program.status}{view.pausedOn ? ' · Paused' : ''}</p>
     {view.goal && <div className="card hero"><h2>{view.goal.value} / {view.goal.target}</h2><p>{exercises.find((e) => e.id === view.goal?.exerciseId)?.name ?? 'Goal'} · {view.goal.mode === 'single-set' ? 'best continuous set' : view.goal.mode === 'daily-total' ? 'best daily total' : 'total logged'}</p><p>{view.goal.achieved ? 'Goal achieved in logged sets' : 'Working towards your goal'} · based on results shared with you</p></div>}
-    {manageable && <div className="actions"><button className="ghost" disabled={busy} onClick={() => control(view.pausedOn ? 'resume' : 'pause')}>{view.pausedOn ? 'Resume & shift future days' : 'Pause programme'}</button>
+    {manageable && <div className="actions"><button className="ghost" disabled={busy} onClick={() => {
+      if (view.pausedOn && shiftOnResume && !confirm(`Shift every unstarted day dated on or after ${view.pausedOn} by the pause duration? Missed days may move onto today. Edited workouts move with their day. Logged sessions stay on their dates.`)) return;
+      void control(view.pausedOn ? 'resume' : 'pause', { resumeSchedule: shiftOnResume ? 'shift-dates' : 'keep-dates' });
+    }}>{view.pausedOn ? 'Resume programme' : 'Pause programme'}</button>
+      {view.pausedOn && <label><input type="checkbox" checked={shiftOnResume} onChange={(e) => setShiftOnResume(e.target.checked)} />Shift unstarted dates by the pause duration</label>}
+      {view.pausedOn && <p className="sub">By default, resume keeps your dates and edited workouts. Missed days stay missed; move or skip them explicitly.</p>}
       {detail.program.status === 'in_progress' && <button className="ghost" disabled={busy} onClick={() => { if (confirm('Finish this programme? Logged results stay, and the programme will accept no more sets.')) void mutate(() => api.completeProgram(view.programId), 'Programme finished'); }}>Finish programme</button>}</div>}
+    <HeartRateZones traineeId={detail.program.customer.entityId} canEdit={manageable} run={run} onChanged={reloadDetail} />
     {onProgress && <button className="ghost" onClick={() => onProgress(detail.program.customer.entityId)}>View training progress</button>}
     {view.recommendation && manageable && <div className="card"><h3>Assessment: {view.recommendation.reps}</h3><p>Suggested track: {view.recommendation.name}. Only unstarted days from today will change.</p><button className="ghost" disabled={busy || view.trackKey === view.recommendation.trackKey} onClick={() => control('change-track', { trackKey: view.recommendation!.trackKey, assessmentSetId: view.recommendation!.setId })}>Confirm suggested track</button></div>}
     {manageable && <details><summary>Choose a different track</summary>{view.plan.tracks.map((t) => <button className="ghost small" key={t.key} disabled={busy || t.key === view.trackKey} onClick={() => { if (confirm(`Change unstarted future days to ${t.name}?`)) void control('change-track', { trackKey: t.key }); }}>{t.name}</button>)}</details>}
@@ -199,9 +249,9 @@ export function PhasedProgram({ detail, run, onBack, onProgress, reloadDetail }:
         const logged = session?.sets.filter((s) => s.program_item_id === day.itemIds[i]) ?? [];
         const next = item.sets[logged.length];
         return <div className="phase-session-item" key={`${day.id}-${i}`}><h3>{ex?.name ?? 'Exercise'}{item.groupKey ? ` · Superset ${item.groupKey}` : ''}</h3><p>{item.notes}</p>
-          <ol>{item.sets.map((s, j) => <li key={j}>{s.side ? `${s.side}: ` : ''}{s.mode === 'amrap' ? `As many ${ex?.unit ?? 'reps'} as possible${s.reps ? ` (minimum ${s.reps})` : ''}` : `${s.reps} ${ex?.unit ?? 'reps'}`}{s.load ? ` @ ${s.load} kg` : ''} · Rest {s.restSeconds}s {s.note}</li>)}</ol>
-          {logged.map((s) => <div className="row center" key={s.id}><span>Logged: {s.side ? `${s.side} · ` : ''}{s.reps} {ex?.unit ?? 'reps'}{s.load ? ` @ ${s.load} kg` : ''}</span>{manageable && <button className="ghost small" onClick={() => mutate(() => api.voidSet(s.id), 'Set taken back')}>Undo set</button>}</div>)}
-          {day.status === 'started' && manageable && next && <><SetLogger key={`${day.id}-${i}-${logged.length}`} unit={ex?.unit ?? 'reps'} modality={ex?.modality ?? 'strength'} loadNote={loadNoteOf(ex?.description ?? null)} defaultSide={next.side}
+          <ol>{item.sets.map((s, j) => <li key={j}>{s.side ? `${s.side}: ` : ''}{s.mode === 'amrap' ? `As many ${ex?.unit ?? 'reps'} as possible${s.reps ? ` (minimum ${s.reps})` : ''}` : s.reps === 0 && s.targetSeconds ? 'Timed set' : `${s.reps} ${ex?.unit ?? 'reps'}`}{s.load ? ` @ ${s.load} kg` : ''}{s.targetSeconds ? ` · ${s.targetSeconds}s duration` : ''}{s.targetZone !== undefined ? ` · ${zoneText(s.targetZone, detail.hrZones)}` : ''}{s.targetHrMin !== undefined ? ` · ${s.targetHrMin}–${s.targetHrMax} bpm` : ''} · Rest {s.restSeconds}s {s.note}</li>)}</ol>
+          {logged.map((s) => <div className="row center" key={s.id}><span>Logged: {s.side ? `${s.side} · ` : ''}{s.reps} {ex?.unit ?? 'reps'}{s.load ? ` @ ${s.load} kg` : ''}{s.duration_seconds ? ` · ${s.duration_seconds}s` : ''}{s.note ? ` · ${s.note}` : ''}</span>{manageable && <button className="ghost small" onClick={() => mutate(() => api.voidSet(s.id), 'Set taken back')}>Undo set</button>}</div>)}
+          {day.status === 'started' && manageable && next && <><SetLogger key={`${day.id}-${i}-${logged.length}`} unit={ex?.unit ?? 'reps'} modality={ex?.modality ?? 'strength'} loadNote={loadNoteOf(ex?.description ?? null)} defaultSide={next.side} defaultDuration={next.targetSeconds}
             defaultFor={(side) => { const prescribed = item.sets.filter((s) => s.side === side); const count = logged.filter((s) => (s.side ?? undefined) === side).length; const s = prescribed[count] ?? next; return { reps: s.mode === 'amrap' && s.reps === 0 ? 1 : s.reps, load: s.load ?? null }; }}
             onLog={async (body) => { await mutate(() => api.logSet(day.sessionId!, { ...body, programItemId: day.itemIds[i] }), 'Set logged'); }} />
             <p className="sub">{next.mode === 'amrap' ? 'Record the actual quantity you performed.' : 'Adjust the quantity if you performed a different amount.'}</p></>}

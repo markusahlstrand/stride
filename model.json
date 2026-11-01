@@ -1086,6 +1086,12 @@
           "reps": {
             "type": "number"
           },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "load": {
             "type": [
               "string",
@@ -1172,6 +1178,7 @@
           "exercise_id",
           "set_no",
           "reps",
+          "note",
           "load",
           "rpe",
           "logged_by",
@@ -1188,6 +1195,12 @@
           "hr_zone3_seconds"
         ],
         "additionalProperties": false
+      },
+      "erasable": [
+        "note"
+      ],
+      "erasure": {
+        "mode": "custom"
       }
     },
     "setVoid": {

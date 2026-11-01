@@ -685,4 +685,10 @@ export const strideMigrations: SqlMigration[] = [
       );
     `,
   },
+  {
+    version: '0017-set-note',
+    sql: `
+      ALTER TABLE train_set_results ADD COLUMN note TEXT;
+    `,
+  },
 ];

@@ -260,6 +260,7 @@ export interface SetResult {
   set_no: number;
   /** The quantity in the exercise's own unit — reps, seconds or metres. */
   reps: number;
+  note: string | null;
   load: string | null;
   rpe: string | null;
   duration_seconds: number | null;
@@ -634,7 +635,7 @@ export const api = {
   phasedProgram: (id: string) => get<PhasedProgramView>(`/phased-programs/${id}`),
   beginPhasedSession: (programId: string, occurrenceId: string) => post<{ sessionId: string }>(`/phased-programs/${programId}/begin`, { occurrenceId }),
   controlPhasedProgram: (programId: string, body: unknown) => post(`/phased-programs/${programId}/control`, body),
-  phasedToday: () => get<{ programId: string; title: string; timezone: string; pausedOn: string | null; days: PhasedProgramView['days'] }[]>('/phased-today'),
+  phasedToday: () => get<{ programId: string; title: string; timezone: string; pausedOn: string | null; canManage: boolean; days: PhasedProgramView['days'] }[]>('/phased-today'),
   /** Signed in? Seated? Unclaimed gym? Answers while signed out, never 403s. */
   session: () => get<AuthSession>('/session'),
   /** Who I am in this gym — an operation, so the kernel decides whether to answer. */
